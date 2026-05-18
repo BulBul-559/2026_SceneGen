@@ -20,6 +20,13 @@ from .geometry import load_bistro_base_scene
 from .models import Room
 from .paths import clean_output_root, default_config_path, find_project_root, portable_path, require_dir, require_file
 from .placement import build_bistro_scene_placements, build_scene_placements
+from .quality import (
+    QualityConfig,
+    aggregate_run_statistics,
+    check_scene_quality,
+    scene_statistics,
+    write_json_report,
+)
 from .validation import validate_sionna_scene
 
 
@@ -58,6 +65,23 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Load every generated scene.xml with sionna.rt.load_scene(merge_shapes=False).",
     )
+    parser.add_argument(
+        "--quality",
+        dest="quality_enabled",
+        action="store_true",
+        default=None,
+        help="Run post-generation placement quality checks.",
+    )
+    parser.add_argument("--no-quality", dest="quality_enabled", action="store_false")
+    parser.add_argument(
+        "--quality-fail-on-error",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Return a non-zero exit code when quality checks find errors.",
+    )
+    parser.add_argument("--quality-collision-padding", type=float, default=None)
+    parser.add_argument("--quality-bistro-static-clearance", type=float, default=None)
+    parser.add_argument("--quality-support-tolerance", type=float, default=None)
     parser.add_argument("--floorplan", dest="floorplan_enabled", action="store_true", default=None)
     parser.add_argument("--no-floorplan", dest="floorplan_enabled", action="store_false")
     parser.add_argument("--floorplan-geometry", dest="floorplan_geometry_enabled", action="store_true", default=None)
@@ -127,6 +151,12 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--max-tabletop-items must be greater than or equal to --min-tabletop-items")
     if args.max_attempts < 1:
         raise ValueError("--max-attempts must be at least 1")
+    if args.quality_collision_padding < 0:
+        raise ValueError("quality.collision_padding_m must be non-negative")
+    if args.quality_bistro_static_clearance < 0:
+        raise ValueError("quality.bistro_static_clearance_m must be non-negative")
+    if args.quality_support_tolerance < 0:
+        raise ValueError("quality.support_tolerance_m must be non-negative")
     if args.floorplan_resolution <= 0:
         raise ValueError("floorplan.resolution_m_per_pixel must be positive")
     if args.floorplan_height_mode not in {"layers", "heights"}:
@@ -197,6 +227,7 @@ def main(argv: list[str] | None = None) -> int:
     save_effective_config(run_dir / "effective_config.yaml", effective_config)
     scene_prefix = "bistro" if args.mode == "bistro" else "scene"
     floorplan_config = FloorplanConfig.from_mapping(effective_config["floorplan"])
+    quality_config = QualityConfig.from_mapping(effective_config["quality"])
 
     assets = load_assets(manifest_path)
     assets_by_class = group_assets_by_class(assets)
@@ -207,6 +238,7 @@ def main(argv: list[str] | None = None) -> int:
     scene_records: list[dict[str, object]] = []
     validation_failed = False
     floorplan_failed = False
+    quality_failed = False
     for scene_index in range(args.scenes):
         scene_seed = master_rng.randrange(1, 2**31)
         rng = random.Random(scene_seed)
@@ -246,6 +278,28 @@ def main(argv: list[str] | None = None) -> int:
             placements = build_scene_placements(rng, scene_index, room, assets_by_class, args)
             record = write_scene_files(scene_dir, room, placements, scene_index, scene_seed, rng)
 
+        statistics = scene_statistics(
+            args.mode,
+            placements,
+            room=room if args.mode == "generated" else None,
+            base_scene=base_scene if args.mode == "bistro" else None,
+        )
+        record["statistics"] = statistics
+        record["statistics_file"] = write_json_report(scene_dir / "statistics.json", statistics, run_dir)
+
+        if quality_config.enabled:
+            quality = check_scene_quality(
+                args.mode,
+                placements,
+                quality_config,
+                room=room if args.mode == "generated" else None,
+                base_scene=base_scene if args.mode == "bistro" else None,
+                forbidden_xy_rects=args.forbidden_xy_rects if args.mode == "bistro" else (),
+            )
+            record["quality"] = quality
+            record["quality_report"] = write_json_report(scene_dir / "quality_report.json", quality, run_dir)
+            quality_failed = quality_failed or not bool(quality["ok"])
+
         if args.validate_sionna:
             validation = validate_sionna_scene(scene_dir / "scene.xml", run_dir)
             record["sionna_validation"] = validation
@@ -271,10 +325,17 @@ def main(argv: list[str] | None = None) -> int:
                     scene_records.append(record)
                     break
         scene_records.append(record)
-        print(f"[{scene_index + 1}/{args.scenes}] {scene_dir} placements={len(placements)}")
+        quality_note = ""
+        if quality_config.enabled:
+            quality = record.get("quality", {})
+            if isinstance(quality, dict):
+                quality_note = f" quality_errors={quality.get('error_count', 0)}"
+        print(f"[{scene_index + 1}/{args.scenes}] {scene_dir} placements={len(placements)}{quality_note}")
 
     copy_manifest = collect_scene_objs(run_dir, scene_records, scene_prefix)
     raw_floorplan_manifest = collect_raw_floorplans(run_dir, scene_records, scene_prefix)
+    run_statistics = aggregate_run_statistics(scene_records)
+    statistics_file = write_json_report(run_dir / "statistics.json", run_statistics, run_dir)
     class_counts = {name: len(items) for name, items in sorted(assets_by_class.items())}
     manifest: dict[str, object] = {
         "generator": "SceneGen",
@@ -294,6 +355,11 @@ def main(argv: list[str] | None = None) -> int:
         "summary_floorplan_raw": raw_floorplan_manifest,
         "sionna_validation_requested": bool(args.validate_sionna),
         "sionna_validation_ok": not validation_failed if args.validate_sionna else None,
+        "quality_requested": bool(quality_config.enabled),
+        "quality_ok": not quality_failed if quality_config.enabled else None,
+        "quality_fail_on_error": bool(quality_config.fail_on_error),
+        "statistics": run_statistics,
+        "statistics_file": statistics_file,
         "floorplan_requested": bool(floorplan_config.enabled),
         "floorplan_ok": not floorplan_failed if floorplan_config.enabled else None,
         "floorplan_geometry_requested": bool(floorplan_config.enabled and floorplan_config.geometry_enabled),
@@ -316,6 +382,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if validation_failed:
         print("Sionna validation failed for at least one scene.")
+        return 1
+    if quality_failed and quality_config.fail_on_error:
+        print("Quality checks failed for at least one scene.")
         return 1
     if floorplan_failed and floorplan_config.fail_on_error:
         print("Floorplan generation failed for at least one scene.")

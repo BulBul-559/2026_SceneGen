@@ -27,6 +27,13 @@ placement:
 validation:
   sionna: false
 
+quality:
+  enabled: true
+  fail_on_error: true
+  collision_padding_m: 0.0
+  bistro_static_clearance_m: 0.0
+  support_tolerance_m: 0.05
+
 floorplan:
   enabled: true
   geometry_enabled: true
@@ -37,7 +44,7 @@ floorplan:
   geometry_clean_max_abs_normal_z: 0.7
   geometry_clean_opening_px: 0
   geometry_clean_closing_px: 1
-  semantic_enabled: true
+  semantic_enabled: false
   resolution_m_per_pixel: 0.05
   height_mode: heights
   heights_m: [1.6]

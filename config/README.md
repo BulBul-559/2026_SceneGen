@@ -2,6 +2,8 @@
 
 默认配置文件是 `config/default.yaml`。运行时默认读取它，命令行参数会覆盖 YAML；每次生成结果时，SceneGen 会把最终实际生效的配置写到 run 目录下的 `effective_config.yaml`。
 
+当使用 `config/sparse.yaml`、`config/medium.yaml`、`config/dense.yaml` 这类局部配置时，SceneGen 会先加载 `config/default.yaml`，再用指定 YAML 覆盖其中字段。因此 Bistro 禁区、floorplan 默认参数、质量检查等通用设置仍会继承默认配置。
+
 ## 预设配置
 
 - `default.yaml`: 默认主实验配置，中等密度 Bistro 场景，默认生成 10 个。
@@ -47,6 +49,20 @@ uv run scenegen --config config/dense.yaml
 
 - `sionna`: 是否在每个场景生成后用 `sionna.rt.load_scene()` 验证 `scene.xml`。
 
+## quality
+
+- `enabled`: 是否在每个场景生成后执行质量检查。默认开启。
+- `fail_on_error`: 质量检查发现 error 时是否让整个命令返回失败。默认开启。
+- `collision_padding_m`: 物体间 AABB 碰撞检查的额外间距。默认 `0.0`，只检查真实重叠。
+- `bistro_static_clearance_m`: Bistro 地面物体与空场景静态几何的额外避让距离。默认 `0.0`，避免过严误报。
+- `support_tolerance_m`: 地面/桌面/已有台面支撑关系检查的高度容差，单位米。
+
+质量报告输出：
+
+- 单场景：`<scene_dir>/quality_report.json`
+- run 汇总：`<run_dir>/statistics.json`
+- manifest 中同步记录 `quality_requested`、`quality_ok` 和统计摘要。
+
 ## floorplan
 
 - `enabled`: 是否每个场景同步生成平面图。
@@ -58,7 +74,7 @@ uv run scenegen --config config/dense.yaml
 - `geometry_clean_max_abs_normal_z`: clean 图保留的表面法线竖直分量上限；默认偏向保留墙体、家具侧面等竖直/倾斜表面，过滤地板、天花和桌面这类水平面。
 - `geometry_clean_opening_px`: clean 图的 opening 迭代半径，用于去掉小碎块；默认 `0`，避免误删细墙和家具。
 - `geometry_clean_closing_px`: clean 图的 closing 迭代半径，用于连通墙体和家具边缘的小缺口。
-- `semantic_enabled`: 是否生成第二版语义平面图，也就是直接基于 SceneGen 的 `placements` 绘制资产矩形和类别标注。
+- `semantic_enabled`: 是否生成第二版语义平面图，也就是直接基于 SceneGen 的 `placements` 绘制资产矩形和类别标注。默认关闭。
 - `resolution_m_per_pixel`: 平面图栅格分辨率，单位米/像素。
 - `height_mode`: 几何平面图高度策略。`heights` 表示只渲染指定高度序列；`layers` 表示使用旧版逐层扫描。
 - `heights_m`: `height_mode: heights` 时使用的高度序列，单位米。默认只渲染 `[1.6]`。
@@ -80,7 +96,7 @@ uv run scenegen --config config/default.yaml --scenes 3 --seed 123 --no-floorpla
 
 上面的命令会读取 YAML，但最终生效配置中的 `pipeline.scenes`、`pipeline.seed` 和 `floorplan.enabled` 会被命令行覆盖。
 
-只关闭几何占据平面图、保留语义平面图：
+只关闭几何占据平面图、打开语义平面图：
 
 ```bash
 uv run scenegen --no-floorplan-geometry --semantic-floorplan
@@ -92,7 +108,7 @@ uv run scenegen --no-floorplan-geometry --semantic-floorplan
 uv run scenegen --floorplan-geometry --no-floorplan-geometry-clean
 ```
 
-只关闭语义平面图、保留几何占据平面图：
+保留几何占据平面图、显式关闭语义平面图：
 
 ```bash
 uv run scenegen --floorplan-geometry --no-semantic-floorplan
@@ -108,4 +124,10 @@ uv run scenegen --floorplan-height-mode layers --floorplan-top-z 1.6 --floorplan
 
 ```bash
 uv run scenegen --floorplan-height-mode heights --floorplan-heights 1.2,1.6,2.0
+```
+
+临时关闭质量检查：
+
+```bash
+uv run scenegen --no-quality
 ```

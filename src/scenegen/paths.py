@@ -4,15 +4,8 @@ import os
 import shutil
 from pathlib import Path
 
-from .models import Rect2D
-
-
 SIONNA_BASE_SCENE_MATERIAL = "itu-concrete"
 SIONNA_DEFAULT_ASSET_MATERIAL = "itu-wood"
-BISTRO_FORBIDDEN_XY_RECTS: tuple[Rect2D, ...] = (
-    (1.0, 11.0, 4.5, 16.0),
-    (8.0, 8.0, 14.0, 10.0),
-)
 
 
 def find_project_root(start: Path | None = None) -> Path:

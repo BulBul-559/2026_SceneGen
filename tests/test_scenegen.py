@@ -7,7 +7,8 @@ import pytest
 import yaml
 
 from scenegen.assets import group_assets_by_class, load_assets, resolve_obj_file
-from scenegen.cli import main
+from scenegen.cli import main, parse_args
+from scenegen.config import load_effective_config
 from scenegen.geometry import load_bistro_base_scene
 from scenegen.paths import default_asset_manifest, default_bistro_base_dir, default_config_path, find_project_root
 
@@ -67,6 +68,15 @@ def test_bistro_base_scene_detection() -> None:
     assert base.static_obstacles
 
 
+def test_partial_config_inherits_default_bistro_forbidden_zones() -> None:
+    root = find_project_root()
+    effective, _overrides = load_effective_config(root / "config" / "sparse.yaml", root, parse_args([]))
+
+    assert effective["pipeline"]["run_name"] == "sparse"
+    assert effective["bistro"]["forbidden_xy_rects"] == [[1.0, 11.0, 4.5, 16.0], [8.0, 8.0, 14.0, 10.0]]
+    assert effective["floorplan"]["semantic_enabled"] is False
+
+
 def test_generated_scene_outputs_and_sionna_load(tmp_path: Path) -> None:
     pytest.importorskip("sionna.rt")
     pytest.importorskip("trimesh")
@@ -115,14 +125,20 @@ def test_generated_scene_outputs_and_sionna_load(tmp_path: Path) -> None:
     ):
         assert (scene_dir / "floorplan" / filename).is_file()
     for filename in ("semantic.png", "semantic.json"):
-        assert (scene_dir / "floorplan" / filename).is_file()
+        assert not (scene_dir / "floorplan" / filename).exists()
+    for filename in ("quality_report.json", "statistics.json"):
+        assert (scene_dir / filename).is_file()
     manifest = json.loads((output_dir / "smoke_generated" / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["sionna_validation_ok"] is True
+    assert manifest["quality_requested"] is True
+    assert manifest["quality_ok"] is True
+    assert manifest["statistics"]["scene_count"] == 1
+    assert (output_dir / "smoke_generated" / "statistics.json").is_file()
     assert manifest["floorplan_ok"] is True
     assert manifest["floorplan_geometry_clean_requested"] is False
     assert manifest["floorplan_height_mode"] == "heights"
     assert manifest["floorplan_heights_m"] == [1.6]
-    assert manifest["floorplan_semantic_requested"] is True
+    assert manifest["floorplan_semantic_requested"] is False
     assert manifest["summary_floorplan_raw"]["count"] == 1
     assert (output_dir / "smoke_generated" / "summary_floorplan_raw" / "scene_0000_geometry_raw.png").is_file()
     geometry_meta = json.loads((scene_dir / "floorplan" / "meta.json").read_text(encoding="utf-8"))
@@ -130,9 +146,12 @@ def test_generated_scene_outputs_and_sionna_load(tmp_path: Path) -> None:
     assert geometry_meta["z_levels_m"] == [1.6]
     assert geometry_meta["num_levels"] == 1
     assert geometry_meta["geometry_clean"] is None
-    semantic = json.loads((scene_dir / "floorplan" / "semantic.json").read_text(encoding="utf-8"))
-    assert semantic["type"] == "semantic_floorplan"
-    assert semantic["object_count"] > 0
+    quality = json.loads((scene_dir / "quality_report.json").read_text(encoding="utf-8"))
+    assert quality["ok"] is True
+    assert quality["error_count"] == 0
+    statistics = json.loads((scene_dir / "statistics.json").read_text(encoding="utf-8"))
+    assert statistics["placement_count"] > 0
+    assert statistics["object_count_by_class"]
     effective_config = yaml.safe_load((output_dir / "smoke_generated" / "effective_config.yaml").read_text())
     assert effective_config["pipeline"]["mode"] == "generated"
     assert effective_config["pipeline"]["seed"] == 123
@@ -140,17 +159,20 @@ def test_generated_scene_outputs_and_sionna_load(tmp_path: Path) -> None:
     assert effective_config["floorplan"]["geometry_clean_enabled"] is False
     assert effective_config["floorplan"]["height_mode"] == "heights"
     assert effective_config["floorplan"]["heights_m"] == [1.6]
-    assert effective_config["floorplan"]["semantic_enabled"] is True
+    assert effective_config["floorplan"]["semantic_enabled"] is False
+    assert effective_config["quality"]["enabled"] is True
 
     json_files = [
         output_dir / "smoke_generated" / "manifest.json",
         output_dir / "smoke_generated" / "manifest_generated.json",
+        output_dir / "smoke_generated" / "statistics.json",
         output_dir / "smoke_generated" / "summary_obj" / "copy_manifest.json",
         output_dir / "smoke_generated" / "summary_floorplan_raw" / "copy_manifest.json",
         scene_dir / "placements.json",
         scene_dir / "label.json",
         scene_dir / "floorplan" / "meta.json",
-        scene_dir / "floorplan" / "semantic.json",
+        scene_dir / "quality_report.json",
+        scene_dir / "statistics.json",
     ]
     for json_file in json_files:
         payload = json.loads(json_file.read_text(encoding="utf-8"))

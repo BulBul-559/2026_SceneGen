@@ -7,7 +7,7 @@ from typing import Any
 
 import yaml
 
-from .paths import BISTRO_FORBIDDEN_XY_RECTS
+from .paths import default_config_path
 
 
 DEFAULT_CONFIG: dict[str, Any] = {
@@ -24,7 +24,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "bistro": {
         "base_dir": "data/scene",
-        "forbidden_xy_rects": [list(rect) for rect in BISTRO_FORBIDDEN_XY_RECTS],
+        "forbidden_xy_rects": [],
     },
     "placement": {
         "min_tables": 4,
@@ -38,6 +38,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "validation": {
         "sionna": False,
     },
+    "quality": {
+        "enabled": True,
+        "fail_on_error": True,
+        "collision_padding_m": 0.0,
+        "bistro_static_clearance_m": 0.0,
+        "support_tolerance_m": 0.05,
+    },
     "floorplan": {
         "enabled": True,
         "geometry_enabled": True,
@@ -48,7 +55,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "geometry_clean_max_abs_normal_z": 0.7,
         "geometry_clean_opening_px": 0,
         "geometry_clean_closing_px": 1,
-        "semantic_enabled": True,
+        "semantic_enabled": False,
         "resolution_m_per_pixel": 0.05,
         "height_mode": "heights",
         "heights_m": [1.6],
@@ -83,6 +90,11 @@ CLI_OVERRIDE_MAP: dict[str, tuple[str, ...]] = {
     "bistro_support_items": ("placement", "bistro_support_items"),
     "max_attempts": ("placement", "max_attempts"),
     "validate_sionna": ("validation", "sionna"),
+    "quality_enabled": ("quality", "enabled"),
+    "quality_fail_on_error": ("quality", "fail_on_error"),
+    "quality_collision_padding": ("quality", "collision_padding_m"),
+    "quality_bistro_static_clearance": ("quality", "bistro_static_clearance_m"),
+    "quality_support_tolerance": ("quality", "support_tolerance_m"),
     "floorplan_enabled": ("floorplan", "enabled"),
     "floorplan_geometry_enabled": ("floorplan", "geometry_enabled"),
     "floorplan_geometry_clean_enabled": ("floorplan", "geometry_clean_enabled"),
@@ -232,6 +244,13 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
 
     normalized["validation"]["sionna"] = as_bool(normalized["validation"]["sionna"], "validation.sionna")
 
+    quality = normalized["quality"]
+    quality["enabled"] = as_bool(quality["enabled"], "quality.enabled")
+    quality["fail_on_error"] = as_bool(quality["fail_on_error"], "quality.fail_on_error")
+    quality["collision_padding_m"] = float(quality["collision_padding_m"])
+    quality["bistro_static_clearance_m"] = float(quality["bistro_static_clearance_m"])
+    quality["support_tolerance_m"] = float(quality["support_tolerance_m"])
+
     floorplan = normalized["floorplan"]
     floorplan["enabled"] = as_bool(floorplan["enabled"], "floorplan.enabled")
     floorplan["geometry_enabled"] = as_bool(floorplan["geometry_enabled"], "floorplan.geometry_enabled")
@@ -278,6 +297,7 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
     bistro = config["bistro"]
     placement = config["placement"]
     validation = config["validation"]
+    quality = config["quality"]
     floorplan = config["floorplan"]
     return argparse.Namespace(
         mode=pipeline["mode"],
@@ -297,6 +317,11 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         bistro_support_items=placement["bistro_support_items"],
         max_attempts=placement["max_attempts"],
         validate_sionna=validation["sionna"],
+        quality_enabled=quality["enabled"],
+        quality_fail_on_error=quality["fail_on_error"],
+        quality_collision_padding=quality["collision_padding_m"],
+        quality_bistro_static_clearance=quality["bistro_static_clearance_m"],
+        quality_support_tolerance=quality["support_tolerance_m"],
         floorplan_enabled=floorplan["enabled"],
         floorplan_geometry_enabled=floorplan["geometry_enabled"],
         floorplan_geometry_clean_enabled=floorplan["geometry_clean_enabled"],
@@ -325,7 +350,11 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
 
 def load_effective_config(config_path: Path, repo_root: Path, args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]]:
     yaml_config = load_yaml_config(config_path)
-    merged = deep_merge(DEFAULT_CONFIG, yaml_config)
+    base_config = deepcopy(DEFAULT_CONFIG)
+    default_yaml_path = default_config_path(repo_root).resolve()
+    if config_path.resolve() != default_yaml_path and default_yaml_path.is_file():
+        base_config = deep_merge(base_config, load_yaml_config(default_yaml_path))
+    merged = deep_merge(base_config, yaml_config)
     overrides = cli_overrides(args)
     effective = deep_merge(merged, overrides)
     effective.setdefault("runtime", {})
