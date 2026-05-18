@@ -1,0 +1,53 @@
+pipeline:
+  mode: bistro
+  scenes: 10
+  seed: 20260517
+  output_dir: results
+  run_name: null
+  clean: false
+
+assets:
+  manifest: data/assets/manifest.json
+
+bistro:
+  base_dir: data/scene
+  forbidden_xy_rects:
+    - [1.0, 11.0, 4.5, 16.0]
+    - [8.0, 8.0, 14.0, 10.0]
+
+placement:
+  min_tables: 4
+  max_tables: 8
+  floor_extras: 6
+  min_tabletop_items: 3
+  max_tabletop_items: 9
+  bistro_support_items: 18
+  max_attempts: 300
+
+validation:
+  sionna: false
+
+floorplan:
+  enabled: true
+  geometry_enabled: true
+  geometry_clean_enabled: false
+  geometry_clean_min_density: 2.0
+  geometry_clean_min_neighbors: 2
+  geometry_clean_min_z_m: 0.05
+  geometry_clean_max_abs_normal_z: 0.7
+  geometry_clean_opening_px: 0
+  geometry_clean_closing_px: 1
+  semantic_enabled: true
+  resolution_m_per_pixel: 0.05
+  height_mode: heights
+  heights_m: [1.6]
+  step_m: 0.2
+  top_z_m: null
+  bottom_z_m: 0.0
+  sample_density_scale: 128.0
+  min_sample_points: 100000
+  max_sample_points: 25000000
+  preview_tile_size_px: 360
+  semantic_padding_m: 0.5
+  semantic_draw_labels: true
+  fail_on_error: true

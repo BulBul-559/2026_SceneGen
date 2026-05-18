@@ -1,0 +1,77 @@
+{
+  "asset_name": "Trolley_paris_cutlery_01a",
+  "asset_key": "nameonly::Trolley_paris_cutlery_01a",
+  "export_name": "Trolley_paris_cutlery_01a",
+  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
+  "source_instance_count": 1,
+  "descriptor_variant_count": 1,
+  "representative_variant_count": 1,
+  "representative_source_node": "Bistro_Research_Interior_Trolley_paris_cutlery_01a33_3320",
+  "all_source_node_names": [
+    "Bistro_Research_Interior_Trolley_paris_cutlery_01a33_3320"
+  ],
+  "units": "meter",
+  "coordinate_system": {
+    "right_axis": "+X",
+    "forward_axis": "+Y",
+    "up_axis": "+Z"
+  },
+  "normalization": {
+    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
+    "grounding_policy": "lowest point moved to z=0",
+    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "applied_z_rotation_radians": 2.7020282
+  },
+  "dimensions": {
+    "width_x": 0.020269,
+    "length_y": 0.245712,
+    "height_z": 0.007021
+  },
+  "bounds": {
+    "min": [
+      -0.010134,
+      -0.122856,
+      0.0
+    ],
+    "max": [
+      0.010134,
+      0.122856,
+      0.007021
+    ]
+  },
+  "source_material_names": [
+    "Cutlery_chrome",
+    "Cutlery_details"
+  ],
+  "sionna_material_mappings": [
+    {
+      "source_material": "Cutlery_chrome",
+      "itu_type": "metal",
+      "sionna_material_name": "itu-metal",
+      "confidence": "high",
+      "reason": "direct metal-related keyword match"
+    },
+    {
+      "source_material": "Cutlery_details",
+      "itu_type": "metal",
+      "sionna_material_name": "itu-metal",
+      "confidence": "high",
+      "reason": "direct metal-related keyword match"
+    }
+  ],
+  "sionna_material_names": [
+    "itu-metal"
+  ],
+  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Trolley_paris_cutlery_01a\\Trolley_paris_cutlery_01a.obj",
+  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Trolley_paris_cutlery_01a\\Trolley_paris_cutlery_01a.png",
+  "grouping_mode": "nameonly",
+  "merged_fine_asset_count": 1,
+  "merged_from_asset_names": [
+    "Trolley_paris_cutlery_01a33"
+  ],
+  "merged_from_asset_keys": [
+    "Bistro_Research_Interior_Trolley_paris_cutlery_01a33"
+  ],
+  "selected_from_fine_asset_name": "Trolley_paris_cutlery_01a33",
+  "selected_from_fine_export_name": "Trolley_paris_cutlery_01a33"
+}

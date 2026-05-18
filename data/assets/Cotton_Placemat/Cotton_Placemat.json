@@ -1,0 +1,100 @@
+{
+  "asset_name": "Cotton_Placemat",
+  "asset_key": "nameonly::Cotton_Placemat",
+  "export_name": "Cotton_Placemat",
+  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
+  "source_instance_count": 32,
+  "descriptor_variant_count": 1,
+  "representative_variant_count": 1,
+  "representative_source_node": "Bistro_Research_Interior_Cotton_Placemat_1256",
+  "all_source_node_names": [
+    "Bistro_Research_Interior_Cotton_Placemat_1246",
+    "Bistro_Research_Interior_Cotton_Placemat_1248",
+    "Bistro_Research_Interior_Cotton_Placemat_1250",
+    "Bistro_Research_Interior_Cotton_Placemat_1252",
+    "Bistro_Research_Interior_Cotton_Placemat_1254",
+    "Bistro_Research_Interior_Cotton_Placemat_1256",
+    "Bistro_Research_Interior_Cotton_Placemat_1258",
+    "Bistro_Research_Interior_Cotton_Placemat_1260",
+    "Bistro_Research_Interior_Cotton_Placemat_1262",
+    "Bistro_Research_Interior_Cotton_Placemat_1264",
+    "Bistro_Research_Interior_Cotton_Placemat_1266",
+    "Bistro_Research_Interior_Cotton_Placemat_1268",
+    "Bistro_Research_Interior_Cotton_Placemat_1270",
+    "Bistro_Research_Interior_Cotton_Placemat_1272",
+    "Bistro_Research_Interior_Cotton_Placemat_1274",
+    "Bistro_Research_Interior_Cotton_Placemat_1276",
+    "Bistro_Research_Interior_Cotton_Placemat_1278",
+    "Bistro_Research_Interior_Cotton_Placemat_1280",
+    "Bistro_Research_Interior_Cotton_Placemat_1282",
+    "Bistro_Research_Interior_Cotton_Placemat_1284",
+    "Bistro_Research_Interior_Cotton_Placemat_1286",
+    "Bistro_Research_Interior_Cotton_Placemat_1288",
+    "Bistro_Research_Interior_Cotton_Placemat_1290",
+    "Bistro_Research_Interior_Cotton_Placemat_1292",
+    "Bistro_Research_Interior_Cotton_Placemat_1294",
+    "Bistro_Research_Interior_Cotton_Placemat_1296",
+    "Bistro_Research_Interior_Cotton_Placemat_1298",
+    "Bistro_Research_Interior_Cotton_Placemat_1300",
+    "Bistro_Research_Interior_Cotton_Placemat_1302",
+    "Bistro_Research_Interior_Cotton_Placemat_1304",
+    "Bistro_Research_Interior_Cotton_Placemat_1306",
+    "Bistro_Research_Interior_Cotton_Placemat_1308"
+  ],
+  "units": "meter",
+  "coordinate_system": {
+    "right_axis": "+X",
+    "forward_axis": "+Y",
+    "up_axis": "+Z"
+  },
+  "normalization": {
+    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
+    "grounding_policy": "lowest point moved to z=0",
+    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "applied_z_rotation_radians": -2.06919866
+  },
+  "dimensions": {
+    "width_x": 0.331802,
+    "length_y": 0.531543,
+    "height_z": 0.001394
+  },
+  "bounds": {
+    "min": [
+      -0.165901,
+      -0.265771,
+      0.0
+    ],
+    "max": [
+      0.165901,
+      0.265771,
+      0.001394
+    ]
+  },
+  "source_material_names": [
+    "Paris_Table_cloth_01"
+  ],
+  "sionna_material_mappings": [
+    {
+      "source_material": "Paris_Table_cloth_01",
+      "itu_type": "wood",
+      "sionna_material_name": "itu-wood",
+      "confidence": "medium",
+      "reason": "generic interior object dielectric approximation"
+    }
+  ],
+  "sionna_material_names": [
+    "itu-wood"
+  ],
+  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Cotton_Placemat\\Cotton_Placemat.obj",
+  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Cotton_Placemat\\Cotton_Placemat.png",
+  "grouping_mode": "nameonly",
+  "merged_fine_asset_count": 1,
+  "merged_from_asset_names": [
+    "Cotton_Placemat"
+  ],
+  "merged_from_asset_keys": [
+    "Bistro_Research_Interior_Cotton_Placemat"
+  ],
+  "selected_from_fine_asset_name": "Cotton_Placemat",
+  "selected_from_fine_export_name": "Cotton_Placemat"
+}

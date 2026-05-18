@@ -1,0 +1,69 @@
+{
+  "asset_name": "Doormat",
+  "asset_key": "nameonly::Doormat",
+  "export_name": "Doormat",
+  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
+  "source_instance_count": 1,
+  "descriptor_variant_count": 1,
+  "representative_variant_count": 1,
+  "representative_source_node": "Bistro_Research_Interior_Doormat_01_1520",
+  "all_source_node_names": [
+    "Bistro_Research_Interior_Doormat_01_1520"
+  ],
+  "units": "meter",
+  "coordinate_system": {
+    "right_axis": "+X",
+    "forward_axis": "+Y",
+    "up_axis": "+Z"
+  },
+  "normalization": {
+    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
+    "grounding_policy": "lowest point moved to z=0",
+    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "applied_z_rotation_radians": 0.44405142
+  },
+  "dimensions": {
+    "width_x": 0.96,
+    "length_y": 1.68,
+    "height_z": 0.010972
+  },
+  "bounds": {
+    "min": [
+      -0.48,
+      -0.84,
+      0.0
+    ],
+    "max": [
+      0.48,
+      0.84,
+      0.010972
+    ]
+  },
+  "source_material_names": [
+    "Paris_Doormat"
+  ],
+  "sionna_material_mappings": [
+    {
+      "source_material": "Paris_Doormat",
+      "itu_type": "wood",
+      "sionna_material_name": "itu-wood",
+      "confidence": "medium",
+      "reason": "generic interior object dielectric approximation"
+    }
+  ],
+  "sionna_material_names": [
+    "itu-wood"
+  ],
+  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Doormat\\Doormat.obj",
+  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Doormat\\Doormat.png",
+  "grouping_mode": "nameonly",
+  "merged_fine_asset_count": 1,
+  "merged_from_asset_names": [
+    "Doormat_01"
+  ],
+  "merged_from_asset_keys": [
+    "Bistro_Research_Interior_Doormat_01"
+  ],
+  "selected_from_fine_asset_name": "Doormat_01",
+  "selected_from_fine_export_name": "Doormat_01"
+}

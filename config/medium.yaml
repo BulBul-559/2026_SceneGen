@@ -1,0 +1,13 @@
+pipeline:
+  mode: bistro
+  scenes: 3
+  run_name: medium
+
+placement:
+  min_tables: 4
+  max_tables: 8
+  floor_extras: 6
+  min_tabletop_items: 3
+  max_tabletop_items: 9
+  bistro_support_items: 18
+  max_attempts: 300

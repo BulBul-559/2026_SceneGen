@@ -1,0 +1,75 @@
+{
+  "asset_name": "Curtains_paris_building_01_interior",
+  "asset_key": "nameonly::Curtains_paris_building_01_interior",
+  "export_name": "Curtains_paris_building_01_interior",
+  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
+  "source_instance_count": 3,
+  "descriptor_variant_count": 3,
+  "representative_variant_count": 1,
+  "representative_source_node": "Bistro_Research_Interior_Curtains_paris_building_01_interior_03_1314",
+  "all_source_node_names": [
+    "Bistro_Research_Interior_Curtains_paris_building_01_interior_01_1310",
+    "Bistro_Research_Interior_Curtains_paris_building_01_interior_02_1312",
+    "Bistro_Research_Interior_Curtains_paris_building_01_interior_03_1314"
+  ],
+  "units": "meter",
+  "coordinate_system": {
+    "right_axis": "+X",
+    "forward_axis": "+Y",
+    "up_axis": "+Z"
+  },
+  "normalization": {
+    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
+    "grounding_policy": "lowest point moved to z=0",
+    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "applied_z_rotation_radians": 2.66526839
+  },
+  "dimensions": {
+    "width_x": 0.18299,
+    "length_y": 2.866678,
+    "height_z": 2.550425
+  },
+  "bounds": {
+    "min": [
+      -0.091495,
+      -1.433339,
+      0.0
+    ],
+    "max": [
+      0.091495,
+      1.433339,
+      2.550425
+    ]
+  },
+  "source_material_names": [
+    "curtainA"
+  ],
+  "sionna_material_mappings": [
+    {
+      "source_material": "curtainA",
+      "itu_type": "wood",
+      "sionna_material_name": "itu-wood",
+      "confidence": "medium",
+      "reason": "generic interior object dielectric approximation"
+    }
+  ],
+  "sionna_material_names": [
+    "itu-wood"
+  ],
+  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Curtains_paris_building_01_interior\\Curtains_paris_building_01_interior.obj",
+  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Curtains_paris_building_01_interior\\Curtains_paris_building_01_interior.png",
+  "grouping_mode": "nameonly",
+  "merged_fine_asset_count": 3,
+  "merged_from_asset_names": [
+    "Curtains_paris_building_01_interior_01",
+    "Curtains_paris_building_01_interior_02",
+    "Curtains_paris_building_01_interior_03"
+  ],
+  "merged_from_asset_keys": [
+    "Bistro_Research_Interior_Curtains_paris_building_01_interior_01",
+    "Bistro_Research_Interior_Curtains_paris_building_01_interior_02",
+    "Bistro_Research_Interior_Curtains_paris_building_01_interior_03"
+  ],
+  "selected_from_fine_asset_name": "Curtains_paris_building_01_interior_03",
+  "selected_from_fine_export_name": "Curtains_paris_building_01_interior_03"
+}

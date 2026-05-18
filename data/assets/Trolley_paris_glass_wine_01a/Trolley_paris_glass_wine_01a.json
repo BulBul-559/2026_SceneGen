@@ -1,0 +1,81 @@
+{
+  "asset_name": "Trolley_paris_glass_wine_01a",
+  "asset_key": "nameonly::Trolley_paris_glass_wine_01a",
+  "export_name": "Trolley_paris_glass_wine_01a",
+  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
+  "source_instance_count": 5,
+  "descriptor_variant_count": 5,
+  "representative_variant_count": 1,
+  "representative_source_node": "Bistro_Research_Interior_Trolley_paris_glass_wine_01a72_3346",
+  "all_source_node_names": [
+    "Bistro_Research_Interior_Trolley_paris_glass_wine_01a68_3338",
+    "Bistro_Research_Interior_Trolley_paris_glass_wine_01a69_3340",
+    "Bistro_Research_Interior_Trolley_paris_glass_wine_01a70_3342",
+    "Bistro_Research_Interior_Trolley_paris_glass_wine_01a71_3344",
+    "Bistro_Research_Interior_Trolley_paris_glass_wine_01a72_3346"
+  ],
+  "units": "meter",
+  "coordinate_system": {
+    "right_axis": "+X",
+    "forward_axis": "+Y",
+    "up_axis": "+Z"
+  },
+  "normalization": {
+    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
+    "grounding_policy": "lowest point moved to z=0",
+    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "applied_z_rotation_radians": 0.0
+  },
+  "dimensions": {
+    "width_x": 0.091797,
+    "length_y": 0.091836,
+    "height_z": 0.214966
+  },
+  "bounds": {
+    "min": [
+      -0.045898,
+      -0.045918,
+      0.0
+    ],
+    "max": [
+      0.045898,
+      0.045918,
+      0.214966
+    ]
+  },
+  "source_material_names": [
+    "TransparentGlass.DoubleSided"
+  ],
+  "sionna_material_mappings": [
+    {
+      "source_material": "TransparentGlass.DoubleSided",
+      "itu_type": "glass",
+      "sionna_material_name": "itu-glass",
+      "confidence": "high",
+      "reason": "direct glass-related keyword match"
+    }
+  ],
+  "sionna_material_names": [
+    "itu-glass"
+  ],
+  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Trolley_paris_glass_wine_01a\\Trolley_paris_glass_wine_01a.obj",
+  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Trolley_paris_glass_wine_01a\\Trolley_paris_glass_wine_01a.png",
+  "grouping_mode": "nameonly",
+  "merged_fine_asset_count": 5,
+  "merged_from_asset_names": [
+    "Trolley_paris_glass_wine_01a68",
+    "Trolley_paris_glass_wine_01a69",
+    "Trolley_paris_glass_wine_01a70",
+    "Trolley_paris_glass_wine_01a71",
+    "Trolley_paris_glass_wine_01a72"
+  ],
+  "merged_from_asset_keys": [
+    "Bistro_Research_Interior_Trolley_paris_glass_wine_01a68",
+    "Bistro_Research_Interior_Trolley_paris_glass_wine_01a69",
+    "Bistro_Research_Interior_Trolley_paris_glass_wine_01a70",
+    "Bistro_Research_Interior_Trolley_paris_glass_wine_01a71",
+    "Bistro_Research_Interior_Trolley_paris_glass_wine_01a72"
+  ],
+  "selected_from_fine_asset_name": "Trolley_paris_glass_wine_01a72",
+  "selected_from_fine_export_name": "Trolley_paris_glass_wine_01a72"
+}

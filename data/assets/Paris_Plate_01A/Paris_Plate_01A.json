@@ -1,0 +1,109 @@
+{
+  "asset_name": "Paris_Plate_01A",
+  "asset_key": "nameonly::Paris_Plate_01A",
+  "export_name": "Paris_Plate_01A",
+  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
+  "source_instance_count": 32,
+  "descriptor_variant_count": 1,
+  "representative_variant_count": 1,
+  "representative_source_node": "Bistro_Research_Interior_Paris_Plate_01A__3100",
+  "all_source_node_names": [
+    "Bistro_Research_Interior_Paris_Plate_01A_3098",
+    "Bistro_Research_Interior_Paris_Plate_01A__3100",
+    "Bistro_Research_Interior_Paris_Plate_01A__3102",
+    "Bistro_Research_Interior_Paris_Plate_01A__3104",
+    "Bistro_Research_Interior_Paris_Plate_01A__3106",
+    "Bistro_Research_Interior_Paris_Plate_01A__3108",
+    "Bistro_Research_Interior_Paris_Plate_01A__3110",
+    "Bistro_Research_Interior_Paris_Plate_01A__3112",
+    "Bistro_Research_Interior_Paris_Plate_01A__3114",
+    "Bistro_Research_Interior_Paris_Plate_01A__3116",
+    "Bistro_Research_Interior_Paris_Plate_01A__3118",
+    "Bistro_Research_Interior_Paris_Plate_01A__3120",
+    "Bistro_Research_Interior_Paris_Plate_01A__3122",
+    "Bistro_Research_Interior_Paris_Plate_01A__3124",
+    "Bistro_Research_Interior_Paris_Plate_01A__3126",
+    "Bistro_Research_Interior_Paris_Plate_01A__3128",
+    "Bistro_Research_Interior_Paris_Plate_01A__3130",
+    "Bistro_Research_Interior_Paris_Plate_01A__3132",
+    "Bistro_Research_Interior_Paris_Plate_01A__3134",
+    "Bistro_Research_Interior_Paris_Plate_01A__3136",
+    "Bistro_Research_Interior_Paris_Plate_01A__3138",
+    "Bistro_Research_Interior_Paris_Plate_01A__3140",
+    "Bistro_Research_Interior_Paris_Plate_01A__3142",
+    "Bistro_Research_Interior_Paris_Plate_01A__3144",
+    "Bistro_Research_Interior_Paris_Plate_01A__3146",
+    "Bistro_Research_Interior_Paris_Plate_01A__3148",
+    "Bistro_Research_Interior_Paris_Plate_01A__3150",
+    "Bistro_Research_Interior_Paris_Plate_01A__3152",
+    "Bistro_Research_Interior_Paris_Plate_01A__3154",
+    "Bistro_Research_Interior_Paris_Plate_01A__3156",
+    "Bistro_Research_Interior_Paris_Plate_01A__3158",
+    "Bistro_Research_Interior_Paris_Plate_01A__3160"
+  ],
+  "units": "meter",
+  "coordinate_system": {
+    "right_axis": "+X",
+    "forward_axis": "+Y",
+    "up_axis": "+Z"
+  },
+  "normalization": {
+    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
+    "grounding_policy": "lowest point moved to z=0",
+    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "applied_z_rotation_radians": 0.0
+  },
+  "dimensions": {
+    "width_x": 0.289062,
+    "length_y": 0.290062,
+    "height_z": 0.019185
+  },
+  "bounds": {
+    "min": [
+      -0.144531,
+      -0.145031,
+      0.0
+    ],
+    "max": [
+      0.144531,
+      0.145031,
+      0.019185
+    ]
+  },
+  "source_material_names": [
+    "Plates_Details",
+    "Plates_Ceramic"
+  ],
+  "sionna_material_mappings": [
+    {
+      "source_material": "Plates_Details",
+      "itu_type": "wood",
+      "sionna_material_name": "itu-wood",
+      "confidence": "low",
+      "reason": "fallback to a generic indoor dielectric because no stronger heuristic matched"
+    },
+    {
+      "source_material": "Plates_Ceramic",
+      "itu_type": "marble",
+      "sionna_material_name": "itu-marble",
+      "confidence": "medium",
+      "reason": "hard dielectric surface approximation"
+    }
+  ],
+  "sionna_material_names": [
+    "itu-marble",
+    "itu-wood"
+  ],
+  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Plate_01A\\Paris_Plate_01A.obj",
+  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Plate_01A\\Paris_Plate_01A.png",
+  "grouping_mode": "nameonly",
+  "merged_fine_asset_count": 1,
+  "merged_from_asset_names": [
+    "Paris_Plate_01A"
+  ],
+  "merged_from_asset_keys": [
+    "Bistro_Research_Interior_Paris_Plate_01A"
+  ],
+  "selected_from_fine_asset_name": "Paris_Plate_01A",
+  "selected_from_fine_export_name": "Paris_Plate_01A"
+}

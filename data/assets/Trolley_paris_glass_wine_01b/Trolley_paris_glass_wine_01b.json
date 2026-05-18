@@ -1,0 +1,90 @@
+{
+  "asset_name": "Trolley_paris_glass_wine_01b",
+  "asset_key": "nameonly::Trolley_paris_glass_wine_01b",
+  "export_name": "Trolley_paris_glass_wine_01b",
+  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
+  "source_instance_count": 8,
+  "descriptor_variant_count": 8,
+  "representative_variant_count": 1,
+  "representative_source_node": "Bistro_Research_Interior_Trolley_paris_glass_wine_01b71_3362",
+  "all_source_node_names": [
+    "Bistro_Research_Interior_Trolley_paris_glass_wine_01b64_3348",
+    "Bistro_Research_Interior_Trolley_paris_glass_wine_01b65_3350",
+    "Bistro_Research_Interior_Trolley_paris_glass_wine_01b66_3352",
+    "Bistro_Research_Interior_Trolley_paris_glass_wine_01b67_3354",
+    "Bistro_Research_Interior_Trolley_paris_glass_wine_01b68_3356",
+    "Bistro_Research_Interior_Trolley_paris_glass_wine_01b69_3358",
+    "Bistro_Research_Interior_Trolley_paris_glass_wine_01b70_3360",
+    "Bistro_Research_Interior_Trolley_paris_glass_wine_01b71_3362"
+  ],
+  "units": "meter",
+  "coordinate_system": {
+    "right_axis": "+X",
+    "forward_axis": "+Y",
+    "up_axis": "+Z"
+  },
+  "normalization": {
+    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
+    "grounding_policy": "lowest point moved to z=0",
+    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "applied_z_rotation_radians": -2.07557812
+  },
+  "dimensions": {
+    "width_x": 0.072027,
+    "length_y": 0.076981,
+    "height_z": 0.191528
+  },
+  "bounds": {
+    "min": [
+      -0.036014,
+      -0.038491,
+      0.0
+    ],
+    "max": [
+      0.036014,
+      0.038491,
+      0.191528
+    ]
+  },
+  "source_material_names": [
+    "TransparentGlass.DoubleSided"
+  ],
+  "sionna_material_mappings": [
+    {
+      "source_material": "TransparentGlass.DoubleSided",
+      "itu_type": "glass",
+      "sionna_material_name": "itu-glass",
+      "confidence": "high",
+      "reason": "direct glass-related keyword match"
+    }
+  ],
+  "sionna_material_names": [
+    "itu-glass"
+  ],
+  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Trolley_paris_glass_wine_01b\\Trolley_paris_glass_wine_01b.obj",
+  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Trolley_paris_glass_wine_01b\\Trolley_paris_glass_wine_01b.png",
+  "grouping_mode": "nameonly",
+  "merged_fine_asset_count": 8,
+  "merged_from_asset_names": [
+    "Trolley_paris_glass_wine_01b64",
+    "Trolley_paris_glass_wine_01b65",
+    "Trolley_paris_glass_wine_01b66",
+    "Trolley_paris_glass_wine_01b67",
+    "Trolley_paris_glass_wine_01b68",
+    "Trolley_paris_glass_wine_01b69",
+    "Trolley_paris_glass_wine_01b70",
+    "Trolley_paris_glass_wine_01b71"
+  ],
+  "merged_from_asset_keys": [
+    "Bistro_Research_Interior_Trolley_paris_glass_wine_01b64",
+    "Bistro_Research_Interior_Trolley_paris_glass_wine_01b65",
+    "Bistro_Research_Interior_Trolley_paris_glass_wine_01b66",
+    "Bistro_Research_Interior_Trolley_paris_glass_wine_01b67",
+    "Bistro_Research_Interior_Trolley_paris_glass_wine_01b68",
+    "Bistro_Research_Interior_Trolley_paris_glass_wine_01b69",
+    "Bistro_Research_Interior_Trolley_paris_glass_wine_01b70",
+    "Bistro_Research_Interior_Trolley_paris_glass_wine_01b71"
+  ],
+  "selected_from_fine_asset_name": "Trolley_paris_glass_wine_01b71",
+  "selected_from_fine_export_name": "Trolley_paris_glass_wine_01b71"
+}

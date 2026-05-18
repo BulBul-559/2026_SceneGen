@@ -1,0 +1,89 @@
+{
+  "asset_name": "Paris_Coat_Rack_01B",
+  "asset_key": "nameonly::Paris_Coat_Rack_01B",
+  "export_name": "Paris_Coat_Rack_01B",
+  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
+  "source_instance_count": 2,
+  "descriptor_variant_count": 2,
+  "representative_variant_count": 1,
+  "representative_source_node": "Bistro_Research_Interior_Paris_Coat_Rack_01B_2438",
+  "all_source_node_names": [
+    "Bistro_Research_Interior_Paris_Coat_Rack_01B_2438",
+    "Bistro_Research_Interior_Paris_Coat_Rack_01B1_2440"
+  ],
+  "units": "meter",
+  "coordinate_system": {
+    "right_axis": "+X",
+    "forward_axis": "+Y",
+    "up_axis": "+Z"
+  },
+  "normalization": {
+    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
+    "grounding_policy": "lowest point moved to z=0",
+    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "applied_z_rotation_radians": 2.63480407
+  },
+  "dimensions": {
+    "width_x": 0.203201,
+    "length_y": 0.656872,
+    "height_z": 0.455674
+  },
+  "bounds": {
+    "min": [
+      -0.101601,
+      -0.328436,
+      0.0
+    ],
+    "max": [
+      0.101601,
+      0.328436,
+      0.455674
+    ]
+  },
+  "source_material_names": [
+    "Metal_Worn_01",
+    "Wood",
+    "Plastic_02"
+  ],
+  "sionna_material_mappings": [
+    {
+      "source_material": "Metal_Worn_01",
+      "itu_type": "metal",
+      "sionna_material_name": "itu-metal",
+      "confidence": "high",
+      "reason": "direct metal-related keyword match"
+    },
+    {
+      "source_material": "Wood",
+      "itu_type": "wood",
+      "sionna_material_name": "itu-wood",
+      "confidence": "medium",
+      "reason": "generic interior object dielectric approximation"
+    },
+    {
+      "source_material": "Plastic_02",
+      "itu_type": "wood",
+      "sionna_material_name": "itu-wood",
+      "confidence": "medium",
+      "reason": "generic interior object dielectric approximation"
+    }
+  ],
+  "sionna_material_names": [
+    "itu-metal",
+    "itu-wood"
+  ],
+  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Coat_Rack_01B\\Paris_Coat_Rack_01B.obj",
+  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Coat_Rack_01B\\Paris_Coat_Rack_01B.png",
+  "grouping_mode": "nameonly",
+  "merged_fine_asset_count": 2,
+  "merged_from_asset_names": [
+    "Paris_Coat_Rack_01B",
+    "Paris_Coat_Rack_01B1"
+  ],
+  "merged_from_asset_keys": [
+    "Bistro_Research_Interior_Paris_Coat_Rack_01B",
+    "Bistro_Research_Interior_Paris_Coat_Rack_01B1"
+  ],
+  "selected_from_fine_asset_name": "Paris_Coat_Rack_01B",
+  "selected_from_fine_export_name": "Paris_Coat_Rack_01B"
+}

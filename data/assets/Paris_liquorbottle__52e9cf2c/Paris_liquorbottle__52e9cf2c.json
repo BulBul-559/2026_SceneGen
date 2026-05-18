@@ -1,0 +1,94 @@
+{
+  "asset_name": "Paris_liquorbottle",
+  "asset_key": "nameonly::Paris_liquorbottle",
+  "export_name": "Paris_liquorbottle__52e9cf2c",
+  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
+  "source_instance_count": 10,
+  "descriptor_variant_count": 1,
+  "representative_variant_count": 1,
+  "representative_source_node": "Bistro_Research_Interior_Paris_liquorbottle_10__3042",
+  "all_source_node_names": [
+    "Bistro_Research_Interior_Paris_liquorbottle_10_3028",
+    "Bistro_Research_Interior_Paris_liquorbottle_10__3030",
+    "Bistro_Research_Interior_Paris_liquorbottle_10__3032",
+    "Bistro_Research_Interior_Paris_liquorbottle_10__3034",
+    "Bistro_Research_Interior_Paris_liquorbottle_10__3036",
+    "Bistro_Research_Interior_Paris_liquorbottle_10__3038",
+    "Bistro_Research_Interior_Paris_liquorbottle_10__3040",
+    "Bistro_Research_Interior_Paris_liquorbottle_10__3042",
+    "Bistro_Research_Interior_Paris_liquorbottle_10__3044",
+    "Bistro_Research_Interior_Paris_liquorbottle_10__3046"
+  ],
+  "units": "meter",
+  "coordinate_system": {
+    "right_axis": "+X",
+    "forward_axis": "+Y",
+    "up_axis": "+Z"
+  },
+  "normalization": {
+    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
+    "grounding_policy": "lowest point moved to z=0",
+    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "applied_z_rotation_radians": 0.0
+  },
+  "dimensions": {
+    "width_x": 0.081133,
+    "length_y": 0.082305,
+    "height_z": 0.364014
+  },
+  "bounds": {
+    "min": [
+      -0.040566,
+      -0.041152,
+      0.0
+    ],
+    "max": [
+      0.040566,
+      0.041152,
+      0.364014
+    ]
+  },
+  "source_material_names": [
+    "Paris_LiquorBottle_01_Glass_Wine",
+    "Paris_LiquorBottle_01_Caps",
+    "ToffeeJar_Label"
+  ],
+  "sionna_material_mappings": [
+    {
+      "source_material": "Paris_LiquorBottle_01_Glass_Wine",
+      "itu_type": "glass",
+      "sionna_material_name": "itu-glass",
+      "confidence": "high",
+      "reason": "direct glass-related keyword match"
+    },
+    {
+      "source_material": "Paris_LiquorBottle_01_Caps",
+      "itu_type": "glass",
+      "sionna_material_name": "itu-glass",
+      "confidence": "high",
+      "reason": "direct glass-related keyword match"
+    },
+    {
+      "source_material": "ToffeeJar_Label",
+      "itu_type": "glass",
+      "sionna_material_name": "itu-glass",
+      "confidence": "high",
+      "reason": "direct glass-related keyword match"
+    }
+  ],
+  "sionna_material_names": [
+    "itu-glass"
+  ],
+  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_liquorbottle__52e9cf2c\\Paris_liquorbottle__52e9cf2c.obj",
+  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_liquorbottle__52e9cf2c\\Paris_liquorbottle__52e9cf2c.png",
+  "grouping_mode": "nameonly",
+  "merged_fine_asset_count": 1,
+  "merged_from_asset_names": [
+    "Paris_liquorbottle_10"
+  ],
+  "merged_from_asset_keys": [
+    "Bistro_Research_Interior_Paris_liquorbottle_10"
+  ],
+  "selected_from_fine_asset_name": "Paris_liquorbottle_10",
+  "selected_from_fine_export_name": "Paris_liquorbottle_10"
+}

@@ -1,0 +1,13 @@
+pipeline:
+  mode: bistro
+  scenes: 3
+  run_name: sparse
+
+placement:
+  min_tables: 2
+  max_tables: 4
+  floor_extras: 2
+  min_tabletop_items: 0
+  max_tabletop_items: 3
+  bistro_support_items: 5
+  max_attempts: 300

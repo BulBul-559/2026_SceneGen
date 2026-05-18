@@ -1,0 +1,74 @@
+{
+  "asset_name": "Paris_Table_02B",
+  "asset_key": "nameonly::Paris_Table_02B",
+  "export_name": "Paris_Table_02B",
+  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
+  "source_instance_count": 6,
+  "descriptor_variant_count": 1,
+  "representative_variant_count": 1,
+  "representative_source_node": "Bistro_Research_Interior_Paris_Table_02B_3250",
+  "all_source_node_names": [
+    "Bistro_Research_Interior_Paris_Table_02B_3250",
+    "Bistro_Research_Interior_Paris_Table_02B__3252",
+    "Bistro_Research_Interior_Paris_Table_02B__3254",
+    "Bistro_Research_Interior_Paris_Table_02B__3256",
+    "Bistro_Research_Interior_Paris_Table_02B__3258",
+    "Bistro_Research_Interior_Paris_Table_02B__3260"
+  ],
+  "units": "meter",
+  "coordinate_system": {
+    "right_axis": "+X",
+    "forward_axis": "+Y",
+    "up_axis": "+Z"
+  },
+  "normalization": {
+    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
+    "grounding_policy": "lowest point moved to z=0",
+    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "applied_z_rotation_radians": -0.39006735
+  },
+  "dimensions": {
+    "width_x": 0.788826,
+    "length_y": 1.458708,
+    "height_z": 0.843415
+  },
+  "bounds": {
+    "min": [
+      -0.394413,
+      -0.729354,
+      0.0
+    ],
+    "max": [
+      0.394413,
+      0.729354,
+      0.843415
+    ]
+  },
+  "source_material_names": [
+    "Paris_Table_03"
+  ],
+  "sionna_material_mappings": [
+    {
+      "source_material": "Paris_Table_03",
+      "itu_type": "wood",
+      "sionna_material_name": "itu-wood",
+      "confidence": "medium",
+      "reason": "generic interior object dielectric approximation"
+    }
+  ],
+  "sionna_material_names": [
+    "itu-wood"
+  ],
+  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Table_02B\\Paris_Table_02B.obj",
+  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Table_02B\\Paris_Table_02B.png",
+  "grouping_mode": "nameonly",
+  "merged_fine_asset_count": 1,
+  "merged_from_asset_names": [
+    "Paris_Table_02B"
+  ],
+  "merged_from_asset_keys": [
+    "Bistro_Research_Interior_Paris_Table_02B"
+  ],
+  "selected_from_fine_asset_name": "Paris_Table_02B",
+  "selected_from_fine_export_name": "Paris_Table_02B"
+}

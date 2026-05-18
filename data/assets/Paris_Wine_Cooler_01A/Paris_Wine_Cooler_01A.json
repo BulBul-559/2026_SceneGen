@@ -1,0 +1,78 @@
+{
+  "asset_name": "Paris_Wine_Cooler_01A",
+  "asset_key": "nameonly::Paris_Wine_Cooler_01A",
+  "export_name": "Paris_Wine_Cooler_01A",
+  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
+  "source_instance_count": 4,
+  "descriptor_variant_count": 4,
+  "representative_variant_count": 1,
+  "representative_source_node": "Bistro_Research_Interior_Paris_Wine_Cooler_01A_3280",
+  "all_source_node_names": [
+    "Bistro_Research_Interior_Paris_Wine_Cooler_01A_3280",
+    "Bistro_Research_Interior_Paris_Wine_Cooler_01A1_3282",
+    "Bistro_Research_Interior_Paris_Wine_Cooler_01A2_3284",
+    "Bistro_Research_Interior_Paris_Wine_Cooler_01A3_3286"
+  ],
+  "units": "meter",
+  "coordinate_system": {
+    "right_axis": "+X",
+    "forward_axis": "+Y",
+    "up_axis": "+Z"
+  },
+  "normalization": {
+    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
+    "grounding_policy": "lowest point moved to z=0",
+    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "applied_z_rotation_radians": 0.0
+  },
+  "dimensions": {
+    "width_x": 0.41411,
+    "length_y": 0.414288,
+    "height_z": 0.293023
+  },
+  "bounds": {
+    "min": [
+      -0.207055,
+      -0.207144,
+      0.0
+    ],
+    "max": [
+      0.207055,
+      0.207144,
+      0.293023
+    ]
+  },
+  "source_material_names": [
+    "Metal_Chrome1"
+  ],
+  "sionna_material_mappings": [
+    {
+      "source_material": "Metal_Chrome1",
+      "itu_type": "glass",
+      "sionna_material_name": "itu-glass",
+      "confidence": "high",
+      "reason": "direct glass-related keyword match"
+    }
+  ],
+  "sionna_material_names": [
+    "itu-glass"
+  ],
+  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Wine_Cooler_01A\\Paris_Wine_Cooler_01A.obj",
+  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Wine_Cooler_01A\\Paris_Wine_Cooler_01A.png",
+  "grouping_mode": "nameonly",
+  "merged_fine_asset_count": 4,
+  "merged_from_asset_names": [
+    "Paris_Wine_Cooler_01A",
+    "Paris_Wine_Cooler_01A1",
+    "Paris_Wine_Cooler_01A2",
+    "Paris_Wine_Cooler_01A3"
+  ],
+  "merged_from_asset_keys": [
+    "Bistro_Research_Interior_Paris_Wine_Cooler_01A",
+    "Bistro_Research_Interior_Paris_Wine_Cooler_01A1",
+    "Bistro_Research_Interior_Paris_Wine_Cooler_01A2",
+    "Bistro_Research_Interior_Paris_Wine_Cooler_01A3"
+  ],
+  "selected_from_fine_asset_name": "Paris_Wine_Cooler_01A",
+  "selected_from_fine_export_name": "Paris_Wine_Cooler_01A"
+}

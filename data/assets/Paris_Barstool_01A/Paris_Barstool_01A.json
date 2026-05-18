@@ -1,0 +1,87 @@
+{
+  "asset_name": "Paris_Barstool_01A",
+  "asset_key": "nameonly::Paris_Barstool_01A",
+  "export_name": "Paris_Barstool_01A",
+  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
+  "source_instance_count": 7,
+  "descriptor_variant_count": 7,
+  "representative_variant_count": 1,
+  "representative_source_node": "Bistro_Research_Interior_Paris_Barstool_01A_2106",
+  "all_source_node_names": [
+    "Bistro_Research_Interior_Paris_Barstool_01A_2106",
+    "Bistro_Research_Interior_Paris_Barstool_01A1_2108",
+    "Bistro_Research_Interior_Paris_Barstool_01A2_2110",
+    "Bistro_Research_Interior_Paris_Barstool_01A3_2112",
+    "Bistro_Research_Interior_Paris_Barstool_01A4_2114",
+    "Bistro_Research_Interior_Paris_Barstool_01A5_2116",
+    "Bistro_Research_Interior_Paris_Barstool_01A6_2118"
+  ],
+  "units": "meter",
+  "coordinate_system": {
+    "right_axis": "+X",
+    "forward_axis": "+Y",
+    "up_axis": "+Z"
+  },
+  "normalization": {
+    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
+    "grounding_policy": "lowest point moved to z=0",
+    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "applied_z_rotation_radians": 1.51010719
+  },
+  "dimensions": {
+    "width_x": 0.43114,
+    "length_y": 0.449979,
+    "height_z": 1.094565
+  },
+  "bounds": {
+    "min": [
+      -0.21557,
+      -0.224989,
+      0.0
+    ],
+    "max": [
+      0.21557,
+      0.224989,
+      1.094565
+    ]
+  },
+  "source_material_names": [
+    "Paris_BarStool"
+  ],
+  "sionna_material_mappings": [
+    {
+      "source_material": "Paris_BarStool",
+      "itu_type": "wood",
+      "sionna_material_name": "itu-wood",
+      "confidence": "medium",
+      "reason": "generic interior object dielectric approximation"
+    }
+  ],
+  "sionna_material_names": [
+    "itu-wood"
+  ],
+  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Barstool_01A\\Paris_Barstool_01A.obj",
+  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Barstool_01A\\Paris_Barstool_01A.png",
+  "grouping_mode": "nameonly",
+  "merged_fine_asset_count": 7,
+  "merged_from_asset_names": [
+    "Paris_Barstool_01A",
+    "Paris_Barstool_01A1",
+    "Paris_Barstool_01A2",
+    "Paris_Barstool_01A3",
+    "Paris_Barstool_01A4",
+    "Paris_Barstool_01A5",
+    "Paris_Barstool_01A6"
+  ],
+  "merged_from_asset_keys": [
+    "Bistro_Research_Interior_Paris_Barstool_01A",
+    "Bistro_Research_Interior_Paris_Barstool_01A1",
+    "Bistro_Research_Interior_Paris_Barstool_01A2",
+    "Bistro_Research_Interior_Paris_Barstool_01A3",
+    "Bistro_Research_Interior_Paris_Barstool_01A4",
+    "Bistro_Research_Interior_Paris_Barstool_01A5",
+    "Bistro_Research_Interior_Paris_Barstool_01A6"
+  ],
+  "selected_from_fine_asset_name": "Paris_Barstool_01A",
+  "selected_from_fine_export_name": "Paris_Barstool_01A"
+}

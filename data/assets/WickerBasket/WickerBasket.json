@@ -1,0 +1,111 @@
+{
+  "asset_name": "WickerBasket",
+  "asset_key": "nameonly::WickerBasket",
+  "export_name": "WickerBasket",
+  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
+  "source_instance_count": 15,
+  "descriptor_variant_count": 15,
+  "representative_variant_count": 1,
+  "representative_source_node": "Bistro_Research_Interior_WickerBasket13_3378",
+  "all_source_node_names": [
+    "Bistro_Research_Interior_WickerBasket1_3370",
+    "Bistro_Research_Interior_WickerBasket10_3372",
+    "Bistro_Research_Interior_WickerBasket11_3374",
+    "Bistro_Research_Interior_WickerBasket12_3376",
+    "Bistro_Research_Interior_WickerBasket13_3378",
+    "Bistro_Research_Interior_WickerBasket14_3380",
+    "Bistro_Research_Interior_WickerBasket15_3382",
+    "Bistro_Research_Interior_WickerBasket2_3384",
+    "Bistro_Research_Interior_WickerBasket3_3386",
+    "Bistro_Research_Interior_WickerBasket4_3388",
+    "Bistro_Research_Interior_WickerBasket5_3390",
+    "Bistro_Research_Interior_WickerBasket6_3392",
+    "Bistro_Research_Interior_WickerBasket7_3394",
+    "Bistro_Research_Interior_WickerBasket8_3396",
+    "Bistro_Research_Interior_WickerBasket9_3398"
+  ],
+  "units": "meter",
+  "coordinate_system": {
+    "right_axis": "+X",
+    "forward_axis": "+Y",
+    "up_axis": "+Z"
+  },
+  "normalization": {
+    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
+    "grounding_policy": "lowest point moved to z=0",
+    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "applied_z_rotation_radians": -0.91019855
+  },
+  "dimensions": {
+    "width_x": 0.184868,
+    "length_y": 0.215597,
+    "height_z": 0.110396
+  },
+  "bounds": {
+    "min": [
+      -0.092434,
+      -0.107798,
+      0.0
+    ],
+    "max": [
+      0.092434,
+      0.107798,
+      0.110396
+    ]
+  },
+  "source_material_names": [
+    "WickerBasket"
+  ],
+  "sionna_material_mappings": [
+    {
+      "source_material": "WickerBasket",
+      "itu_type": "wood",
+      "sionna_material_name": "itu-wood",
+      "confidence": "medium",
+      "reason": "generic interior object dielectric approximation"
+    }
+  ],
+  "sionna_material_names": [
+    "itu-wood"
+  ],
+  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\WickerBasket\\WickerBasket.obj",
+  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\WickerBasket\\WickerBasket.png",
+  "grouping_mode": "nameonly",
+  "merged_fine_asset_count": 15,
+  "merged_from_asset_names": [
+    "WickerBasket1",
+    "WickerBasket10",
+    "WickerBasket11",
+    "WickerBasket12",
+    "WickerBasket13",
+    "WickerBasket14",
+    "WickerBasket15",
+    "WickerBasket2",
+    "WickerBasket3",
+    "WickerBasket4",
+    "WickerBasket5",
+    "WickerBasket6",
+    "WickerBasket7",
+    "WickerBasket8",
+    "WickerBasket9"
+  ],
+  "merged_from_asset_keys": [
+    "Bistro_Research_Interior_WickerBasket1",
+    "Bistro_Research_Interior_WickerBasket10",
+    "Bistro_Research_Interior_WickerBasket11",
+    "Bistro_Research_Interior_WickerBasket12",
+    "Bistro_Research_Interior_WickerBasket13",
+    "Bistro_Research_Interior_WickerBasket14",
+    "Bistro_Research_Interior_WickerBasket15",
+    "Bistro_Research_Interior_WickerBasket2",
+    "Bistro_Research_Interior_WickerBasket3",
+    "Bistro_Research_Interior_WickerBasket4",
+    "Bistro_Research_Interior_WickerBasket5",
+    "Bistro_Research_Interior_WickerBasket6",
+    "Bistro_Research_Interior_WickerBasket7",
+    "Bistro_Research_Interior_WickerBasket8",
+    "Bistro_Research_Interior_WickerBasket9"
+  ],
+  "selected_from_fine_asset_name": "WickerBasket13",
+  "selected_from_fine_export_name": "WickerBasket13"
+}

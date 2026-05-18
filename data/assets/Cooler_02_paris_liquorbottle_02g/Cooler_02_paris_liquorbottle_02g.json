@@ -1,0 +1,91 @@
+{
+  "asset_name": "Cooler_02_paris_liquorbottle_02g",
+  "asset_key": "nameonly::Cooler_02_paris_liquorbottle_02g",
+  "export_name": "Cooler_02_paris_liquorbottle_02g",
+  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
+  "source_instance_count": 3,
+  "descriptor_variant_count": 3,
+  "representative_variant_count": 1,
+  "representative_source_node": "Bistro_Research_Interior_Cooler_02_paris_liquorbottle_02g6_1238",
+  "all_source_node_names": [
+    "Bistro_Research_Interior_Cooler_02_paris_liquorbottle_02g10_1236",
+    "Bistro_Research_Interior_Cooler_02_paris_liquorbottle_02g6_1238",
+    "Bistro_Research_Interior_Cooler_02_paris_liquorbottle_02g7_1240"
+  ],
+  "units": "meter",
+  "coordinate_system": {
+    "right_axis": "+X",
+    "forward_axis": "+Y",
+    "up_axis": "+Z"
+  },
+  "normalization": {
+    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
+    "grounding_policy": "lowest point moved to z=0",
+    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "applied_z_rotation_radians": 1.54152201
+  },
+  "dimensions": {
+    "width_x": 0.08118,
+    "length_y": 0.215303,
+    "height_z": 0.344167
+  },
+  "bounds": {
+    "min": [
+      -0.04059,
+      -0.107652,
+      0.0
+    ],
+    "max": [
+      0.04059,
+      0.107652,
+      0.344167
+    ]
+  },
+  "source_material_names": [
+    "Paris_LiquorBottle_01_Glass_Wine",
+    "Paris_LiquorBottle_01_Caps",
+    "ToffeeJar_Label"
+  ],
+  "sionna_material_mappings": [
+    {
+      "source_material": "Paris_LiquorBottle_01_Glass_Wine",
+      "itu_type": "glass",
+      "sionna_material_name": "itu-glass",
+      "confidence": "high",
+      "reason": "direct glass-related keyword match"
+    },
+    {
+      "source_material": "Paris_LiquorBottle_01_Caps",
+      "itu_type": "glass",
+      "sionna_material_name": "itu-glass",
+      "confidence": "high",
+      "reason": "direct glass-related keyword match"
+    },
+    {
+      "source_material": "ToffeeJar_Label",
+      "itu_type": "glass",
+      "sionna_material_name": "itu-glass",
+      "confidence": "high",
+      "reason": "direct glass-related keyword match"
+    }
+  ],
+  "sionna_material_names": [
+    "itu-glass"
+  ],
+  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Cooler_02_paris_liquorbottle_02g\\Cooler_02_paris_liquorbottle_02g.obj",
+  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Cooler_02_paris_liquorbottle_02g\\Cooler_02_paris_liquorbottle_02g.png",
+  "grouping_mode": "nameonly",
+  "merged_fine_asset_count": 3,
+  "merged_from_asset_names": [
+    "Cooler_02_paris_liquorbottle_02g10",
+    "Cooler_02_paris_liquorbottle_02g6",
+    "Cooler_02_paris_liquorbottle_02g7"
+  ],
+  "merged_from_asset_keys": [
+    "Bistro_Research_Interior_Cooler_02_paris_liquorbottle_02g10",
+    "Bistro_Research_Interior_Cooler_02_paris_liquorbottle_02g6",
+    "Bistro_Research_Interior_Cooler_02_paris_liquorbottle_02g7"
+  ],
+  "selected_from_fine_asset_name": "Cooler_02_paris_liquorbottle_02g6",
+  "selected_from_fine_export_name": "Cooler_02_paris_liquorbottle_02g6"
+}

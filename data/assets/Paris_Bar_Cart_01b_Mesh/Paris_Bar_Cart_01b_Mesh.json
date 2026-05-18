@@ -1,0 +1,94 @@
+{
+  "asset_name": "Paris_Bar_Cart_01b_Mesh",
+  "asset_key": "nameonly::Paris_Bar_Cart_01b_Mesh",
+  "export_name": "Paris_Bar_Cart_01b_Mesh",
+  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
+  "source_instance_count": 1,
+  "descriptor_variant_count": 1,
+  "representative_variant_count": 1,
+  "representative_source_node": "Bistro_Research_Interior_Paris_Bar_Cart_01b_Mesh_2104",
+  "all_source_node_names": [
+    "Bistro_Research_Interior_Paris_Bar_Cart_01b_Mesh_2104"
+  ],
+  "units": "meter",
+  "coordinate_system": {
+    "right_axis": "+X",
+    "forward_axis": "+Y",
+    "up_axis": "+Z"
+  },
+  "normalization": {
+    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
+    "grounding_policy": "lowest point moved to z=0",
+    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "applied_z_rotation_radians": 1.09127013
+  },
+  "dimensions": {
+    "width_x": 0.660983,
+    "length_y": 1.327365,
+    "height_z": 1.102439
+  },
+  "bounds": {
+    "min": [
+      -0.330492,
+      -0.663683,
+      0.0
+    ],
+    "max": [
+      0.330492,
+      0.663683,
+      1.102439
+    ]
+  },
+  "source_material_names": [
+    "Metal_Chrome1",
+    "Trolley_Plastic",
+    "Trolley_Wheels",
+    "Trolley_Wood_Painted"
+  ],
+  "sionna_material_mappings": [
+    {
+      "source_material": "Metal_Chrome1",
+      "itu_type": "metal",
+      "sionna_material_name": "itu-metal",
+      "confidence": "high",
+      "reason": "direct metal-related keyword match"
+    },
+    {
+      "source_material": "Trolley_Plastic",
+      "itu_type": "wood",
+      "sionna_material_name": "itu-wood",
+      "confidence": "medium",
+      "reason": "generic interior object dielectric approximation"
+    },
+    {
+      "source_material": "Trolley_Wheels",
+      "itu_type": "metal",
+      "sionna_material_name": "itu-metal",
+      "confidence": "high",
+      "reason": "direct metal-related keyword match"
+    },
+    {
+      "source_material": "Trolley_Wood_Painted",
+      "itu_type": "wood",
+      "sionna_material_name": "itu-wood",
+      "confidence": "medium",
+      "reason": "generic interior object dielectric approximation"
+    }
+  ],
+  "sionna_material_names": [
+    "itu-metal",
+    "itu-wood"
+  ],
+  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Bar_Cart_01b_Mesh\\Paris_Bar_Cart_01b_Mesh.obj",
+  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Bar_Cart_01b_Mesh\\Paris_Bar_Cart_01b_Mesh.png",
+  "grouping_mode": "nameonly",
+  "merged_fine_asset_count": 1,
+  "merged_from_asset_names": [
+    "Paris_Bar_Cart_01b_Mesh"
+  ],
+  "merged_from_asset_keys": [
+    "Bistro_Research_Interior_Paris_Bar_Cart_01b_Mesh"
+  ],
+  "selected_from_fine_asset_name": "Paris_Bar_Cart_01b_Mesh",
+  "selected_from_fine_export_name": "Paris_Bar_Cart_01b_Mesh"
+}
