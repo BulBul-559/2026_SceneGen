@@ -36,6 +36,8 @@ outputs
 outputs/
 runs
 runs/
+data/3D-Front
+data/3D-Front/
 
 # Local notebooks and scratch files
 .ipynb_checkpoints/
@@ -49,3 +51,5 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+3d_script
