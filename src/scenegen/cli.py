@@ -310,7 +310,6 @@ def main(argv: list[str] | None = None) -> int:
         "run_name": run_name,
         "run_dir": ".",
         "asset_catalog": portable_path(asset_catalog_path, run_dir),
-        "asset_manifest": portable_path(asset_catalog_path, run_dir),
         "asset_class_counts": class_counts,
         "forbidden_xy_rects": (
             [{"x_min": rect[0], "y_min": rect[1], "x_max": rect[2], "y_max": rect[3]} for rect in args.forbidden_xy_rects]

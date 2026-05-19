@@ -159,6 +159,16 @@ def stringify_path(value: Any) -> Any:
     return value
 
 
+def upgrade_config_aliases(config: dict[str, Any]) -> dict[str, Any]:
+    upgraded = deepcopy(config)
+    assets = upgraded.get("assets")
+    if isinstance(assets, dict):
+        if "catalog" not in assets and "manifest" in assets:
+            assets["catalog"] = assets["manifest"]
+        assets.pop("manifest", None)
+    return upgraded
+
+
 def cli_overrides(args: argparse.Namespace) -> dict[str, Any]:
     overrides: dict[str, Any] = {}
     for attr, path in CLI_OVERRIDE_MAP.items():
@@ -226,7 +236,7 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     assets = normalized.setdefault("assets", {})
     catalog_value = assets.get("catalog") or assets.get("manifest") or DEFAULT_CONFIG["assets"]["catalog"]
     assets["catalog"] = str(resolve_path(repo_root, catalog_value))
-    assets["manifest"] = assets["catalog"]
+    assets.pop("manifest", None)
     normalized["bistro"]["base_dir"] = str(resolve_path(repo_root, normalized["bistro"]["base_dir"]))
 
     normalized["pipeline"]["mode"] = str(normalized["pipeline"]["mode"])
@@ -354,11 +364,11 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
 
 
 def load_effective_config(config_path: Path, repo_root: Path, args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]]:
-    yaml_config = load_yaml_config(config_path)
+    yaml_config = upgrade_config_aliases(load_yaml_config(config_path))
     base_config = deepcopy(DEFAULT_CONFIG)
     default_yaml_path = default_config_path(repo_root).resolve()
     if config_path.resolve() != default_yaml_path and default_yaml_path.is_file():
-        base_config = deep_merge(base_config, load_yaml_config(default_yaml_path))
+        base_config = deep_merge(base_config, upgrade_config_aliases(load_yaml_config(default_yaml_path)))
     merged = deep_merge(base_config, yaml_config)
     overrides = cli_overrides(args)
     effective = deep_merge(merged, overrides)

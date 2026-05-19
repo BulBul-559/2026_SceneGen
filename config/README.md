@@ -4,9 +4,23 @@
 
 当使用 `config/sparse.yaml`、`config/medium.yaml`、`config/dense.yaml` 这类局部配置时，SceneGen 会先加载 `config/default.yaml`，再用指定 YAML 覆盖其中字段。因此 Bistro 禁区、floorplan 默认参数、质量检查等通用设置仍会继承默认配置。
 
+## 配置链路
+
+SceneGen 的配置按下面顺序合并，后面的优先级更高：
+
+1. 代码内置默认值 `DEFAULT_CONFIG`。
+2. 如果 `--config` 指向的不是 `config/default.yaml`，先加载 `config/default.yaml` 作为项目默认模板。
+3. 加载 `--config` 指定的 YAML，并覆盖前面的默认值。
+4. 应用 CLI 参数覆盖，例如 `--scenes`、`--seed`、`--asset-catalog`、`--no-floorplan`。
+5. 归一化路径和类型：相对路径解析为 repo 下的绝对路径，数字和布尔值转成运行时类型。
+6. 写出 `<run_dir>/effective_config.yaml`，它记录实际生效配置。
+
+兼容规则：旧 YAML 字段 `assets.manifest` 和旧 CLI 参数 `--asset-manifest` 仍可输入，但会被归一化为 `assets.catalog`。写出的 `effective_config.yaml` 只保留 `assets.catalog`。
+
 ## 预设配置
 
 - `default.yaml`: 默认主实验配置，中等密度 Bistro 场景，默认生成 10 个。
+- `template.yaml`: 完整字段模板，适合复制后作为新实验配置起点。
 - `sparse.yaml`: 稀疏场景，低遮挡、低反射、多径相对简单，默认生成 3 个。
 - `medium.yaml`: 中等场景，主实验分布，默认生成 3 个。
 - `dense.yaml`: 稠密场景，高遮挡、高反射、多径更复杂，默认生成 3 个。
@@ -32,7 +46,7 @@ uv run scenegen --config config/dense.yaml
 
 - `catalog`: 标准资产 catalog 路径，默认 `data/catalogs/bistro.v1.json`。
 
-兼容说明：旧 CLI 参数 `--asset-manifest` 仍然可用，但会被映射到 `assets.catalog`。`data/assets/manifest.json` 也仍保留，但它只是兼容位置，内容应与 `data/catalogs/bistro.v1.json` 使用同一份清洗后的资产契约。
+兼容说明：旧 CLI 参数 `--asset-manifest` 和旧 YAML 字段 `assets.manifest` 仍然可用，但都会被映射到 `assets.catalog`。`data/assets/manifest.json` 也仍保留，但它只是兼容位置，内容应与 `data/catalogs/bistro.v1.json` 使用同一份清洗后的资产契约。
 
 ## bistro
 

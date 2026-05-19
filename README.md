@@ -90,6 +90,10 @@ uv sync
 
 [config/README.md](/home/sunmeiyuan/projects/SceneGen/config/README.md)
 
+完整配置模板：
+
+[config/template.yaml](/home/sunmeiyuan/projects/SceneGen/config/template.yaml)
+
 运行时默认读取 `config/default.yaml`。如果命令行传入参数，则命令行参数会覆盖 YAML 中对应字段。每次运行会在结果目录写出最终生效配置：
 
 ```text
@@ -106,6 +110,8 @@ assets:
 ```
 
 命令行推荐使用 `--asset-catalog` 临时替换资产目录；旧参数 `--asset-manifest` 仍可使用，会作为兼容别名映射到同一个配置字段。
+
+配置合并顺序是：内置默认值、`config/default.yaml`、指定 YAML、CLI 覆盖、路径与类型归一化。旧 YAML 字段 `assets.manifest` 可以继续输入，但写出的 `effective_config.yaml` 只保留最新字段 `assets.catalog`。
 
 ## 快速开始
 

@@ -140,8 +140,23 @@ def test_partial_config_inherits_default_bistro_forbidden_zones() -> None:
 
     assert effective["pipeline"]["run_name"] == "sparse"
     assert effective["assets"]["catalog"].endswith("data/catalogs/bistro.v1.json")
+    assert "manifest" not in effective["assets"]
     assert effective["bistro"]["forbidden_xy_rects"] == [[1.0, 11.0, 4.5, 16.0], [8.0, 8.0, 14.0, 10.0]]
     assert effective["floorplan"]["semantic_enabled"] is False
+
+
+def test_legacy_assets_manifest_config_normalizes_to_catalog(tmp_path: Path) -> None:
+    root = find_project_root()
+    config_path = tmp_path / "legacy_config.yaml"
+    config_path.write_text(
+        "assets:\n  manifest: data/assets/manifest.json\npipeline:\n  scenes: 1\n",
+        encoding="utf-8",
+    )
+
+    effective, _overrides = load_effective_config(config_path, root, parse_args([]))
+
+    assert effective["assets"]["catalog"].endswith("data/assets/manifest.json")
+    assert "manifest" not in effective["assets"]
 
 
 def test_generated_scene_outputs_and_sionna_load(tmp_path: Path) -> None:
@@ -223,6 +238,8 @@ def test_generated_scene_outputs_and_sionna_load(tmp_path: Path) -> None:
     effective_config = yaml.safe_load((output_dir / "smoke_generated" / "effective_config.yaml").read_text())
     assert effective_config["pipeline"]["mode"] == "generated"
     assert effective_config["pipeline"]["seed"] == 123
+    assert "catalog" in effective_config["assets"]
+    assert "manifest" not in effective_config["assets"]
     assert effective_config["floorplan"]["min_sample_points"] == 1000
     assert effective_config["floorplan"]["geometry_clean_enabled"] is False
     assert effective_config["floorplan"]["height_mode"] == "heights"
