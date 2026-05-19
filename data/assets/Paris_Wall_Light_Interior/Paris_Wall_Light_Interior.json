@@ -1,93 +1,68 @@
 {
-  "asset_name": "Paris_Wall_Light_Interior",
-  "asset_key": "nameonly::Paris_Wall_Light_Interior",
+  "schema_version": "1.0",
+  "dataset": "bistro",
+  "id": "Paris_Wall_Light_Interior",
+  "name": "Paris_Wall_Light_Interior",
   "export_name": "Paris_Wall_Light_Interior",
-  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
-  "source_instance_count": 6,
-  "descriptor_variant_count": 6,
-  "representative_variant_count": 1,
-  "representative_source_node": "Bistro_Research_Interior_Paris_Wall_Light_Interior_01_3266",
-  "all_source_node_names": [
-    "Bistro_Research_Interior_Paris_Wall_Light_Interior_01_3266",
-    "Bistro_Research_Interior_Paris_Wall_Light_Interior_02_3268",
-    "Bistro_Research_Interior_Paris_Wall_Light_Interior_03_3272",
-    "Bistro_Research_Interior_Paris_Wall_Light_Interior_04_3274",
-    "Bistro_Research_Interior_Paris_Wall_Light_Interior_05_3276",
-    "Bistro_Research_Interior_Paris_Wall_Light_Interior_06_3278"
-  ],
-  "units": "meter",
-  "coordinate_system": {
-    "right_axis": "+X",
-    "forward_axis": "+Y",
-    "up_axis": "+Z"
+  "files": {
+    "obj": "data/assets/Paris_Wall_Light_Interior/Paris_Wall_Light_Interior.obj",
+    "preview": "data/assets/Paris_Wall_Light_Interior/Paris_Wall_Light_Interior.png"
+  },
+  "placement": {
+    "class": "skip",
+    "enabled": false,
+    "support": [],
+    "weight": 1.0
+  },
+  "geometry": {
+    "units": "meter",
+    "size": {
+      "x": 0.245204,
+      "y": 0.353899,
+      "z": 0.551231
+    },
+    "bbox": {
+      "min": [
+        -0.122602,
+        -0.17695,
+        0.0
+      ],
+      "max": [
+        0.122602,
+        0.17695,
+        0.551231
+      ]
+    }
   },
   "normalization": {
-    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
-    "grounding_policy": "lowest point moved to z=0",
-    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "coordinate_system": {
+      "right": "+X",
+      "forward": "+Y",
+      "up": "+Z"
+    },
+    "grounded": true,
+    "xy_origin": "bbox_center",
+    "orientation": "principal_horizontal_axis_to_+Y",
     "applied_z_rotation_radians": -2.05476069
   },
-  "dimensions": {
-    "width_x": 0.245204,
-    "length_y": 0.353899,
-    "height_z": 0.551231
-  },
-  "bounds": {
-    "min": [
-      -0.122602,
-      -0.17695,
-      0.0
+  "materials": {
+    "sionna": [
+      "itu-glass",
+      "itu-wood"
     ],
-    "max": [
-      0.122602,
-      0.17695,
-      0.551231
+    "source_to_sionna": [
+      {
+        "source": "Paris_Wall_Light_Interior",
+        "sionna": "itu-wood",
+        "itu_type": "wood",
+        "confidence": "low"
+      },
+      {
+        "source": "Paris_Wall_Bulb_Light",
+        "sionna": "itu-glass",
+        "itu_type": "glass",
+        "confidence": "high"
+      }
     ]
-  },
-  "source_material_names": [
-    "Paris_Wall_Light_Interior",
-    "Paris_Wall_Bulb_Light"
-  ],
-  "sionna_material_mappings": [
-    {
-      "source_material": "Paris_Wall_Light_Interior",
-      "itu_type": "wood",
-      "sionna_material_name": "itu-wood",
-      "confidence": "low",
-      "reason": "fallback to a generic indoor dielectric because no stronger heuristic matched"
-    },
-    {
-      "source_material": "Paris_Wall_Bulb_Light",
-      "itu_type": "glass",
-      "sionna_material_name": "itu-glass",
-      "confidence": "high",
-      "reason": "direct glass-related keyword match"
-    }
-  ],
-  "sionna_material_names": [
-    "itu-glass",
-    "itu-wood"
-  ],
-  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Wall_Light_Interior\\Paris_Wall_Light_Interior.obj",
-  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Wall_Light_Interior\\Paris_Wall_Light_Interior.png",
-  "grouping_mode": "nameonly",
-  "merged_fine_asset_count": 6,
-  "merged_from_asset_names": [
-    "Paris_Wall_Light_Interior_01",
-    "Paris_Wall_Light_Interior_02",
-    "Paris_Wall_Light_Interior_03",
-    "Paris_Wall_Light_Interior_04",
-    "Paris_Wall_Light_Interior_05",
-    "Paris_Wall_Light_Interior_06"
-  ],
-  "merged_from_asset_keys": [
-    "Bistro_Research_Interior_Paris_Wall_Light_Interior_01",
-    "Bistro_Research_Interior_Paris_Wall_Light_Interior_02",
-    "Bistro_Research_Interior_Paris_Wall_Light_Interior_03",
-    "Bistro_Research_Interior_Paris_Wall_Light_Interior_04",
-    "Bistro_Research_Interior_Paris_Wall_Light_Interior_05",
-    "Bistro_Research_Interior_Paris_Wall_Light_Interior_06"
-  ],
-  "selected_from_fine_asset_name": "Paris_Wall_Light_Interior_01",
-  "selected_from_fine_export_name": "Paris_Wall_Light_Interior_01"
+  }
 }

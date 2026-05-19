@@ -20,7 +20,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "clean": False,
     },
     "assets": {
-        "manifest": "data/assets/manifest.json",
+        "catalog": "data/catalogs/bistro.v1.json",
     },
     "bistro": {
         "base_dir": "data/scene",
@@ -80,7 +80,8 @@ CLI_OVERRIDE_MAP: dict[str, tuple[str, ...]] = {
     "output_dir": ("pipeline", "output_dir"),
     "run_name": ("pipeline", "run_name"),
     "clean": ("pipeline", "clean"),
-    "asset_manifest": ("assets", "manifest"),
+    "asset_manifest": ("assets", "catalog"),
+    "asset_catalog": ("assets", "catalog"),
     "bistro_base_dir": ("bistro", "base_dir"),
     "min_tables": ("placement", "min_tables"),
     "max_tables": ("placement", "max_tables"),
@@ -222,7 +223,10 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     normalized["runtime"]["config_path"] = str(config_path.resolve())
 
     normalized["pipeline"]["output_dir"] = str(resolve_path(repo_root, normalized["pipeline"]["output_dir"]))
-    normalized["assets"]["manifest"] = str(resolve_path(repo_root, normalized["assets"]["manifest"]))
+    assets = normalized.setdefault("assets", {})
+    catalog_value = assets.get("catalog") or assets.get("manifest") or DEFAULT_CONFIG["assets"]["catalog"]
+    assets["catalog"] = str(resolve_path(repo_root, catalog_value))
+    assets["manifest"] = assets["catalog"]
     normalized["bistro"]["base_dir"] = str(resolve_path(repo_root, normalized["bistro"]["base_dir"]))
 
     normalized["pipeline"]["mode"] = str(normalized["pipeline"]["mode"])
@@ -306,7 +310,8 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         output_dir=Path(pipeline["output_dir"]),
         run_name=pipeline["run_name"],
         clean=pipeline["clean"],
-        asset_manifest=Path(assets["manifest"]),
+        asset_catalog=Path(assets["catalog"]),
+        asset_manifest=Path(assets["catalog"]),
         bistro_base_dir=Path(bistro["base_dir"]),
         forbidden_xy_rects=parse_forbidden_rects(bistro.get("forbidden_xy_rects")),
         min_tables=placement["min_tables"],

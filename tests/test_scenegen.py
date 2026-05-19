@@ -6,11 +6,17 @@ from pathlib import Path
 import pytest
 import yaml
 
-from scenegen.assets import group_assets_by_class, load_assets, resolve_obj_file
+from scenegen.assets import AssetSpec, group_assets_by_class, legacy_item_to_spec, load_assets, resolve_obj_file
 from scenegen.cli import main, parse_args
 from scenegen.config import load_effective_config
 from scenegen.geometry import load_bistro_base_scene
-from scenegen.paths import default_asset_manifest, default_bistro_base_dir, default_config_path, find_project_root
+from scenegen.paths import (
+    default_asset_catalog,
+    default_asset_manifest,
+    default_bistro_base_dir,
+    default_config_path,
+    find_project_root,
+)
 
 
 def iter_json_strings(value: object) -> list[str]:
@@ -33,29 +39,89 @@ def test_default_paths_point_to_packaged_data() -> None:
     root = find_project_root()
 
     assert default_bistro_base_dir(root) == root / "data" / "scene"
+    assert default_asset_catalog(root) == root / "data" / "catalogs" / "bistro.v1.json"
     assert default_asset_manifest(root) == root / "data" / "assets" / "manifest.json"
     assert default_config_path(root) == root / "config" / "default.yaml"
     assert (default_bistro_base_dir(root) / "scene.obj").is_file()
+    assert default_asset_catalog(root).is_file()
     assert default_asset_manifest(root).is_file()
     assert default_config_path(root).is_file()
 
 
-def test_manifest_windows_obj_paths_resolve_to_local_assets() -> None:
-    manifest = default_asset_manifest()
-    payload = json.loads(manifest.read_text(encoding="utf-8"))
+def legacy_table_fixture() -> dict[str, object]:
+    return {
+        "asset_name": "Paris_Table_02A",
+        "export_name": "Paris_Table_02A",
+        "obj_file": r"C:\old_project\Paris_Table_02A.obj",
+        "dimensions": {"width_x": 0.88, "length_y": 0.88, "height_z": 0.74},
+        "bounds": {"min": [-0.44, -0.44, 0.0], "max": [0.44, 0.44, 0.74]},
+        "units": "meter",
+        "coordinate_system": {"right_axis": "+X", "forward_axis": "+Y", "up_axis": "+Z"},
+        "normalization": {"grounding_policy": "lowest point moved to z=0", "applied_z_rotation_radians": 0.0},
+        "sionna_material_names": ["itu-wood"],
+        "sionna_material_mappings": [
+            {
+                "source_material": "wood",
+                "sionna_material_name": "itu-wood",
+                "itu_type": "wood",
+                "confidence": "high",
+            }
+        ],
+    }
 
-    obj_file = resolve_obj_file(payload[0], manifest)
+
+def test_clean_catalog_schema_and_asset_json_sync() -> None:
+    root = find_project_root()
+    catalog = json.loads(default_asset_catalog(root).read_text(encoding="utf-8"))
+    manifest = json.loads(default_asset_manifest(root).read_text(encoding="utf-8"))
+
+    assert catalog == manifest
+    assert len(catalog) == 72
+    assert len({item["id"] for item in catalog}) == 72
+    for item in catalog:
+        AssetSpec.from_mapping(item)
+        asset_json = root / "data" / "assets" / item["id"] / f"{item['id']}.json"
+        assert json.loads(asset_json.read_text(encoding="utf-8")) == item
+
+
+def test_catalog_paths_are_repo_relative() -> None:
+    root = find_project_root()
+    catalog = json.loads(default_asset_catalog(root).read_text(encoding="utf-8"))
+
+    for item in catalog:
+        for path_value in item["files"].values():
+            if path_value:
+                assert not Path(path_value).is_absolute()
+                assert "\\" not in path_value
+
+
+def test_legacy_windows_obj_paths_resolve_to_local_assets() -> None:
+    manifest = default_asset_manifest()
+    item = legacy_table_fixture()
+
+    obj_file = resolve_obj_file(item, manifest)
 
     assert obj_file.is_file()
     assert "data/assets" in obj_file.as_posix()
 
 
-def test_asset_pool_has_required_classes() -> None:
-    assets = load_assets(default_asset_manifest())
-    grouped = group_assets_by_class(assets)
+def test_legacy_manifest_item_converts_to_clean_contract() -> None:
+    spec = legacy_item_to_spec(legacy_table_fixture(), default_asset_manifest())
 
-    assert len(assets) >= 40
-    assert all(grouped[name] for name in ("table", "seat", "tabletop", "floor"))
+    assert spec["schema_version"] == "1.0"
+    assert spec["files"]["obj"] == "data/assets/Paris_Table_02A/Paris_Table_02A.obj"
+    assert spec["placement"]["class"] == "table"
+    assert "obj_file" not in spec
+    assert "source_scene" not in spec
+
+
+def test_asset_pool_has_required_classes() -> None:
+    assets = load_assets(default_asset_catalog())
+    grouped = group_assets_by_class(assets)
+    class_counts = {name: len(grouped[name]) for name in ("table", "seat", "tabletop", "floor")}
+
+    assert len(assets) == 45
+    assert class_counts == {"table": 2, "seat": 2, "tabletop": 32, "floor": 9}
 
 
 def test_bistro_base_scene_detection() -> None:
@@ -73,6 +139,7 @@ def test_partial_config_inherits_default_bistro_forbidden_zones() -> None:
     effective, _overrides = load_effective_config(root / "config" / "sparse.yaml", root, parse_args([]))
 
     assert effective["pipeline"]["run_name"] == "sparse"
+    assert effective["assets"]["catalog"].endswith("data/catalogs/bistro.v1.json")
     assert effective["bistro"]["forbidden_xy_rects"] == [[1.0, 11.0, 4.5, 16.0], [8.0, 8.0, 14.0, 10.0]]
     assert effective["floorplan"]["semantic_enabled"] is False
 
@@ -130,6 +197,7 @@ def test_generated_scene_outputs_and_sionna_load(tmp_path: Path) -> None:
         assert (scene_dir / filename).is_file()
     manifest = json.loads((output_dir / "smoke_generated" / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["sionna_validation_ok"] is True
+    assert manifest["asset_catalog"].endswith("data/catalogs/bistro.v1.json")
     assert manifest["quality_requested"] is True
     assert manifest["quality_ok"] is True
     assert manifest["statistics"]["scene_count"] == 1

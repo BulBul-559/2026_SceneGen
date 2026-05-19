@@ -1,80 +1,67 @@
 {
-  "asset_name": "Paris_Rubber_Bar_Mat",
-  "asset_key": "nameonly::Paris_Rubber_Bar_Mat",
+  "schema_version": "1.0",
+  "dataset": "bistro",
+  "id": "Paris_Rubber_Bar_Mat",
+  "name": "Paris_Rubber_Bar_Mat",
   "export_name": "Paris_Rubber_Bar_Mat",
-  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
-  "source_instance_count": 2,
-  "descriptor_variant_count": 2,
-  "representative_variant_count": 1,
-  "representative_source_node": "Bistro_Research_Interior_Paris_Rubber_Bar_Mat_02_3240",
-  "all_source_node_names": [
-    "Bistro_Research_Interior_Paris_Rubber_Bar_Mat_01_3238",
-    "Bistro_Research_Interior_Paris_Rubber_Bar_Mat_02_3240"
-  ],
-  "units": "meter",
-  "coordinate_system": {
-    "right_axis": "+X",
-    "forward_axis": "+Y",
-    "up_axis": "+Z"
+  "files": {
+    "obj": "data/assets/Paris_Rubber_Bar_Mat/Paris_Rubber_Bar_Mat.obj",
+    "preview": "data/assets/Paris_Rubber_Bar_Mat/Paris_Rubber_Bar_Mat.png"
+  },
+  "placement": {
+    "class": "skip",
+    "enabled": false,
+    "support": [],
+    "weight": 1.0
+  },
+  "geometry": {
+    "units": "meter",
+    "size": {
+      "x": 0.18792,
+      "y": 0.588074,
+      "z": 0.007973
+    },
+    "bbox": {
+      "min": [
+        -0.09396,
+        -0.294037,
+        0.0
+      ],
+      "max": [
+        0.09396,
+        0.294037,
+        0.007973
+      ]
+    }
   },
   "normalization": {
-    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
-    "grounding_policy": "lowest point moved to z=0",
-    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "coordinate_system": {
+      "right": "+X",
+      "forward": "+Y",
+      "up": "+Z"
+    },
+    "grounded": true,
+    "xy_origin": "bbox_center",
+    "orientation": "principal_horizontal_axis_to_+Y",
     "applied_z_rotation_radians": -2.06067625
   },
-  "dimensions": {
-    "width_x": 0.18792,
-    "length_y": 0.588074,
-    "height_z": 0.007973
-  },
-  "bounds": {
-    "min": [
-      -0.09396,
-      -0.294037,
-      0.0
+  "materials": {
+    "sionna": [
+      "itu-wood"
     ],
-    "max": [
-      0.09396,
-      0.294037,
-      0.007973
+    "source_to_sionna": [
+      {
+        "source": "Rubber_Bar_Mat_01",
+        "sionna": "itu-wood",
+        "itu_type": "wood",
+        "confidence": "medium"
+      },
+      {
+        "source": "Plastic_01",
+        "sionna": "itu-wood",
+        "itu_type": "wood",
+        "confidence": "medium"
+      }
     ]
-  },
-  "source_material_names": [
-    "Rubber_Bar_Mat_01",
-    "Plastic_01"
-  ],
-  "sionna_material_mappings": [
-    {
-      "source_material": "Rubber_Bar_Mat_01",
-      "itu_type": "wood",
-      "sionna_material_name": "itu-wood",
-      "confidence": "medium",
-      "reason": "generic interior object dielectric approximation"
-    },
-    {
-      "source_material": "Plastic_01",
-      "itu_type": "wood",
-      "sionna_material_name": "itu-wood",
-      "confidence": "medium",
-      "reason": "generic interior object dielectric approximation"
-    }
-  ],
-  "sionna_material_names": [
-    "itu-wood"
-  ],
-  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Rubber_Bar_Mat\\Paris_Rubber_Bar_Mat.obj",
-  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Rubber_Bar_Mat\\Paris_Rubber_Bar_Mat.png",
-  "grouping_mode": "nameonly",
-  "merged_fine_asset_count": 2,
-  "merged_from_asset_names": [
-    "Paris_Rubber_Bar_Mat_01",
-    "Paris_Rubber_Bar_Mat_02"
-  ],
-  "merged_from_asset_keys": [
-    "Bistro_Research_Interior_Paris_Rubber_Bar_Mat_01",
-    "Bistro_Research_Interior_Paris_Rubber_Bar_Mat_02"
-  ],
-  "selected_from_fine_asset_name": "Paris_Rubber_Bar_Mat_02",
-  "selected_from_fine_export_name": "Paris_Rubber_Bar_Mat_02"
+  }
 }

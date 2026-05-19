@@ -1,106 +1,63 @@
 {
-  "asset_name": "Paris_Chair",
-  "asset_key": "nameonly::Paris_Chair",
+  "schema_version": "1.0",
+  "dataset": "bistro",
+  "id": "Paris_Chair",
+  "name": "Paris_Chair",
   "export_name": "Paris_Chair",
-  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
-  "source_instance_count": 32,
-  "descriptor_variant_count": 4,
-  "representative_variant_count": 1,
-  "representative_source_node": "Bistro_Research_Interior_Paris_Chair_02__2380",
-  "all_source_node_names": [
-    "Bistro_Research_Interior_Paris_Chair_02_2372",
-    "Bistro_Research_Interior_Paris_Chair_02__2374",
-    "Bistro_Research_Interior_Paris_Chair_02__2376",
-    "Bistro_Research_Interior_Paris_Chair_02__2378",
-    "Bistro_Research_Interior_Paris_Chair_02__2380",
-    "Bistro_Research_Interior_Paris_Chair_02__2382",
-    "Bistro_Research_Interior_Paris_Chair_02__2384",
-    "Bistro_Research_Interior_Paris_Chair_02__2386",
-    "Bistro_Research_Interior_Paris_Chair_02__2388",
-    "Bistro_Research_Interior_Paris_Chair_02__2390",
-    "Bistro_Research_Interior_Paris_Chair_03_2392",
-    "Bistro_Research_Interior_Paris_Chair_03__2394",
-    "Bistro_Research_Interior_Paris_Chair_03__2396",
-    "Bistro_Research_Interior_Paris_Chair_03__2398",
-    "Bistro_Research_Interior_Paris_Chair_03__2400",
-    "Bistro_Research_Interior_Paris_Chair_03__2402",
-    "Bistro_Research_Interior_Paris_Chair_04_2404",
-    "Bistro_Research_Interior_Paris_Chair_04__2406",
-    "Bistro_Research_Interior_Paris_Chair_04__2408",
-    "Bistro_Research_Interior_Paris_Chair_04__2410",
-    "Bistro_Research_Interior_Paris_Chair_04__2412",
-    "Bistro_Research_Interior_Paris_Chair_04__2414",
-    "Bistro_Research_Interior_Paris_Chair_05_2416",
-    "Bistro_Research_Interior_Paris_Chair_05__2418",
-    "Bistro_Research_Interior_Paris_Chair_05__2420",
-    "Bistro_Research_Interior_Paris_Chair_05__2422",
-    "Bistro_Research_Interior_Paris_Chair_05__2424",
-    "Bistro_Research_Interior_Paris_Chair_05__2426",
-    "Bistro_Research_Interior_Paris_Chair_05__2428",
-    "Bistro_Research_Interior_Paris_Chair_05__2430",
-    "Bistro_Research_Interior_Paris_Chair_05__2432",
-    "Bistro_Research_Interior_Paris_Chair_05__2434"
-  ],
-  "units": "meter",
-  "coordinate_system": {
-    "right_axis": "+X",
-    "forward_axis": "+Y",
-    "up_axis": "+Z"
+  "files": {
+    "obj": "data/assets/Paris_Chair/Paris_Chair.obj",
+    "preview": "data/assets/Paris_Chair/Paris_Chair.png"
+  },
+  "placement": {
+    "class": "seat",
+    "enabled": true,
+    "support": [
+      "floor"
+    ],
+    "weight": 1.0
+  },
+  "geometry": {
+    "units": "meter",
+    "size": {
+      "x": 0.602871,
+      "y": 0.608111,
+      "z": 1.160301
+    },
+    "bbox": {
+      "min": [
+        -0.301435,
+        -0.304056,
+        0.0
+      ],
+      "max": [
+        0.301435,
+        0.304056,
+        1.160301
+      ]
+    }
   },
   "normalization": {
-    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
-    "grounding_policy": "lowest point moved to z=0",
-    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "coordinate_system": {
+      "right": "+X",
+      "forward": "+Y",
+      "up": "+Z"
+    },
+    "grounded": true,
+    "xy_origin": "bbox_center",
+    "orientation": "principal_horizontal_axis_to_+Y",
     "applied_z_rotation_radians": -0.45540658
   },
-  "dimensions": {
-    "width_x": 0.602871,
-    "length_y": 0.608111,
-    "height_z": 1.160301
-  },
-  "bounds": {
-    "min": [
-      -0.301435,
-      -0.304056,
-      0.0
+  "materials": {
+    "sionna": [
+      "itu-wood"
     ],
-    "max": [
-      0.301435,
-      0.304056,
-      1.160301
+    "source_to_sionna": [
+      {
+        "source": "Paris_Table_03",
+        "sionna": "itu-wood",
+        "itu_type": "wood",
+        "confidence": "medium"
+      }
     ]
-  },
-  "source_material_names": [
-    "Paris_Table_03"
-  ],
-  "sionna_material_mappings": [
-    {
-      "source_material": "Paris_Table_03",
-      "itu_type": "wood",
-      "sionna_material_name": "itu-wood",
-      "confidence": "medium",
-      "reason": "generic interior object dielectric approximation"
-    }
-  ],
-  "sionna_material_names": [
-    "itu-wood"
-  ],
-  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Chair\\Paris_Chair.obj",
-  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Chair\\Paris_Chair.png",
-  "grouping_mode": "nameonly",
-  "merged_fine_asset_count": 4,
-  "merged_from_asset_names": [
-    "Paris_Chair_02",
-    "Paris_Chair_03",
-    "Paris_Chair_04",
-    "Paris_Chair_05"
-  ],
-  "merged_from_asset_keys": [
-    "Bistro_Research_Interior_Paris_Chair_02",
-    "Bistro_Research_Interior_Paris_Chair_03",
-    "Bistro_Research_Interior_Paris_Chair_04",
-    "Bistro_Research_Interior_Paris_Chair_05"
-  ],
-  "selected_from_fine_asset_name": "Paris_Chair_02",
-  "selected_from_fine_export_name": "Paris_Chair_02"
+  }
 }

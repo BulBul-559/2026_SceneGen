@@ -1,117 +1,61 @@
 {
-  "asset_name": "Paris_Building_01_paris_building_01_bottom",
-  "asset_key": "nameonly::Paris_Building_01_paris_building_01_bottom",
+  "schema_version": "1.0",
+  "dataset": "bistro",
+  "id": "Paris_Building_01_paris_building_01_bottom",
+  "name": "Paris_Building_01_paris_building_01_bottom",
   "export_name": "Paris_Building_01_paris_building_01_bottom",
-  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
-  "source_instance_count": 49,
-  "descriptor_variant_count": 1,
-  "representative_variant_count": 1,
-  "representative_source_node": "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_110",
-  "all_source_node_names": [
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_42",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_70",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_79",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_86",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_90",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_92",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_94",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_95",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_97",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_113",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_121",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_125",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_126",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_127",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_130",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_138",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_139",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_140",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_141",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_143",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_144",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_146",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_151",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_152",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_40",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_89",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_99",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_105",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_155",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_156",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_128",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_157",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_88",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_102",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_71",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_62",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_80",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_78",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_101",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_77",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_85",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_119",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_110",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_81",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_142",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_82",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_129",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_87",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_120"
-  ],
-  "units": "meter",
-  "coordinate_system": {
-    "right_axis": "+X",
-    "forward_axis": "+Y",
-    "up_axis": "+Z"
+  "files": {
+    "obj": "data/assets/Paris_Building_01_paris_building_01_bottom/Paris_Building_01_paris_building_01_bottom.obj",
+    "preview": "data/assets/Paris_Building_01_paris_building_01_bottom/Paris_Building_01_paris_building_01_bottom.png"
+  },
+  "placement": {
+    "class": "skip",
+    "enabled": false,
+    "support": [],
+    "weight": 1.0
+  },
+  "geometry": {
+    "units": "meter",
+    "size": {
+      "x": 0.118564,
+      "y": 2.463497,
+      "z": 0.554632
+    },
+    "bbox": {
+      "min": [
+        -0.059282,
+        -1.231749,
+        0.0
+      ],
+      "max": [
+        0.059282,
+        1.231749,
+        0.554632
+      ]
+    }
   },
   "normalization": {
-    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
-    "grounding_policy": "lowest point moved to z=0",
-    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "coordinate_system": {
+      "right": "+X",
+      "forward": "+Y",
+      "up": "+Z"
+    },
+    "grounded": true,
+    "xy_origin": "bbox_center",
+    "orientation": "principal_horizontal_axis_to_+Y",
     "applied_z_rotation_radians": 2.64698021
   },
-  "dimensions": {
-    "width_x": 0.118564,
-    "length_y": 2.463497,
-    "height_z": 0.554632
-  },
-  "bounds": {
-    "min": [
-      -0.059282,
-      -1.231749,
-      0.0
+  "materials": {
+    "sionna": [
+      "itu-wood"
     ],
-    "max": [
-      0.059282,
-      1.231749,
-      0.554632
+    "source_to_sionna": [
+      {
+        "source": "MASTER_Wood_Painted3",
+        "sionna": "itu-wood",
+        "itu_type": "wood",
+        "confidence": "medium"
+      }
     ]
-  },
-  "source_material_names": [
-    "MASTER_Wood_Painted3"
-  ],
-  "sionna_material_mappings": [
-    {
-      "source_material": "MASTER_Wood_Painted3",
-      "itu_type": "wood",
-      "sionna_material_name": "itu-wood",
-      "confidence": "medium",
-      "reason": "generic interior object dielectric approximation"
-    }
-  ],
-  "sionna_material_names": [
-    "itu-wood"
-  ],
-  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Building_01_paris_building_01_bottom\\Paris_Building_01_paris_building_01_bottom.obj",
-  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Building_01_paris_building_01_bottom\\Paris_Building_01_paris_building_01_bottom.png",
-  "grouping_mode": "nameonly",
-  "merged_fine_asset_count": 1,
-  "merged_from_asset_names": [
-    "Paris_Building_01_paris_building_01_bottom"
-  ],
-  "merged_from_asset_keys": [
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom"
-  ],
-  "selected_from_fine_asset_name": "Paris_Building_01_paris_building_01_bottom",
-  "selected_from_fine_export_name": "Paris_Building_01_paris_building_01_bottom"
+  }
 }

@@ -1,71 +1,61 @@
 {
-  "asset_name": "Paris_Building_01_paris_building",
-  "asset_key": "nameonly::Paris_Building_01_paris_building",
+  "schema_version": "1.0",
+  "dataset": "bistro",
+  "id": "Paris_Building_01_paris_building",
+  "name": "Paris_Building_01_paris_building",
   "export_name": "Paris_Building_01_paris_building",
-  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
-  "source_instance_count": 3,
-  "descriptor_variant_count": 1,
-  "representative_variant_count": 1,
-  "representative_source_node": "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_3",
-  "all_source_node_names": [
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_3",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_4",
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01_5"
-  ],
-  "units": "meter",
-  "coordinate_system": {
-    "right_axis": "+X",
-    "forward_axis": "+Y",
-    "up_axis": "+Z"
+  "files": {
+    "obj": "data/assets/Paris_Building_01_paris_building/Paris_Building_01_paris_building.obj",
+    "preview": "data/assets/Paris_Building_01_paris_building/Paris_Building_01_paris_building.png"
+  },
+  "placement": {
+    "class": "skip",
+    "enabled": false,
+    "support": [],
+    "weight": 1.0
+  },
+  "geometry": {
+    "units": "meter",
+    "size": {
+      "x": 3.020269,
+      "y": 9.097209,
+      "z": 3.24432
+    },
+    "bbox": {
+      "min": [
+        -1.510135,
+        -4.548605,
+        0.0
+      ],
+      "max": [
+        1.510135,
+        4.548605,
+        3.24432
+      ]
+    }
   },
   "normalization": {
-    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
-    "grounding_policy": "lowest point moved to z=0",
-    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "coordinate_system": {
+      "right": "+X",
+      "forward": "+Y",
+      "up": "+Z"
+    },
+    "grounded": true,
+    "xy_origin": "bbox_center",
+    "orientation": "principal_horizontal_axis_to_+Y",
     "applied_z_rotation_radians": 3.57087864
   },
-  "dimensions": {
-    "width_x": 3.020269,
-    "length_y": 9.097209,
-    "height_z": 3.24432
-  },
-  "bounds": {
-    "min": [
-      -1.510135,
-      -4.548605,
-      0.0
+  "materials": {
+    "sionna": [
+      "itu-concrete"
     ],
-    "max": [
-      1.510135,
-      4.548605,
-      3.24432
+    "source_to_sionna": [
+      {
+        "source": "MASTER_Concrete_Yellow",
+        "sionna": "itu-concrete",
+        "itu_type": "concrete",
+        "confidence": "high"
+      }
     ]
-  },
-  "source_material_names": [
-    "MASTER_Concrete_Yellow"
-  ],
-  "sionna_material_mappings": [
-    {
-      "source_material": "MASTER_Concrete_Yellow",
-      "itu_type": "concrete",
-      "sionna_material_name": "itu-concrete",
-      "confidence": "high",
-      "reason": "direct concrete keyword match"
-    }
-  ],
-  "sionna_material_names": [
-    "itu-concrete"
-  ],
-  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Building_01_paris_building\\Paris_Building_01_paris_building.obj",
-  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Building_01_paris_building\\Paris_Building_01_paris_building.png",
-  "grouping_mode": "nameonly",
-  "merged_fine_asset_count": 1,
-  "merged_from_asset_names": [
-    "Paris_Building_01_paris_building_01"
-  ],
-  "merged_from_asset_keys": [
-    "Bistro_Research_Exterior_Paris_Building_01_paris_building_01"
-  ],
-  "selected_from_fine_asset_name": "Paris_Building_01_paris_building_01",
-  "selected_from_fine_export_name": "Paris_Building_01_paris_building_01"
+  }
 }

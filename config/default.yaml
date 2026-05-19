@@ -7,7 +7,7 @@ pipeline:
   clean: false
 
 assets:
-  manifest: data/assets/manifest.json
+  catalog: data/catalogs/bistro.v1.json
 
 bistro:
   base_dir: data/scene

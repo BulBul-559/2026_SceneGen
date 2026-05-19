@@ -1,144 +1,64 @@
 {
-  "asset_name": "Glass_Water",
-  "asset_key": "nameonly::Glass_Water",
+  "schema_version": "1.0",
+  "dataset": "bistro",
+  "id": "Glass_Water",
+  "name": "Glass_Water",
   "export_name": "Glass_Water",
-  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
-  "source_instance_count": 68,
-  "descriptor_variant_count": 5,
-  "representative_variant_count": 1,
-  "representative_source_node": "Bistro_Research_Interior_Glass_Water_1626",
-  "all_source_node_names": [
-    "Bistro_Research_Interior_Glass_Water_1618",
-    "Bistro_Research_Interior_Glass_Water_1620",
-    "Bistro_Research_Interior_Glass_Water_1622",
-    "Bistro_Research_Interior_Glass_Water_1624",
-    "Bistro_Research_Interior_Glass_Water_1626",
-    "Bistro_Research_Interior_Glass_Water_1628",
-    "Bistro_Research_Interior_Glass_Water_1630",
-    "Bistro_Research_Interior_Glass_Water_1632",
-    "Bistro_Research_Interior_Glass_Water_1634",
-    "Bistro_Research_Interior_Glass_Water_1636",
-    "Bistro_Research_Interior_Glass_Water_1638",
-    "Bistro_Research_Interior_Glass_Water_1640",
-    "Bistro_Research_Interior_Glass_Water_1642",
-    "Bistro_Research_Interior_Glass_Water_1644",
-    "Bistro_Research_Interior_Glass_Water_1646",
-    "Bistro_Research_Interior_Glass_Water_1648",
-    "Bistro_Research_Interior_Glass_Water_1650",
-    "Bistro_Research_Interior_Glass_Water_1652",
-    "Bistro_Research_Interior_Glass_Water_1654",
-    "Bistro_Research_Interior_Glass_Water_1656",
-    "Bistro_Research_Interior_Glass_Water_1658",
-    "Bistro_Research_Interior_Glass_Water_1660",
-    "Bistro_Research_Interior_Glass_Water_1662",
-    "Bistro_Research_Interior_Glass_Water_1664",
-    "Bistro_Research_Interior_Glass_Water_1666",
-    "Bistro_Research_Interior_Glass_Water_1668",
-    "Bistro_Research_Interior_Glass_Water_1670",
-    "Bistro_Research_Interior_Glass_Water_1672",
-    "Bistro_Research_Interior_Glass_Water_1674",
-    "Bistro_Research_Interior_Glass_Water_1676",
-    "Bistro_Research_Interior_Glass_Water_1678",
-    "Bistro_Research_Interior_Glass_Water_1680",
-    "Bistro_Research_Interior_Glass_Water_1682",
-    "Bistro_Research_Interior_Glass_Water_1684",
-    "Bistro_Research_Interior_Glass_Water_1686",
-    "Bistro_Research_Interior_Glass_Water_1688",
-    "Bistro_Research_Interior_Glass_Water_1__1690",
-    "Bistro_Research_Interior_Glass_Water_1__1692",
-    "Bistro_Research_Interior_Glass_Water_1__1694",
-    "Bistro_Research_Interior_Glass_Water_1__1696",
-    "Bistro_Research_Interior_Glass_Water_1__1698",
-    "Bistro_Research_Interior_Glass_Water_1__1700",
-    "Bistro_Research_Interior_Glass_Water_1__1702",
-    "Bistro_Research_Interior_Glass_Water_1__1704",
-    "Bistro_Research_Interior_Glass_Water_1__1706",
-    "Bistro_Research_Interior_Glass_Water_1__1708",
-    "Bistro_Research_Interior_Glass_Water_2__1710",
-    "Bistro_Research_Interior_Glass_Water_2__1712",
-    "Bistro_Research_Interior_Glass_Water_2__1714",
-    "Bistro_Research_Interior_Glass_Water_2__1716",
-    "Bistro_Research_Interior_Glass_Water_2__1718",
-    "Bistro_Research_Interior_Glass_Water_2__1720",
-    "Bistro_Research_Interior_Glass_Water_2__1722",
-    "Bistro_Research_Interior_Glass_Water_2__1724",
-    "Bistro_Research_Interior_Glass_Water_2__1726",
-    "Bistro_Research_Interior_Glass_Water_2__1728",
-    "Bistro_Research_Interior_Glass_Water_3__1730",
-    "Bistro_Research_Interior_Glass_Water_3__1732",
-    "Bistro_Research_Interior_Glass_Water_3__1734",
-    "Bistro_Research_Interior_Glass_Water_3__1736",
-    "Bistro_Research_Interior_Glass_Water_3__1738",
-    "Bistro_Research_Interior_Glass_Water_3__1740",
-    "Bistro_Research_Interior_Glass_Water_4__1742",
-    "Bistro_Research_Interior_Glass_Water_4__1744",
-    "Bistro_Research_Interior_Glass_Water_4__1746",
-    "Bistro_Research_Interior_Glass_Water_4__1748",
-    "Bistro_Research_Interior_Glass_Water_4__1750",
-    "Bistro_Research_Interior_Glass_Water_4__1752"
-  ],
-  "units": "meter",
-  "coordinate_system": {
-    "right_axis": "+X",
-    "forward_axis": "+Y",
-    "up_axis": "+Z"
+  "files": {
+    "obj": "data/assets/Glass_Water/Glass_Water.obj",
+    "preview": "data/assets/Glass_Water/Glass_Water.png"
+  },
+  "placement": {
+    "class": "tabletop",
+    "enabled": true,
+    "support": [
+      "table",
+      "counter"
+    ],
+    "weight": 1.0
+  },
+  "geometry": {
+    "units": "meter",
+    "size": {
+      "x": 0.076641,
+      "y": 0.07668,
+      "z": 0.082031
+    },
+    "bbox": {
+      "min": [
+        -0.03832,
+        -0.03834,
+        0.0
+      ],
+      "max": [
+        0.03832,
+        0.03834,
+        0.082031
+      ]
+    }
   },
   "normalization": {
-    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
-    "grounding_policy": "lowest point moved to z=0",
-    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "coordinate_system": {
+      "right": "+X",
+      "forward": "+Y",
+      "up": "+Z"
+    },
+    "grounded": true,
+    "xy_origin": "bbox_center",
+    "orientation": "principal_horizontal_axis_to_+Y",
     "applied_z_rotation_radians": 3.14159265
   },
-  "dimensions": {
-    "width_x": 0.076641,
-    "length_y": 0.07668,
-    "height_z": 0.082031
-  },
-  "bounds": {
-    "min": [
-      -0.03832,
-      -0.03834,
-      0.0
+  "materials": {
+    "sionna": [
+      "itu-glass"
     ],
-    "max": [
-      0.03832,
-      0.03834,
-      0.082031
+    "source_to_sionna": [
+      {
+        "source": "TransparentGlass.DoubleSided",
+        "sionna": "itu-glass",
+        "itu_type": "glass",
+        "confidence": "high"
+      }
     ]
-  },
-  "source_material_names": [
-    "TransparentGlass.DoubleSided"
-  ],
-  "sionna_material_mappings": [
-    {
-      "source_material": "TransparentGlass.DoubleSided",
-      "itu_type": "glass",
-      "sionna_material_name": "itu-glass",
-      "confidence": "high",
-      "reason": "direct glass-related keyword match"
-    }
-  ],
-  "sionna_material_names": [
-    "itu-glass"
-  ],
-  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Glass_Water\\Glass_Water.obj",
-  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Glass_Water\\Glass_Water.png",
-  "grouping_mode": "nameonly",
-  "merged_fine_asset_count": 5,
-  "merged_from_asset_names": [
-    "Glass_Water",
-    "Glass_Water_1",
-    "Glass_Water_2",
-    "Glass_Water_3",
-    "Glass_Water_4"
-  ],
-  "merged_from_asset_keys": [
-    "Bistro_Research_Interior_Glass_Water",
-    "Bistro_Research_Interior_Glass_Water_1",
-    "Bistro_Research_Interior_Glass_Water_2",
-    "Bistro_Research_Interior_Glass_Water_3",
-    "Bistro_Research_Interior_Glass_Water_4"
-  ],
-  "selected_from_fine_asset_name": "Glass_Water",
-  "selected_from_fine_export_name": "Glass_Water"
+  }
 }

@@ -1,108 +1,64 @@
 {
-  "asset_name": "Coasters_paris_coasters_01_a",
-  "asset_key": "nameonly::Coasters_paris_coasters_01_a",
+  "schema_version": "1.0",
+  "dataset": "bistro",
+  "id": "Coasters_paris_coasters_01_a",
+  "name": "Coasters_paris_coasters_01_a",
   "export_name": "Coasters_paris_coasters_01_a",
-  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
-  "source_instance_count": 14,
-  "descriptor_variant_count": 14,
-  "representative_variant_count": 1,
-  "representative_source_node": "Bistro_Research_Interior_Coasters_paris_coasters_01_a8_1162",
-  "all_source_node_names": [
-    "Bistro_Research_Interior_Coasters_paris_coasters_01_a10_1136",
-    "Bistro_Research_Interior_Coasters_paris_coasters_01_a16_1138",
-    "Bistro_Research_Interior_Coasters_paris_coasters_01_a17_1140",
-    "Bistro_Research_Interior_Coasters_paris_coasters_01_a18_1142",
-    "Bistro_Research_Interior_Coasters_paris_coasters_01_a19_1144",
-    "Bistro_Research_Interior_Coasters_paris_coasters_01_a2_1146",
-    "Bistro_Research_Interior_Coasters_paris_coasters_01_a21_1148",
-    "Bistro_Research_Interior_Coasters_paris_coasters_01_a22_1150",
-    "Bistro_Research_Interior_Coasters_paris_coasters_01_a23_1152",
-    "Bistro_Research_Interior_Coasters_paris_coasters_01_a3_1154",
-    "Bistro_Research_Interior_Coasters_paris_coasters_01_a5_1156",
-    "Bistro_Research_Interior_Coasters_paris_coasters_01_a6_1158",
-    "Bistro_Research_Interior_Coasters_paris_coasters_01_a7_1160",
-    "Bistro_Research_Interior_Coasters_paris_coasters_01_a8_1162"
-  ],
-  "units": "meter",
-  "coordinate_system": {
-    "right_axis": "+X",
-    "forward_axis": "+Y",
-    "up_axis": "+Z"
+  "files": {
+    "obj": "data/assets/Coasters_paris_coasters_01_a/Coasters_paris_coasters_01_a.obj",
+    "preview": "data/assets/Coasters_paris_coasters_01_a/Coasters_paris_coasters_01_a.png"
+  },
+  "placement": {
+    "class": "tabletop",
+    "enabled": true,
+    "support": [
+      "table",
+      "counter"
+    ],
+    "weight": 1.0
+  },
+  "geometry": {
+    "units": "meter",
+    "size": {
+      "x": 0.084805,
+      "y": 0.08543,
+      "z": 0.015535
+    },
+    "bbox": {
+      "min": [
+        -0.042402,
+        -0.042715,
+        0.0
+      ],
+      "max": [
+        0.042402,
+        0.042715,
+        0.015535
+      ]
+    }
   },
   "normalization": {
-    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
-    "grounding_policy": "lowest point moved to z=0",
-    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "coordinate_system": {
+      "right": "+X",
+      "forward": "+Y",
+      "up": "+Z"
+    },
+    "grounded": true,
+    "xy_origin": "bbox_center",
+    "orientation": "principal_horizontal_axis_to_+Y",
     "applied_z_rotation_radians": 0.0
   },
-  "dimensions": {
-    "width_x": 0.084805,
-    "length_y": 0.08543,
-    "height_z": 0.015535
-  },
-  "bounds": {
-    "min": [
-      -0.042402,
-      -0.042715,
-      0.0
+  "materials": {
+    "sionna": [
+      "itu-wood"
     ],
-    "max": [
-      0.042402,
-      0.042715,
-      0.015535
+    "source_to_sionna": [
+      {
+        "source": "Paris_Coasters_01",
+        "sionna": "itu-wood",
+        "itu_type": "wood",
+        "confidence": "low"
+      }
     ]
-  },
-  "source_material_names": [
-    "Paris_Coasters_01"
-  ],
-  "sionna_material_mappings": [
-    {
-      "source_material": "Paris_Coasters_01",
-      "itu_type": "wood",
-      "sionna_material_name": "itu-wood",
-      "confidence": "low",
-      "reason": "fallback to a generic indoor dielectric because no stronger heuristic matched"
-    }
-  ],
-  "sionna_material_names": [
-    "itu-wood"
-  ],
-  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Coasters_paris_coasters_01_a\\Coasters_paris_coasters_01_a.obj",
-  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Coasters_paris_coasters_01_a\\Coasters_paris_coasters_01_a.png",
-  "grouping_mode": "nameonly",
-  "merged_fine_asset_count": 14,
-  "merged_from_asset_names": [
-    "Coasters_paris_coasters_01_a10",
-    "Coasters_paris_coasters_01_a16",
-    "Coasters_paris_coasters_01_a17",
-    "Coasters_paris_coasters_01_a18",
-    "Coasters_paris_coasters_01_a19",
-    "Coasters_paris_coasters_01_a2",
-    "Coasters_paris_coasters_01_a21",
-    "Coasters_paris_coasters_01_a22",
-    "Coasters_paris_coasters_01_a23",
-    "Coasters_paris_coasters_01_a3",
-    "Coasters_paris_coasters_01_a5",
-    "Coasters_paris_coasters_01_a6",
-    "Coasters_paris_coasters_01_a7",
-    "Coasters_paris_coasters_01_a8"
-  ],
-  "merged_from_asset_keys": [
-    "Bistro_Research_Interior_Coasters_paris_coasters_01_a10",
-    "Bistro_Research_Interior_Coasters_paris_coasters_01_a16",
-    "Bistro_Research_Interior_Coasters_paris_coasters_01_a17",
-    "Bistro_Research_Interior_Coasters_paris_coasters_01_a18",
-    "Bistro_Research_Interior_Coasters_paris_coasters_01_a19",
-    "Bistro_Research_Interior_Coasters_paris_coasters_01_a2",
-    "Bistro_Research_Interior_Coasters_paris_coasters_01_a21",
-    "Bistro_Research_Interior_Coasters_paris_coasters_01_a22",
-    "Bistro_Research_Interior_Coasters_paris_coasters_01_a23",
-    "Bistro_Research_Interior_Coasters_paris_coasters_01_a3",
-    "Bistro_Research_Interior_Coasters_paris_coasters_01_a5",
-    "Bistro_Research_Interior_Coasters_paris_coasters_01_a6",
-    "Bistro_Research_Interior_Coasters_paris_coasters_01_a7",
-    "Bistro_Research_Interior_Coasters_paris_coasters_01_a8"
-  ],
-  "selected_from_fine_asset_name": "Coasters_paris_coasters_01_a8",
-  "selected_from_fine_export_name": "Coasters_paris_coasters_01_a8"
+  }
 }

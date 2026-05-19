@@ -1,87 +1,77 @@
 {
-  "asset_name": "CookieJar",
-  "asset_key": "nameonly::CookieJar",
+  "schema_version": "1.0",
+  "dataset": "bistro",
+  "id": "CookieJar",
+  "name": "CookieJar",
   "export_name": "CookieJar",
-  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
-  "source_instance_count": 2,
-  "descriptor_variant_count": 1,
-  "representative_variant_count": 1,
-  "representative_source_node": "Bistro_Research_Interior_CookieJar_1228",
-  "all_source_node_names": [
-    "Bistro_Research_Interior_CookieJar_1228",
-    "Bistro_Research_Interior_CookieJar__1230"
-  ],
-  "units": "meter",
-  "coordinate_system": {
-    "right_axis": "+X",
-    "forward_axis": "+Y",
-    "up_axis": "+Z"
+  "files": {
+    "obj": "data/assets/CookieJar/CookieJar.obj",
+    "preview": "data/assets/CookieJar/CookieJar.png"
+  },
+  "placement": {
+    "class": "tabletop",
+    "enabled": true,
+    "support": [
+      "table",
+      "counter"
+    ],
+    "weight": 1.0
+  },
+  "geometry": {
+    "units": "meter",
+    "size": {
+      "x": 0.20435,
+      "y": 0.216604,
+      "z": 0.318813
+    },
+    "bbox": {
+      "min": [
+        -0.102175,
+        -0.108302,
+        0.0
+      ],
+      "max": [
+        0.102175,
+        0.108302,
+        0.318813
+      ]
+    }
   },
   "normalization": {
-    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
-    "grounding_policy": "lowest point moved to z=0",
-    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "coordinate_system": {
+      "right": "+X",
+      "forward": "+Y",
+      "up": "+Z"
+    },
+    "grounded": true,
+    "xy_origin": "bbox_center",
+    "orientation": "principal_horizontal_axis_to_+Y",
     "applied_z_rotation_radians": 1.7871964
   },
-  "dimensions": {
-    "width_x": 0.20435,
-    "length_y": 0.216604,
-    "height_z": 0.318813
-  },
-  "bounds": {
-    "min": [
-      -0.102175,
-      -0.108302,
-      0.0
+  "materials": {
+    "sionna": [
+      "itu-metal",
+      "itu-wood"
     ],
-    "max": [
-      0.102175,
-      0.108302,
-      0.318813
+    "source_to_sionna": [
+      {
+        "source": "ToffeeJar_Metal",
+        "sionna": "itu-metal",
+        "itu_type": "metal",
+        "confidence": "high"
+      },
+      {
+        "source": "ToffeeJar_Label",
+        "sionna": "itu-wood",
+        "itu_type": "wood",
+        "confidence": "medium"
+      },
+      {
+        "source": "CookieJar_Cookies",
+        "sionna": "itu-wood",
+        "itu_type": "wood",
+        "confidence": "medium"
+      }
     ]
-  },
-  "source_material_names": [
-    "ToffeeJar_Metal",
-    "ToffeeJar_Label",
-    "CookieJar_Cookies"
-  ],
-  "sionna_material_mappings": [
-    {
-      "source_material": "ToffeeJar_Metal",
-      "itu_type": "metal",
-      "sionna_material_name": "itu-metal",
-      "confidence": "high",
-      "reason": "direct metal-related keyword match"
-    },
-    {
-      "source_material": "ToffeeJar_Label",
-      "itu_type": "wood",
-      "sionna_material_name": "itu-wood",
-      "confidence": "medium",
-      "reason": "generic interior object dielectric approximation"
-    },
-    {
-      "source_material": "CookieJar_Cookies",
-      "itu_type": "wood",
-      "sionna_material_name": "itu-wood",
-      "confidence": "medium",
-      "reason": "generic interior object dielectric approximation"
-    }
-  ],
-  "sionna_material_names": [
-    "itu-metal",
-    "itu-wood"
-  ],
-  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\CookieJar\\CookieJar.obj",
-  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\CookieJar\\CookieJar.png",
-  "grouping_mode": "nameonly",
-  "merged_fine_asset_count": 1,
-  "merged_from_asset_names": [
-    "CookieJar"
-  ],
-  "merged_from_asset_keys": [
-    "Bistro_Research_Interior_CookieJar"
-  ],
-  "selected_from_fine_asset_name": "CookieJar",
-  "selected_from_fine_export_name": "CookieJar"
+  }
 }

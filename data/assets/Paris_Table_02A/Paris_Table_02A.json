@@ -1,72 +1,63 @@
 {
-  "asset_name": "Paris_Table_02A",
-  "asset_key": "nameonly::Paris_Table_02A",
+  "schema_version": "1.0",
+  "dataset": "bistro",
+  "id": "Paris_Table_02A",
+  "name": "Paris_Table_02A",
   "export_name": "Paris_Table_02A",
-  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
-  "source_instance_count": 4,
-  "descriptor_variant_count": 1,
-  "representative_variant_count": 1,
-  "representative_source_node": "Bistro_Research_Interior_Paris_Table_02A_3242",
-  "all_source_node_names": [
-    "Bistro_Research_Interior_Paris_Table_02A_3242",
-    "Bistro_Research_Interior_Paris_Table_02A__3244",
-    "Bistro_Research_Interior_Paris_Table_02A__3246",
-    "Bistro_Research_Interior_Paris_Table_02A__3248"
-  ],
-  "units": "meter",
-  "coordinate_system": {
-    "right_axis": "+X",
-    "forward_axis": "+Y",
-    "up_axis": "+Z"
+  "files": {
+    "obj": "data/assets/Paris_Table_02A/Paris_Table_02A.obj",
+    "preview": "data/assets/Paris_Table_02A/Paris_Table_02A.png"
+  },
+  "placement": {
+    "class": "table",
+    "enabled": true,
+    "support": [
+      "floor"
+    ],
+    "weight": 1.0
+  },
+  "geometry": {
+    "units": "meter",
+    "size": {
+      "x": 0.793327,
+      "y": 1.006984,
+      "z": 0.843415
+    },
+    "bbox": {
+      "min": [
+        -0.396664,
+        -0.503492,
+        0.0
+      ],
+      "max": [
+        0.396664,
+        0.503492,
+        0.843415
+      ]
+    }
   },
   "normalization": {
-    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
-    "grounding_policy": "lowest point moved to z=0",
-    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "coordinate_system": {
+      "right": "+X",
+      "forward": "+Y",
+      "up": "+Z"
+    },
+    "grounded": true,
+    "xy_origin": "bbox_center",
+    "orientation": "principal_horizontal_axis_to_+Y",
     "applied_z_rotation_radians": -2.08148591
   },
-  "dimensions": {
-    "width_x": 0.793327,
-    "length_y": 1.006984,
-    "height_z": 0.843415
-  },
-  "bounds": {
-    "min": [
-      -0.396664,
-      -0.503492,
-      0.0
+  "materials": {
+    "sionna": [
+      "itu-wood"
     ],
-    "max": [
-      0.396664,
-      0.503492,
-      0.843415
+    "source_to_sionna": [
+      {
+        "source": "Paris_Table_03",
+        "sionna": "itu-wood",
+        "itu_type": "wood",
+        "confidence": "medium"
+      }
     ]
-  },
-  "source_material_names": [
-    "Paris_Table_03"
-  ],
-  "sionna_material_mappings": [
-    {
-      "source_material": "Paris_Table_03",
-      "itu_type": "wood",
-      "sionna_material_name": "itu-wood",
-      "confidence": "medium",
-      "reason": "generic interior object dielectric approximation"
-    }
-  ],
-  "sionna_material_names": [
-    "itu-wood"
-  ],
-  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Table_02A\\Paris_Table_02A.obj",
-  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Table_02A\\Paris_Table_02A.png",
-  "grouping_mode": "nameonly",
-  "merged_fine_asset_count": 1,
-  "merged_from_asset_names": [
-    "Paris_Table_02A"
-  ],
-  "merged_from_asset_keys": [
-    "Bistro_Research_Interior_Paris_Table_02A"
-  ],
-  "selected_from_fine_asset_name": "Paris_Table_02A",
-  "selected_from_fine_export_name": "Paris_Table_02A"
+  }
 }

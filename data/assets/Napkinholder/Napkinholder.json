@@ -1,120 +1,64 @@
 {
-  "asset_name": "Napkinholder",
-  "asset_key": "nameonly::Napkinholder",
+  "schema_version": "1.0",
+  "dataset": "bistro",
+  "id": "Napkinholder",
+  "name": "Napkinholder",
   "export_name": "Napkinholder",
-  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
-  "source_instance_count": 52,
-  "descriptor_variant_count": 1,
-  "representative_variant_count": 1,
-  "representative_source_node": "Bistro_Research_Interior_Napkinholder_2002",
-  "all_source_node_names": [
-    "Bistro_Research_Interior_Napkinholder_2000",
-    "Bistro_Research_Interior_Napkinholder_2002",
-    "Bistro_Research_Interior_Napkinholder_2004",
-    "Bistro_Research_Interior_Napkinholder_2006",
-    "Bistro_Research_Interior_Napkinholder_2008",
-    "Bistro_Research_Interior_Napkinholder_2010",
-    "Bistro_Research_Interior_Napkinholder_2012",
-    "Bistro_Research_Interior_Napkinholder_2014",
-    "Bistro_Research_Interior_Napkinholder_2016",
-    "Bistro_Research_Interior_Napkinholder_2018",
-    "Bistro_Research_Interior_Napkinholder_2020",
-    "Bistro_Research_Interior_Napkinholder_2022",
-    "Bistro_Research_Interior_Napkinholder_2024",
-    "Bistro_Research_Interior_Napkinholder_2026",
-    "Bistro_Research_Interior_Napkinholder_2028",
-    "Bistro_Research_Interior_Napkinholder_2030",
-    "Bistro_Research_Interior_Napkinholder_2032",
-    "Bistro_Research_Interior_Napkinholder_2034",
-    "Bistro_Research_Interior_Napkinholder_2036",
-    "Bistro_Research_Interior_Napkinholder_2038",
-    "Bistro_Research_Interior_Napkinholder_2040",
-    "Bistro_Research_Interior_Napkinholder_2042",
-    "Bistro_Research_Interior_Napkinholder_2044",
-    "Bistro_Research_Interior_Napkinholder_2046",
-    "Bistro_Research_Interior_Napkinholder_2048",
-    "Bistro_Research_Interior_Napkinholder_2050",
-    "Bistro_Research_Interior_Napkinholder_2052",
-    "Bistro_Research_Interior_Napkinholder_2054",
-    "Bistro_Research_Interior_Napkinholder_2056",
-    "Bistro_Research_Interior_Napkinholder_2058",
-    "Bistro_Research_Interior_Napkinholder_2060",
-    "Bistro_Research_Interior_Napkinholder_2062",
-    "Bistro_Research_Interior_Napkinholder_2064",
-    "Bistro_Research_Interior_Napkinholder_2066",
-    "Bistro_Research_Interior_Napkinholder_2068",
-    "Bistro_Research_Interior_Napkinholder_2070",
-    "Bistro_Research_Interior_Napkinholder_2072",
-    "Bistro_Research_Interior_Napkinholder_2074",
-    "Bistro_Research_Interior_Napkinholder_2076",
-    "Bistro_Research_Interior_Napkinholder_2078",
-    "Bistro_Research_Interior_Napkinholder_2080",
-    "Bistro_Research_Interior_Napkinholder_2082",
-    "Bistro_Research_Interior_Napkinholder_2084",
-    "Bistro_Research_Interior_Napkinholder_2086",
-    "Bistro_Research_Interior_Napkinholder_2088",
-    "Bistro_Research_Interior_Napkinholder_2090",
-    "Bistro_Research_Interior_Napkinholder_2092",
-    "Bistro_Research_Interior_Napkinholder_2094",
-    "Bistro_Research_Interior_Napkinholder_2096",
-    "Bistro_Research_Interior_Napkinholder_2098",
-    "Bistro_Research_Interior_Napkinholder_2100",
-    "Bistro_Research_Interior_Napkinholder_2101"
-  ],
-  "units": "meter",
-  "coordinate_system": {
-    "right_axis": "+X",
-    "forward_axis": "+Y",
-    "up_axis": "+Z"
+  "files": {
+    "obj": "data/assets/Napkinholder/Napkinholder.obj",
+    "preview": "data/assets/Napkinholder/Napkinholder.png"
+  },
+  "placement": {
+    "class": "tabletop",
+    "enabled": true,
+    "support": [
+      "table",
+      "counter"
+    ],
+    "weight": 1.0
+  },
+  "geometry": {
+    "units": "meter",
+    "size": {
+      "x": 0.131542,
+      "y": 0.273096,
+      "z": 0.008591
+    },
+    "bbox": {
+      "min": [
+        -0.065771,
+        -0.136548,
+        0.0
+      ],
+      "max": [
+        0.065771,
+        0.136548,
+        0.008591
+      ]
+    }
   },
   "normalization": {
-    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
-    "grounding_policy": "lowest point moved to z=0",
-    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "coordinate_system": {
+      "right": "+X",
+      "forward": "+Y",
+      "up": "+Z"
+    },
+    "grounded": true,
+    "xy_origin": "bbox_center",
+    "orientation": "principal_horizontal_axis_to_+Y",
     "applied_z_rotation_radians": 2.68267003
   },
-  "dimensions": {
-    "width_x": 0.131542,
-    "length_y": 0.273096,
-    "height_z": 0.008591
-  },
-  "bounds": {
-    "min": [
-      -0.065771,
-      -0.136548,
-      0.0
+  "materials": {
+    "sionna": [
+      "itu-wood"
     ],
-    "max": [
-      0.065771,
-      0.136548,
-      0.008591
+    "source_to_sionna": [
+      {
+        "source": "NapkinHolder_01",
+        "sionna": "itu-wood",
+        "itu_type": "wood",
+        "confidence": "medium"
+      }
     ]
-  },
-  "source_material_names": [
-    "NapkinHolder_01"
-  ],
-  "sionna_material_mappings": [
-    {
-      "source_material": "NapkinHolder_01",
-      "itu_type": "wood",
-      "sionna_material_name": "itu-wood",
-      "confidence": "medium",
-      "reason": "generic interior object dielectric approximation"
-    }
-  ],
-  "sionna_material_names": [
-    "itu-wood"
-  ],
-  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Napkinholder\\Napkinholder.obj",
-  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Napkinholder\\Napkinholder.png",
-  "grouping_mode": "nameonly",
-  "merged_fine_asset_count": 1,
-  "merged_from_asset_names": [
-    "Napkinholder"
-  ],
-  "merged_from_asset_keys": [
-    "Bistro_Research_Interior_Napkinholder"
-  ],
-  "selected_from_fine_asset_name": "Napkinholder",
-  "selected_from_fine_export_name": "Napkinholder"
+  }
 }

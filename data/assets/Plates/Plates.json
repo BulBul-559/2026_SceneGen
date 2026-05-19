@@ -1,93 +1,71 @@
 {
-  "asset_name": "Plates",
-  "asset_key": "nameonly::Plates",
+  "schema_version": "1.0",
+  "dataset": "bistro",
+  "id": "Plates",
+  "name": "Plates",
   "export_name": "Plates",
-  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
-  "source_instance_count": 16,
-  "descriptor_variant_count": 1,
-  "representative_variant_count": 1,
-  "representative_source_node": "Bistro_Research_Interior_Plates_3304",
-  "all_source_node_names": [
-    "Bistro_Research_Interior_Plates_3288",
-    "Bistro_Research_Interior_Plates_3290",
-    "Bistro_Research_Interior_Plates_3292",
-    "Bistro_Research_Interior_Plates_3294",
-    "Bistro_Research_Interior_Plates_3296",
-    "Bistro_Research_Interior_Plates_3298",
-    "Bistro_Research_Interior_Plates_3300",
-    "Bistro_Research_Interior_Plates_3302",
-    "Bistro_Research_Interior_Plates_3304",
-    "Bistro_Research_Interior_Plates_3306",
-    "Bistro_Research_Interior_Plates_3308",
-    "Bistro_Research_Interior_Plates_3310",
-    "Bistro_Research_Interior_Plates_3312",
-    "Bistro_Research_Interior_Plates_3314",
-    "Bistro_Research_Interior_Plates_3316",
-    "Bistro_Research_Interior_Plates_3318"
-  ],
-  "units": "meter",
-  "coordinate_system": {
-    "right_axis": "+X",
-    "forward_axis": "+Y",
-    "up_axis": "+Z"
+  "files": {
+    "obj": "data/assets/Plates/Plates.obj",
+    "preview": "data/assets/Plates/Plates.png"
+  },
+  "placement": {
+    "class": "tabletop",
+    "enabled": true,
+    "support": [
+      "table",
+      "counter"
+    ],
+    "weight": 1.0
+  },
+  "geometry": {
+    "units": "meter",
+    "size": {
+      "x": 0.362383,
+      "y": 0.362031,
+      "z": 0.023979
+    },
+    "bbox": {
+      "min": [
+        -0.181191,
+        -0.181016,
+        0.0
+      ],
+      "max": [
+        0.181191,
+        0.181016,
+        0.023979
+      ]
+    }
   },
   "normalization": {
-    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
-    "grounding_policy": "lowest point moved to z=0",
-    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "coordinate_system": {
+      "right": "+X",
+      "forward": "+Y",
+      "up": "+Z"
+    },
+    "grounded": true,
+    "xy_origin": "bbox_center",
+    "orientation": "principal_horizontal_axis_to_+Y",
     "applied_z_rotation_radians": 0.0
   },
-  "dimensions": {
-    "width_x": 0.362383,
-    "length_y": 0.362031,
-    "height_z": 0.023979
-  },
-  "bounds": {
-    "min": [
-      -0.181191,
-      -0.181016,
-      0.0
+  "materials": {
+    "sionna": [
+      "itu-marble",
+      "itu-wood"
     ],
-    "max": [
-      0.181191,
-      0.181016,
-      0.023979
+    "source_to_sionna": [
+      {
+        "source": "Plates_Details",
+        "sionna": "itu-wood",
+        "itu_type": "wood",
+        "confidence": "low"
+      },
+      {
+        "source": "Plates_Ceramic",
+        "sionna": "itu-marble",
+        "itu_type": "marble",
+        "confidence": "medium"
+      }
     ]
-  },
-  "source_material_names": [
-    "Plates_Details",
-    "Plates_Ceramic"
-  ],
-  "sionna_material_mappings": [
-    {
-      "source_material": "Plates_Details",
-      "itu_type": "wood",
-      "sionna_material_name": "itu-wood",
-      "confidence": "low",
-      "reason": "fallback to a generic indoor dielectric because no stronger heuristic matched"
-    },
-    {
-      "source_material": "Plates_Ceramic",
-      "itu_type": "marble",
-      "sionna_material_name": "itu-marble",
-      "confidence": "medium",
-      "reason": "hard dielectric surface approximation"
-    }
-  ],
-  "sionna_material_names": [
-    "itu-marble",
-    "itu-wood"
-  ],
-  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Plates\\Plates.obj",
-  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Plates\\Plates.png",
-  "grouping_mode": "nameonly",
-  "merged_fine_asset_count": 1,
-  "merged_from_asset_names": [
-    "Plates"
-  ],
-  "merged_from_asset_keys": [
-    "Bistro_Research_Interior_Plates"
-  ],
-  "selected_from_fine_asset_name": "Plates",
-  "selected_from_fine_export_name": "Plates"
+  }
 }

@@ -2,13 +2,14 @@
 
 SceneGen 是一个面向 Linux 环境的轻量级室内场景生成项目。它基于空场景和归一化资产，随机生成带家具、桌椅、小物件的 3D 场景，并同步导出 Sionna/Mitsuba 可加载的场景文件和平面图。
 
-当前主工作流是 Bistro 场景生成：以 `data/scene/scene.obj` 作为空 Bistro 场景，以 `data/assets/manifest.json` 管理资产，然后按规则随机摆放桌子、椅子、地面物体、桌面小物和已有台面上的小物。
+当前主工作流是 Bistro 场景生成：以 `data/scene/scene.obj` 作为空 Bistro 场景，以 `data/catalogs/bistro.v1.json` 管理资产契约，然后按规则随机摆放桌子、椅子、地面物体、桌面小物和已有台面上的小物。`data/assets/manifest.json` 仍保留为兼容位置，但内容已经与 catalog 使用同一份清洗后的契约。
 
 ## 主要功能
 
 - 基于空 Bistro 场景生成新的室内布局。
 - 支持 generated 模式，生成简单矩形房间布局。
-- 自动读取本地资产 OBJ，忽略迁移遗留的 Windows 绝对路径。
+- 自动读取本地资产 OBJ，资产路径使用 repo-relative POSIX 路径。
+- 使用统一资产契约记录文件、摆放类别、几何尺寸、归一化信息和 Sionna 材质映射。
 - 输出组合后的 `scene.obj` 和 Sionna RT 可加载的 `scene.xml`。
 - 输出 `placements.json`，记录每个资产的类别、位置、朝向、包围盒和材质信息。
 - 输出 `label.json`，保留或生成 BS/UE 点位。
@@ -35,10 +36,13 @@ SceneGen/
     default.yaml          # 默认运行配置
     README.md             # 配置字段说明
   data/
+    catalogs/             # 标准资产目录，例如 bistro.v1.json
     scene/                # 空 Bistro 场景与 label
-    assets/               # 资产 OBJ/PNG/JSON 与 manifest
+    assets/               # 资产 OBJ/PNG/单资产 JSON 与兼容 manifest
+  docs/
+    data_onboarding.md    # 新数据源接入说明
   src/scenegen/
-    assets.py             # 资产读取、分类、路径解析
+    assets/               # 资产契约、加载、旧 manifest 转换、材质和路径解析
     cli.py                # 命令行入口与主流程
     config.py             # YAML 读取、CLI 覆盖、有效配置保存
     exporters.py          # OBJ/XML/label/manifest 输出
@@ -48,6 +52,7 @@ SceneGen/
     paths.py              # 默认路径与常量
     placement.py          # 场景摆放规则
     quality.py            # 质量检查与统计报告
+    sources.py            # generated/Bistro 数据源适配
     validation.py         # Sionna 加载验证
   tests/
     test_scenegen.py
@@ -92,6 +97,15 @@ uv sync
 ```
 
 这份文件是实际用于生成结果的配置，已经包含所有 CLI 覆盖后的值。
+
+资产目录默认使用：
+
+```yaml
+assets:
+  catalog: data/catalogs/bistro.v1.json
+```
+
+命令行推荐使用 `--asset-catalog` 临时替换资产目录；旧参数 `--asset-manifest` 仍可使用，会作为兼容别名映射到同一个配置字段。
 
 ## 快速开始
 
@@ -183,6 +197,7 @@ results/<run_name>/
 - `placements.json`: 资产摆放结果、包围盒、材质映射和父子关系。
 - `label.json`: BS/UE 点位。
 - `manifest.json`: 本次 run 的汇总信息。
+- `asset_catalog`: `manifest.json` 中记录本次使用的资产 catalog。
 - `effective_config.yaml`: 本次 run 实际生效的配置。
 - `statistics.json`: run 级统计报告，包含每个场景的物体数、类别计数、支撑类型和近似占地率。
 - `quality_report.json`: 单场景质量检查报告，包含错误/警告列表。

@@ -30,7 +30,9 @@ uv run scenegen --config config/dense.yaml
 
 ## assets
 
-- `manifest`: 资产 manifest 路径，默认 `data/assets/manifest.json`。
+- `catalog`: 标准资产 catalog 路径，默认 `data/catalogs/bistro.v1.json`。
+
+兼容说明：旧 CLI 参数 `--asset-manifest` 仍然可用，但会被映射到 `assets.catalog`。`data/assets/manifest.json` 也仍保留，但它只是兼容位置，内容应与 `data/catalogs/bistro.v1.json` 使用同一份清洗后的资产契约。
 
 ## bistro
 
@@ -130,4 +132,10 @@ uv run scenegen --floorplan-height-mode heights --floorplan-heights 1.2,1.6,2.0
 
 ```bash
 uv run scenegen --no-quality
+```
+
+临时使用另一个资产 catalog：
+
+```bash
+uv run scenegen --asset-catalog data/catalogs/bistro.v1.json
 ```

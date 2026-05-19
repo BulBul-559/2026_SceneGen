@@ -1,80 +1,70 @@
 {
-  "asset_name": "Trolley_paris_cutlery_01c",
-  "asset_key": "nameonly::Trolley_paris_cutlery_01c",
+  "schema_version": "1.0",
+  "dataset": "bistro",
+  "id": "Trolley_paris_cutlery_01c",
+  "name": "Trolley_paris_cutlery_01c",
   "export_name": "Trolley_paris_cutlery_01c",
-  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
-  "source_instance_count": 2,
-  "descriptor_variant_count": 2,
-  "representative_variant_count": 1,
-  "representative_source_node": "Bistro_Research_Interior_Trolley_paris_cutlery_01c34_3328",
-  "all_source_node_names": [
-    "Bistro_Research_Interior_Trolley_paris_cutlery_01c33_3326",
-    "Bistro_Research_Interior_Trolley_paris_cutlery_01c34_3328"
-  ],
-  "units": "meter",
-  "coordinate_system": {
-    "right_axis": "+X",
-    "forward_axis": "+Y",
-    "up_axis": "+Z"
+  "files": {
+    "obj": "data/assets/Trolley_paris_cutlery_01c/Trolley_paris_cutlery_01c.obj",
+    "preview": "data/assets/Trolley_paris_cutlery_01c/Trolley_paris_cutlery_01c.png"
+  },
+  "placement": {
+    "class": "tabletop",
+    "enabled": true,
+    "support": [
+      "table",
+      "counter"
+    ],
+    "weight": 1.0
+  },
+  "geometry": {
+    "units": "meter",
+    "size": {
+      "x": 0.047693,
+      "y": 0.226148,
+      "z": 0.014421
+    },
+    "bbox": {
+      "min": [
+        -0.023847,
+        -0.113074,
+        0.0
+      ],
+      "max": [
+        0.023847,
+        0.113074,
+        0.014421
+      ]
+    }
   },
   "normalization": {
-    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
-    "grounding_policy": "lowest point moved to z=0",
-    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "coordinate_system": {
+      "right": "+X",
+      "forward": "+Y",
+      "up": "+Z"
+    },
+    "grounded": true,
+    "xy_origin": "bbox_center",
+    "orientation": "principal_horizontal_axis_to_+Y",
     "applied_z_rotation_radians": 2.68753359
   },
-  "dimensions": {
-    "width_x": 0.047693,
-    "length_y": 0.226148,
-    "height_z": 0.014421
-  },
-  "bounds": {
-    "min": [
-      -0.023847,
-      -0.113074,
-      0.0
+  "materials": {
+    "sionna": [
+      "itu-metal"
     ],
-    "max": [
-      0.023847,
-      0.113074,
-      0.014421
+    "source_to_sionna": [
+      {
+        "source": "Cutlery_chrome",
+        "sionna": "itu-metal",
+        "itu_type": "metal",
+        "confidence": "high"
+      },
+      {
+        "source": "Cutlery_details",
+        "sionna": "itu-metal",
+        "itu_type": "metal",
+        "confidence": "high"
+      }
     ]
-  },
-  "source_material_names": [
-    "Cutlery_chrome",
-    "Cutlery_details"
-  ],
-  "sionna_material_mappings": [
-    {
-      "source_material": "Cutlery_chrome",
-      "itu_type": "metal",
-      "sionna_material_name": "itu-metal",
-      "confidence": "high",
-      "reason": "direct metal-related keyword match"
-    },
-    {
-      "source_material": "Cutlery_details",
-      "itu_type": "metal",
-      "sionna_material_name": "itu-metal",
-      "confidence": "high",
-      "reason": "direct metal-related keyword match"
-    }
-  ],
-  "sionna_material_names": [
-    "itu-metal"
-  ],
-  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Trolley_paris_cutlery_01c\\Trolley_paris_cutlery_01c.obj",
-  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Trolley_paris_cutlery_01c\\Trolley_paris_cutlery_01c.png",
-  "grouping_mode": "nameonly",
-  "merged_fine_asset_count": 2,
-  "merged_from_asset_names": [
-    "Trolley_paris_cutlery_01c33",
-    "Trolley_paris_cutlery_01c34"
-  ],
-  "merged_from_asset_keys": [
-    "Bistro_Research_Interior_Trolley_paris_cutlery_01c33",
-    "Bistro_Research_Interior_Trolley_paris_cutlery_01c34"
-  ],
-  "selected_from_fine_asset_name": "Trolley_paris_cutlery_01c34",
-  "selected_from_fine_export_name": "Trolley_paris_cutlery_01c34"
+  }
 }

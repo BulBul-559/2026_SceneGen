@@ -1,78 +1,64 @@
 {
-  "asset_name": "Coasters_paris_coasters_set_01_b",
-  "asset_key": "nameonly::Coasters_paris_coasters_set_01_b",
+  "schema_version": "1.0",
+  "dataset": "bistro",
+  "id": "Coasters_paris_coasters_set_01_b",
+  "name": "Coasters_paris_coasters_set_01_b",
   "export_name": "Coasters_paris_coasters_set_01_b",
-  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
-  "source_instance_count": 4,
-  "descriptor_variant_count": 4,
-  "representative_variant_count": 1,
-  "representative_source_node": "Bistro_Research_Interior_Coasters_paris_coasters_set_01_b4_1224",
-  "all_source_node_names": [
-    "Bistro_Research_Interior_Coasters_paris_coasters_set_01_b2_1220",
-    "Bistro_Research_Interior_Coasters_paris_coasters_set_01_b3_1222",
-    "Bistro_Research_Interior_Coasters_paris_coasters_set_01_b4_1224",
-    "Bistro_Research_Interior_Coasters_paris_coasters_set_01_b5_1226"
-  ],
-  "units": "meter",
-  "coordinate_system": {
-    "right_axis": "+X",
-    "forward_axis": "+Y",
-    "up_axis": "+Z"
+  "files": {
+    "obj": "data/assets/Coasters_paris_coasters_set_01_b/Coasters_paris_coasters_set_01_b.obj",
+    "preview": "data/assets/Coasters_paris_coasters_set_01_b/Coasters_paris_coasters_set_01_b.png"
+  },
+  "placement": {
+    "class": "tabletop",
+    "enabled": true,
+    "support": [
+      "table",
+      "counter"
+    ],
+    "weight": 1.0
+  },
+  "geometry": {
+    "units": "meter",
+    "size": {
+      "x": 0.09,
+      "y": 0.094141,
+      "z": 0.041401
+    },
+    "bbox": {
+      "min": [
+        -0.045,
+        -0.04707,
+        0.0
+      ],
+      "max": [
+        0.045,
+        0.04707,
+        0.041401
+      ]
+    }
   },
   "normalization": {
-    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
-    "grounding_policy": "lowest point moved to z=0",
-    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "coordinate_system": {
+      "right": "+X",
+      "forward": "+Y",
+      "up": "+Z"
+    },
+    "grounded": true,
+    "xy_origin": "bbox_center",
+    "orientation": "principal_horizontal_axis_to_+Y",
     "applied_z_rotation_radians": 3.14159265
   },
-  "dimensions": {
-    "width_x": 0.09,
-    "length_y": 0.094141,
-    "height_z": 0.041401
-  },
-  "bounds": {
-    "min": [
-      -0.045,
-      -0.04707,
-      0.0
+  "materials": {
+    "sionna": [
+      "itu-wood"
     ],
-    "max": [
-      0.045,
-      0.04707,
-      0.041401
+    "source_to_sionna": [
+      {
+        "source": "Paris_Coasters_01",
+        "sionna": "itu-wood",
+        "itu_type": "wood",
+        "confidence": "low"
+      }
     ]
-  },
-  "source_material_names": [
-    "Paris_Coasters_01"
-  ],
-  "sionna_material_mappings": [
-    {
-      "source_material": "Paris_Coasters_01",
-      "itu_type": "wood",
-      "sionna_material_name": "itu-wood",
-      "confidence": "low",
-      "reason": "fallback to a generic indoor dielectric because no stronger heuristic matched"
-    }
-  ],
-  "sionna_material_names": [
-    "itu-wood"
-  ],
-  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Coasters_paris_coasters_set_01_b\\Coasters_paris_coasters_set_01_b.obj",
-  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Coasters_paris_coasters_set_01_b\\Coasters_paris_coasters_set_01_b.png",
-  "grouping_mode": "nameonly",
-  "merged_fine_asset_count": 4,
-  "merged_from_asset_names": [
-    "Coasters_paris_coasters_set_01_b2",
-    "Coasters_paris_coasters_set_01_b3",
-    "Coasters_paris_coasters_set_01_b4",
-    "Coasters_paris_coasters_set_01_b5"
-  ],
-  "merged_from_asset_keys": [
-    "Bistro_Research_Interior_Coasters_paris_coasters_set_01_b2",
-    "Bistro_Research_Interior_Coasters_paris_coasters_set_01_b3",
-    "Bistro_Research_Interior_Coasters_paris_coasters_set_01_b4",
-    "Bistro_Research_Interior_Coasters_paris_coasters_set_01_b5"
-  ],
-  "selected_from_fine_asset_name": "Coasters_paris_coasters_set_01_b4",
-  "selected_from_fine_export_name": "Coasters_paris_coasters_set_01_b4"
+  }
 }

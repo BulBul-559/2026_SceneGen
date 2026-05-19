@@ -12,14 +12,9 @@ from .exporters import (
     collect_raw_floorplans,
     collect_scene_objs,
     make_timestamp,
-    write_bistro_scene_files,
-    write_scene_files,
 )
 from .floorplan import FloorplanConfig, generate_floorplan_for_scene
-from .geometry import load_bistro_base_scene
-from .models import Room
 from .paths import clean_output_root, default_config_path, find_project_root, portable_path, require_dir, require_file
-from .placement import build_bistro_scene_placements, build_scene_placements
 from .quality import (
     QualityConfig,
     aggregate_run_statistics,
@@ -27,6 +22,7 @@ from .quality import (
     scene_statistics,
     write_json_report,
 )
+from .sources import create_scene_source
 from .validation import validate_sionna_scene
 
 
@@ -36,7 +32,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", type=Path, default=default_config_path(repo_root), help="Path to SceneGen YAML config.")
     parser.add_argument("--mode", choices=("generated", "bistro"), default=None)
     parser.add_argument("--bistro-base-dir", type=Path, default=None)
-    parser.add_argument("--asset-manifest", type=Path, default=None)
+    parser.add_argument("--asset-catalog", type=Path, default=None)
+    parser.add_argument("--asset-manifest", type=Path, default=None, help="Deprecated alias for --asset-catalog.")
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--run-name", default=None, help="Use a stable run directory name instead of a timestamp.")
     parser.add_argument("--scenes", type=int, default=None)
@@ -214,7 +211,7 @@ def main(argv: list[str] | None = None) -> int:
     args = config_to_namespace(effective_config)
     validate_args(args)
 
-    manifest_path = require_file(args.asset_manifest, "asset manifest")
+    asset_catalog_path = require_file(args.asset_catalog, "asset catalog")
     if args.mode == "bistro":
         bistro_base_dir = require_dir(args.bistro_base_dir, "Bistro base scene directory")
     else:
@@ -225,14 +222,14 @@ def main(argv: list[str] | None = None) -> int:
     effective_config["pipeline"]["run_name"] = run_name
     effective_config["runtime"]["run_dir"] = str(run_dir)
     save_effective_config(run_dir / "effective_config.yaml", effective_config)
-    scene_prefix = "bistro" if args.mode == "bistro" else "scene"
     floorplan_config = FloorplanConfig.from_mapping(effective_config["floorplan"])
     quality_config = QualityConfig.from_mapping(effective_config["quality"])
 
-    assets = load_assets(manifest_path)
+    assets = load_assets(asset_catalog_path)
     assets_by_class = group_assets_by_class(assets)
     validate_asset_pool(assets_by_class)
-    base_scene = load_bistro_base_scene(bistro_base_dir) if bistro_base_dir is not None else None
+    source = create_scene_source(args, assets_by_class, bistro_base_dir)
+    scene_prefix = source.scene_prefix
 
     master_rng = random.Random(args.seed)
     scene_records: list[dict[str, object]] = []
@@ -243,46 +240,15 @@ def main(argv: list[str] | None = None) -> int:
         scene_seed = master_rng.randrange(1, 2**31)
         rng = random.Random(scene_seed)
         scene_dir = run_dir / f"{scene_prefix}_{scene_index:04d}"
-        if args.mode == "bistro":
-            assert base_scene is not None
-            bounds_xy = (
-                base_scene.bbox_min[0],
-                base_scene.bbox_min[1],
-                base_scene.bbox_max[0],
-                base_scene.bbox_max[1],
-            )
-            placements = build_bistro_scene_placements(
-                rng,
-                scene_index,
-                base_scene,
-                assets_by_class,
-                args,
-                args.forbidden_xy_rects,
-            )
-            record = write_bistro_scene_files(
-                scene_dir,
-                base_scene,
-                placements,
-                scene_index,
-                scene_seed,
-                rng,
-                args.forbidden_xy_rects,
-            )
-        else:
-            room = Room(
-                width=round(rng.uniform(7.0, 11.5), 3),
-                length=round(rng.uniform(8.0, 14.0), 3),
-                height=round(rng.uniform(3.0, 4.2), 3),
-            )
-            bounds_xy = (0.0, 0.0, room.width, room.length)
-            placements = build_scene_placements(rng, scene_index, room, assets_by_class, args)
-            record = write_scene_files(scene_dir, room, placements, scene_index, scene_seed, rng)
+        build = source.build_scene(scene_dir, scene_index, scene_seed, rng)
+        placements = build.placements
+        record = build.record
 
         statistics = scene_statistics(
             args.mode,
             placements,
-            room=room if args.mode == "generated" else None,
-            base_scene=base_scene if args.mode == "bistro" else None,
+            room=build.room,
+            base_scene=build.base_scene,
         )
         record["statistics"] = statistics
         record["statistics_file"] = write_json_report(scene_dir / "statistics.json", statistics, run_dir)
@@ -292,9 +258,9 @@ def main(argv: list[str] | None = None) -> int:
                 args.mode,
                 placements,
                 quality_config,
-                room=room if args.mode == "generated" else None,
-                base_scene=base_scene if args.mode == "bistro" else None,
-                forbidden_xy_rects=args.forbidden_xy_rects if args.mode == "bistro" else (),
+                room=build.room,
+                base_scene=build.base_scene,
+                forbidden_xy_rects=source.forbidden_xy_rects,
             )
             record["quality"] = quality
             record["quality_report"] = write_json_report(scene_dir / "quality_report.json", quality, run_dir)
@@ -311,8 +277,8 @@ def main(argv: list[str] | None = None) -> int:
                     scene_dir / "floorplan",
                     floorplan_config,
                     placements=placements,
-                    bounds_xy=bounds_xy,
-                    forbidden_xy_rects=args.forbidden_xy_rects if args.mode == "bistro" else (),
+                    bounds_xy=build.bounds_xy,
+                    forbidden_xy_rects=source.forbidden_xy_rects,
                 )
             except Exception as exc:
                 floorplan_failed = True
@@ -343,7 +309,8 @@ def main(argv: list[str] | None = None) -> int:
         "seed": args.seed,
         "run_name": run_name,
         "run_dir": ".",
-        "asset_manifest": portable_path(manifest_path, run_dir),
+        "asset_catalog": portable_path(asset_catalog_path, run_dir),
+        "asset_manifest": portable_path(asset_catalog_path, run_dir),
         "asset_class_counts": class_counts,
         "forbidden_xy_rects": (
             [{"x_min": rect[0], "y_min": rect[1], "x_max": rect[2], "y_max": rect[3]} for rect in args.forbidden_xy_rects]
@@ -372,8 +339,8 @@ def main(argv: list[str] | None = None) -> int:
         "effective_config": portable_path(run_dir / "effective_config.yaml", run_dir),
         "scenes": scene_records,
     }
-    if base_scene is not None:
-        manifest["bistro_base_scene"] = base_scene_summary(base_scene, run_dir)
+    if source.base_scene is not None:
+        manifest["bistro_base_scene"] = base_scene_summary(source.base_scene, run_dir)
 
     mode_manifest_path = run_dir / f"manifest_{args.mode}.json"
     mode_manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")

@@ -36,6 +36,10 @@ def default_asset_manifest(repo_root: Path | None = None) -> Path:
     return (repo_root or find_project_root()) / "data" / "assets" / "manifest.json"
 
 
+def default_asset_catalog(repo_root: Path | None = None) -> Path:
+    return (repo_root or find_project_root()) / "data" / "catalogs" / "bistro.v1.json"
+
+
 def default_output_dir(repo_root: Path | None = None) -> Path:
     return (repo_root or find_project_root()) / "results"
 

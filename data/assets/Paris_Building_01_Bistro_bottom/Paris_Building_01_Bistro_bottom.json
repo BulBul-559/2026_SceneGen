@@ -1,71 +1,61 @@
 {
-  "asset_name": "Paris_Building_01_Bistro_bottom",
-  "asset_key": "nameonly::Paris_Building_01_Bistro_bottom",
+  "schema_version": "1.0",
+  "dataset": "bistro",
+  "id": "Paris_Building_01_Bistro_bottom",
+  "name": "Paris_Building_01_Bistro_bottom",
   "export_name": "Paris_Building_01_Bistro_bottom",
-  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
-  "source_instance_count": 3,
-  "descriptor_variant_count": 1,
-  "representative_variant_count": 1,
-  "representative_source_node": "Bistro_Research_Exterior_Paris_Building_01_Bistro_bottom_135",
-  "all_source_node_names": [
-    "Bistro_Research_Exterior_Paris_Building_01_Bistro_bottom_135",
-    "Bistro_Research_Exterior_Paris_Building_01_Bistro_bottom_154",
-    "Bistro_Research_Exterior_Paris_Building_01_Bistro_bottom_156"
-  ],
-  "units": "meter",
-  "coordinate_system": {
-    "right_axis": "+X",
-    "forward_axis": "+Y",
-    "up_axis": "+Z"
+  "files": {
+    "obj": "data/assets/Paris_Building_01_Bistro_bottom/Paris_Building_01_Bistro_bottom.obj",
+    "preview": "data/assets/Paris_Building_01_Bistro_bottom/Paris_Building_01_Bistro_bottom.png"
+  },
+  "placement": {
+    "class": "skip",
+    "enabled": false,
+    "support": [],
+    "weight": 1.0
+  },
+  "geometry": {
+    "units": "meter",
+    "size": {
+      "x": 0.062522,
+      "y": 0.103889,
+      "z": 2.14803
+    },
+    "bbox": {
+      "min": [
+        -0.031261,
+        -0.051944,
+        0.0
+      ],
+      "max": [
+        0.031261,
+        0.051944,
+        2.14803
+      ]
+    }
   },
   "normalization": {
-    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
-    "grounding_policy": "lowest point moved to z=0",
-    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "coordinate_system": {
+      "right": "+X",
+      "forward": "+Y",
+      "up": "+Z"
+    },
+    "grounded": true,
+    "xy_origin": "bbox_center",
+    "orientation": "principal_horizontal_axis_to_+Y",
     "applied_z_rotation_radians": -0.37671694
   },
-  "dimensions": {
-    "width_x": 0.062522,
-    "length_y": 0.103889,
-    "height_z": 2.14803
-  },
-  "bounds": {
-    "min": [
-      -0.031261,
-      -0.051944,
-      0.0
+  "materials": {
+    "sionna": [
+      "itu-wood"
     ],
-    "max": [
-      0.031261,
-      0.051944,
-      2.14803
+    "source_to_sionna": [
+      {
+        "source": "MASTER_Wood_Painted3",
+        "sionna": "itu-wood",
+        "itu_type": "wood",
+        "confidence": "medium"
+      }
     ]
-  },
-  "source_material_names": [
-    "MASTER_Wood_Painted3"
-  ],
-  "sionna_material_mappings": [
-    {
-      "source_material": "MASTER_Wood_Painted3",
-      "itu_type": "wood",
-      "sionna_material_name": "itu-wood",
-      "confidence": "medium",
-      "reason": "generic interior object dielectric approximation"
-    }
-  ],
-  "sionna_material_names": [
-    "itu-wood"
-  ],
-  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Building_01_Bistro_bottom\\Paris_Building_01_Bistro_bottom.obj",
-  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Building_01_Bistro_bottom\\Paris_Building_01_Bistro_bottom.png",
-  "grouping_mode": "nameonly",
-  "merged_fine_asset_count": 1,
-  "merged_from_asset_names": [
-    "Paris_Building_01_Bistro_bottom"
-  ],
-  "merged_from_asset_keys": [
-    "Bistro_Research_Exterior_Paris_Building_01_Bistro_bottom"
-  ],
-  "selected_from_fine_asset_name": "Paris_Building_01_Bistro_bottom",
-  "selected_from_fine_export_name": "Paris_Building_01_Bistro_bottom"
+  }
 }

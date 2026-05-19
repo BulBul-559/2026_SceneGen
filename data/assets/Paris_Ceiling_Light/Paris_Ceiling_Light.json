@@ -1,78 +1,61 @@
 {
-  "asset_name": "Paris_Ceiling_Light",
-  "asset_key": "nameonly::Paris_Ceiling_Light",
+  "schema_version": "1.0",
+  "dataset": "bistro",
+  "id": "Paris_Ceiling_Light",
+  "name": "Paris_Ceiling_Light",
   "export_name": "Paris_Ceiling_Light",
-  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
-  "source_instance_count": 4,
-  "descriptor_variant_count": 4,
-  "representative_variant_count": 1,
-  "representative_source_node": "Bistro_Research_Interior_Paris_Ceiling_Light_02_2358",
-  "all_source_node_names": [
-    "Bistro_Research_Interior_Paris_Ceiling_Light_01_2356",
-    "Bistro_Research_Interior_Paris_Ceiling_Light_02_2358",
-    "Bistro_Research_Interior_Paris_Ceiling_Light_03_2360",
-    "Bistro_Research_Interior_Paris_Ceiling_Light_04_2362"
-  ],
-  "units": "meter",
-  "coordinate_system": {
-    "right_axis": "+X",
-    "forward_axis": "+Y",
-    "up_axis": "+Z"
+  "files": {
+    "obj": "data/assets/Paris_Ceiling_Light/Paris_Ceiling_Light.obj",
+    "preview": "data/assets/Paris_Ceiling_Light/Paris_Ceiling_Light.png"
+  },
+  "placement": {
+    "class": "skip",
+    "enabled": false,
+    "support": [],
+    "weight": 1.0
+  },
+  "geometry": {
+    "units": "meter",
+    "size": {
+      "x": 0.492992,
+      "y": 0.492496,
+      "z": 1.108741
+    },
+    "bbox": {
+      "min": [
+        -0.246496,
+        -0.246248,
+        0.0
+      ],
+      "max": [
+        0.246496,
+        0.246248,
+        1.108741
+      ]
+    }
   },
   "normalization": {
-    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
-    "grounding_policy": "lowest point moved to z=0",
-    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "coordinate_system": {
+      "right": "+X",
+      "forward": "+Y",
+      "up": "+Z"
+    },
+    "grounded": true,
+    "xy_origin": "bbox_center",
+    "orientation": "principal_horizontal_axis_to_+Y",
     "applied_z_rotation_radians": 0.0
   },
-  "dimensions": {
-    "width_x": 0.492992,
-    "length_y": 0.492496,
-    "height_z": 1.108741
-  },
-  "bounds": {
-    "min": [
-      -0.246496,
-      -0.246248,
-      0.0
+  "materials": {
+    "sionna": [
+      "itu-wood"
     ],
-    "max": [
-      0.246496,
-      0.246248,
-      1.108741
+    "source_to_sionna": [
+      {
+        "source": "Paris_Ceiling_Lamp",
+        "sionna": "itu-wood",
+        "itu_type": "wood",
+        "confidence": "low"
+      }
     ]
-  },
-  "source_material_names": [
-    "Paris_Ceiling_Lamp"
-  ],
-  "sionna_material_mappings": [
-    {
-      "source_material": "Paris_Ceiling_Lamp",
-      "itu_type": "wood",
-      "sionna_material_name": "itu-wood",
-      "confidence": "low",
-      "reason": "fallback to a generic indoor dielectric because no stronger heuristic matched"
-    }
-  ],
-  "sionna_material_names": [
-    "itu-wood"
-  ],
-  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Ceiling_Light\\Paris_Ceiling_Light.obj",
-  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Ceiling_Light\\Paris_Ceiling_Light.png",
-  "grouping_mode": "nameonly",
-  "merged_fine_asset_count": 4,
-  "merged_from_asset_names": [
-    "Paris_Ceiling_Light_01",
-    "Paris_Ceiling_Light_02",
-    "Paris_Ceiling_Light_03",
-    "Paris_Ceiling_Light_04"
-  ],
-  "merged_from_asset_keys": [
-    "Bistro_Research_Interior_Paris_Ceiling_Light_01",
-    "Bistro_Research_Interior_Paris_Ceiling_Light_02",
-    "Bistro_Research_Interior_Paris_Ceiling_Light_03",
-    "Bistro_Research_Interior_Paris_Ceiling_Light_04"
-  ],
-  "selected_from_fine_asset_name": "Paris_Ceiling_Light_02",
-  "selected_from_fine_export_name": "Paris_Ceiling_Light_02"
+  }
 }

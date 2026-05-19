@@ -1,69 +1,63 @@
 {
-  "asset_name": "Paris_Coat_Rack_01A",
-  "asset_key": "nameonly::Paris_Coat_Rack_01A",
+  "schema_version": "1.0",
+  "dataset": "bistro",
+  "id": "Paris_Coat_Rack_01A",
+  "name": "Paris_Coat_Rack_01A",
   "export_name": "Paris_Coat_Rack_01A",
-  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
-  "source_instance_count": 1,
-  "descriptor_variant_count": 1,
-  "representative_variant_count": 1,
-  "representative_source_node": "Bistro_Research_Interior_Paris_Coat_Rack_01A_2436",
-  "all_source_node_names": [
-    "Bistro_Research_Interior_Paris_Coat_Rack_01A_2436"
-  ],
-  "units": "meter",
-  "coordinate_system": {
-    "right_axis": "+X",
-    "forward_axis": "+Y",
-    "up_axis": "+Z"
+  "files": {
+    "obj": "data/assets/Paris_Coat_Rack_01A/Paris_Coat_Rack_01A.obj",
+    "preview": "data/assets/Paris_Coat_Rack_01A/Paris_Coat_Rack_01A.png"
+  },
+  "placement": {
+    "class": "floor",
+    "enabled": true,
+    "support": [
+      "floor"
+    ],
+    "weight": 1.0
+  },
+  "geometry": {
+    "units": "meter",
+    "size": {
+      "x": 0.637097,
+      "y": 0.637096,
+      "z": 2.011431
+    },
+    "bbox": {
+      "min": [
+        -0.318548,
+        -0.318548,
+        0.0
+      ],
+      "max": [
+        0.318548,
+        0.318548,
+        2.011431
+      ]
+    }
   },
   "normalization": {
-    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
-    "grounding_policy": "lowest point moved to z=0",
-    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "coordinate_system": {
+      "right": "+X",
+      "forward": "+Y",
+      "up": "+Z"
+    },
+    "grounded": true,
+    "xy_origin": "bbox_center",
+    "orientation": "principal_horizontal_axis_to_+Y",
     "applied_z_rotation_radians": 3.14159265
   },
-  "dimensions": {
-    "width_x": 0.637097,
-    "length_y": 0.637096,
-    "height_z": 2.011431
-  },
-  "bounds": {
-    "min": [
-      -0.318548,
-      -0.318548,
-      0.0
+  "materials": {
+    "sionna": [
+      "itu-metal"
     ],
-    "max": [
-      0.318548,
-      0.318548,
-      2.011431
+    "source_to_sionna": [
+      {
+        "source": "Metal_Worn_01",
+        "sionna": "itu-metal",
+        "itu_type": "metal",
+        "confidence": "high"
+      }
     ]
-  },
-  "source_material_names": [
-    "Metal_Worn_01"
-  ],
-  "sionna_material_mappings": [
-    {
-      "source_material": "Metal_Worn_01",
-      "itu_type": "metal",
-      "sionna_material_name": "itu-metal",
-      "confidence": "high",
-      "reason": "direct metal-related keyword match"
-    }
-  ],
-  "sionna_material_names": [
-    "itu-metal"
-  ],
-  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Coat_Rack_01A\\Paris_Coat_Rack_01A.obj",
-  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Coat_Rack_01A\\Paris_Coat_Rack_01A.png",
-  "grouping_mode": "nameonly",
-  "merged_fine_asset_count": 1,
-  "merged_from_asset_names": [
-    "Paris_Coat_Rack_01A"
-  ],
-  "merged_from_asset_keys": [
-    "Bistro_Research_Interior_Paris_Coat_Rack_01A"
-  ],
-  "selected_from_fine_asset_name": "Paris_Coat_Rack_01A",
-  "selected_from_fine_export_name": "Paris_Coat_Rack_01A"
+  }
 }

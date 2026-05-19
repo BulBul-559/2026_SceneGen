@@ -1,78 +1,68 @@
 {
-  "asset_name": "Paris_Painting_M",
-  "asset_key": "nameonly::Paris_Painting_M",
+  "schema_version": "1.0",
+  "dataset": "bistro",
+  "id": "Paris_Painting_M",
+  "name": "Paris_Painting_M",
   "export_name": "Paris_Painting_M",
-  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
-  "source_instance_count": 1,
-  "descriptor_variant_count": 1,
-  "representative_variant_count": 1,
-  "representative_source_node": "Bistro_Research_Interior_Paris_Painting_M_3094",
-  "all_source_node_names": [
-    "Bistro_Research_Interior_Paris_Painting_M_3094"
-  ],
-  "units": "meter",
-  "coordinate_system": {
-    "right_axis": "+X",
-    "forward_axis": "+Y",
-    "up_axis": "+Z"
+  "files": {
+    "obj": "data/assets/Paris_Painting_M/Paris_Painting_M.obj",
+    "preview": "data/assets/Paris_Painting_M/Paris_Painting_M.png"
+  },
+  "placement": {
+    "class": "skip",
+    "enabled": false,
+    "support": [],
+    "weight": 1.0
+  },
+  "geometry": {
+    "units": "meter",
+    "size": {
+      "x": 0.023585,
+      "y": 0.279355,
+      "z": 0.416981
+    },
+    "bbox": {
+      "min": [
+        -0.011792,
+        -0.139677,
+        0.0
+      ],
+      "max": [
+        0.011792,
+        0.139677,
+        0.416981
+      ]
+    }
   },
   "normalization": {
-    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
-    "grounding_policy": "lowest point moved to z=0",
-    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "coordinate_system": {
+      "right": "+X",
+      "forward": "+Y",
+      "up": "+Z"
+    },
+    "grounded": true,
+    "xy_origin": "bbox_center",
+    "orientation": "principal_horizontal_axis_to_+Y",
     "applied_z_rotation_radians": -0.51033856
   },
-  "dimensions": {
-    "width_x": 0.023585,
-    "length_y": 0.279355,
-    "height_z": 0.416981
-  },
-  "bounds": {
-    "min": [
-      -0.011792,
-      -0.139677,
-      0.0
+  "materials": {
+    "sionna": [
+      "itu-metal",
+      "itu-wood"
     ],
-    "max": [
-      0.011792,
-      0.139677,
-      0.416981
+    "source_to_sionna": [
+      {
+        "source": "Paris_Painting_Metal",
+        "sionna": "itu-metal",
+        "itu_type": "metal",
+        "confidence": "high"
+      },
+      {
+        "source": "Paris_Paintings",
+        "sionna": "itu-wood",
+        "itu_type": "wood",
+        "confidence": "medium"
+      }
     ]
-  },
-  "source_material_names": [
-    "Paris_Painting_Metal",
-    "Paris_Paintings"
-  ],
-  "sionna_material_mappings": [
-    {
-      "source_material": "Paris_Painting_Metal",
-      "itu_type": "metal",
-      "sionna_material_name": "itu-metal",
-      "confidence": "high",
-      "reason": "direct metal-related keyword match"
-    },
-    {
-      "source_material": "Paris_Paintings",
-      "itu_type": "wood",
-      "sionna_material_name": "itu-wood",
-      "confidence": "medium",
-      "reason": "generic interior object dielectric approximation"
-    }
-  ],
-  "sionna_material_names": [
-    "itu-metal",
-    "itu-wood"
-  ],
-  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Painting_M\\Paris_Painting_M.obj",
-  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_Painting_M\\Paris_Painting_M.png",
-  "grouping_mode": "nameonly",
-  "merged_fine_asset_count": 1,
-  "merged_from_asset_names": [
-    "Paris_Painting_M"
-  ],
-  "merged_from_asset_keys": [
-    "Bistro_Research_Interior_Paris_Painting_M"
-  ],
-  "selected_from_fine_asset_name": "Paris_Painting_M",
-  "selected_from_fine_export_name": "Paris_Painting_M"
+  }
 }

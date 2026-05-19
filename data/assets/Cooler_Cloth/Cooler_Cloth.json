@@ -1,69 +1,63 @@
 {
-  "asset_name": "Cooler_Cloth",
-  "asset_key": "nameonly::Cooler_Cloth",
+  "schema_version": "1.0",
+  "dataset": "bistro",
+  "id": "Cooler_Cloth",
+  "name": "Cooler_Cloth",
   "export_name": "Cooler_Cloth",
-  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
-  "source_instance_count": 1,
-  "descriptor_variant_count": 1,
-  "representative_variant_count": 1,
-  "representative_source_node": "Bistro_Research_Interior_Cooler_Cloth_1244",
-  "all_source_node_names": [
-    "Bistro_Research_Interior_Cooler_Cloth_1244"
-  ],
-  "units": "meter",
-  "coordinate_system": {
-    "right_axis": "+X",
-    "forward_axis": "+Y",
-    "up_axis": "+Z"
+  "files": {
+    "obj": "data/assets/Cooler_Cloth/Cooler_Cloth.obj",
+    "preview": "data/assets/Cooler_Cloth/Cooler_Cloth.png"
+  },
+  "placement": {
+    "class": "floor",
+    "enabled": true,
+    "support": [
+      "floor"
+    ],
+    "weight": 1.0
+  },
+  "geometry": {
+    "units": "meter",
+    "size": {
+      "x": 0.174274,
+      "y": 0.349193,
+      "z": 0.400477
+    },
+    "bbox": {
+      "min": [
+        -0.087137,
+        -0.174597,
+        0.0
+      ],
+      "max": [
+        0.087137,
+        0.174597,
+        0.400477
+      ]
+    }
   },
   "normalization": {
-    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
-    "grounding_policy": "lowest point moved to z=0",
-    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "coordinate_system": {
+      "right": "+X",
+      "forward": "+Y",
+      "up": "+Z"
+    },
+    "grounded": true,
+    "xy_origin": "bbox_center",
+    "orientation": "principal_horizontal_axis_to_+Y",
     "applied_z_rotation_radians": 1.23454982
   },
-  "dimensions": {
-    "width_x": 0.174274,
-    "length_y": 0.349193,
-    "height_z": 0.400477
-  },
-  "bounds": {
-    "min": [
-      -0.087137,
-      -0.174597,
-      0.0
+  "materials": {
+    "sionna": [
+      "itu-wood"
     ],
-    "max": [
-      0.087137,
-      0.174597,
-      0.400477
+    "source_to_sionna": [
+      {
+        "source": "Cloth",
+        "sionna": "itu-wood",
+        "itu_type": "wood",
+        "confidence": "medium"
+      }
     ]
-  },
-  "source_material_names": [
-    "Cloth"
-  ],
-  "sionna_material_mappings": [
-    {
-      "source_material": "Cloth",
-      "itu_type": "wood",
-      "sionna_material_name": "itu-wood",
-      "confidence": "medium",
-      "reason": "generic interior object dielectric approximation"
-    }
-  ],
-  "sionna_material_names": [
-    "itu-wood"
-  ],
-  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Cooler_Cloth\\Cooler_Cloth.obj",
-  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Cooler_Cloth\\Cooler_Cloth.png",
-  "grouping_mode": "nameonly",
-  "merged_fine_asset_count": 1,
-  "merged_from_asset_names": [
-    "Cooler_Cloth"
-  ],
-  "merged_from_asset_keys": [
-    "Bistro_Research_Interior_Cooler_Cloth"
-  ],
-  "selected_from_fine_asset_name": "Cooler_Cloth",
-  "selected_from_fine_export_name": "Cooler_Cloth"
+  }
 }

@@ -1,72 +1,64 @@
 {
-  "asset_name": "Paris_BeerTap_01_mesh",
-  "asset_key": "nameonly::Paris_BeerTap_01_mesh",
+  "schema_version": "1.0",
+  "dataset": "bistro",
+  "id": "Paris_BeerTap_01_mesh",
+  "name": "Paris_BeerTap_01_mesh",
   "export_name": "Paris_BeerTap_01_mesh",
-  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
-  "source_instance_count": 2,
-  "descriptor_variant_count": 2,
-  "representative_variant_count": 1,
-  "representative_source_node": "Bistro_Research_Interior_Paris_BeerTap_01_mesh_2120",
-  "all_source_node_names": [
-    "Bistro_Research_Interior_Paris_BeerTap_01_mesh_2120",
-    "Bistro_Research_Interior_Paris_BeerTap_01_mesh1_2122"
-  ],
-  "units": "meter",
-  "coordinate_system": {
-    "right_axis": "+X",
-    "forward_axis": "+Y",
-    "up_axis": "+Z"
+  "files": {
+    "obj": "data/assets/Paris_BeerTap_01_mesh/Paris_BeerTap_01_mesh.obj",
+    "preview": "data/assets/Paris_BeerTap_01_mesh/Paris_BeerTap_01_mesh.png"
+  },
+  "placement": {
+    "class": "tabletop",
+    "enabled": true,
+    "support": [
+      "table",
+      "counter"
+    ],
+    "weight": 1.0
+  },
+  "geometry": {
+    "units": "meter",
+    "size": {
+      "x": 0.421317,
+      "y": 0.586512,
+      "z": 0.593575
+    },
+    "bbox": {
+      "min": [
+        -0.210659,
+        -0.293256,
+        0.0
+      ],
+      "max": [
+        0.210659,
+        0.293256,
+        0.593575
+      ]
+    }
   },
   "normalization": {
-    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
-    "grounding_policy": "lowest point moved to z=0",
-    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "coordinate_system": {
+      "right": "+X",
+      "forward": "+Y",
+      "up": "+Z"
+    },
+    "grounded": true,
+    "xy_origin": "bbox_center",
+    "orientation": "principal_horizontal_axis_to_+Y",
     "applied_z_rotation_radians": 1.07569497
   },
-  "dimensions": {
-    "width_x": 0.421317,
-    "length_y": 0.586512,
-    "height_z": 0.593575
-  },
-  "bounds": {
-    "min": [
-      -0.210659,
-      -0.293256,
-      0.0
+  "materials": {
+    "sionna": [
+      "itu-glass"
     ],
-    "max": [
-      0.210659,
-      0.293256,
-      0.593575
+    "source_to_sionna": [
+      {
+        "source": "Paris_Beertap",
+        "sionna": "itu-glass",
+        "itu_type": "glass",
+        "confidence": "high"
+      }
     ]
-  },
-  "source_material_names": [
-    "Paris_Beertap"
-  ],
-  "sionna_material_mappings": [
-    {
-      "source_material": "Paris_Beertap",
-      "itu_type": "glass",
-      "sionna_material_name": "itu-glass",
-      "confidence": "high",
-      "reason": "direct glass-related keyword match"
-    }
-  ],
-  "sionna_material_names": [
-    "itu-glass"
-  ],
-  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_BeerTap_01_mesh\\Paris_BeerTap_01_mesh.obj",
-  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_BeerTap_01_mesh\\Paris_BeerTap_01_mesh.png",
-  "grouping_mode": "nameonly",
-  "merged_fine_asset_count": 2,
-  "merged_from_asset_names": [
-    "Paris_BeerTap_01_mesh",
-    "Paris_BeerTap_01_mesh1"
-  ],
-  "merged_from_asset_keys": [
-    "Bistro_Research_Interior_Paris_BeerTap_01_mesh",
-    "Bistro_Research_Interior_Paris_BeerTap_01_mesh1"
-  ],
-  "selected_from_fine_asset_name": "Paris_BeerTap_01_mesh",
-  "selected_from_fine_export_name": "Paris_BeerTap_01_mesh"
+  }
 }

@@ -1,84 +1,61 @@
 {
-  "asset_name": "Paris_radiator_mesh",
-  "asset_key": "nameonly::Paris_radiator_mesh",
+  "schema_version": "1.0",
+  "dataset": "bistro",
+  "id": "Paris_radiator_mesh",
+  "name": "Paris_radiator_mesh",
   "export_name": "Paris_radiator_mesh",
-  "source_scene": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\scene\\BistroInterior.fbx",
-  "source_instance_count": 6,
-  "descriptor_variant_count": 6,
-  "representative_variant_count": 1,
-  "representative_source_node": "Bistro_Research_Interior_Paris_radiator_mesh_06_3236",
-  "all_source_node_names": [
-    "Bistro_Research_Interior_Paris_radiator_mesh_01_3226",
-    "Bistro_Research_Interior_Paris_radiator_mesh_02_3228",
-    "Bistro_Research_Interior_Paris_radiator_mesh_03_3230",
-    "Bistro_Research_Interior_Paris_radiator_mesh_04_3232",
-    "Bistro_Research_Interior_Paris_radiator_mesh_05_3234",
-    "Bistro_Research_Interior_Paris_radiator_mesh_06_3236"
-  ],
-  "units": "meter",
-  "coordinate_system": {
-    "right_axis": "+X",
-    "forward_axis": "+Y",
-    "up_axis": "+Z"
+  "files": {
+    "obj": "data/assets/Paris_radiator_mesh/Paris_radiator_mesh.obj",
+    "preview": "data/assets/Paris_radiator_mesh/Paris_radiator_mesh.png"
+  },
+  "placement": {
+    "class": "skip",
+    "enabled": false,
+    "support": [],
+    "weight": 1.0
+  },
+  "geometry": {
+    "units": "meter",
+    "size": {
+      "x": 0.23147,
+      "y": 1.122239,
+      "z": 0.716749
+    },
+    "bbox": {
+      "min": [
+        -0.115735,
+        -0.56112,
+        0.0
+      ],
+      "max": [
+        0.115735,
+        0.56112,
+        0.716749
+      ]
+    }
   },
   "normalization": {
-    "xy_origin_policy": "axis-aligned bounding box center projected to XY",
-    "grounding_policy": "lowest point moved to z=0",
-    "orientation_policy": "principal horizontal axis aligned to +Y when anisotropy is sufficient",
+    "coordinate_system": {
+      "right": "+X",
+      "forward": "+Y",
+      "up": "+Z"
+    },
+    "grounded": true,
+    "xy_origin": "bbox_center",
+    "orientation": "principal_horizontal_axis_to_+Y",
     "applied_z_rotation_radians": -2.07639286
   },
-  "dimensions": {
-    "width_x": 0.23147,
-    "length_y": 1.122239,
-    "height_z": 0.716749
-  },
-  "bounds": {
-    "min": [
-      -0.115735,
-      -0.56112,
-      0.0
+  "materials": {
+    "sionna": [
+      "itu-metal"
     ],
-    "max": [
-      0.115735,
-      0.56112,
-      0.716749
+    "source_to_sionna": [
+      {
+        "source": "Paris_Radiator",
+        "sionna": "itu-metal",
+        "itu_type": "metal",
+        "confidence": "high"
+      }
     ]
-  },
-  "source_material_names": [
-    "Paris_Radiator"
-  ],
-  "sionna_material_mappings": [
-    {
-      "source_material": "Paris_Radiator",
-      "itu_type": "metal",
-      "sionna_material_name": "itu-metal",
-      "confidence": "high",
-      "reason": "direct metal-related keyword match"
-    }
-  ],
-  "sionna_material_names": [
-    "itu-metal"
-  ],
-  "obj_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_radiator_mesh\\Paris_radiator_mesh.obj",
-  "snapshot_file": "D:\\School\\Study\\WorkProgress\\Projects\\AssetProcess\\results_nameonly\\Paris_radiator_mesh\\Paris_radiator_mesh.png",
-  "grouping_mode": "nameonly",
-  "merged_fine_asset_count": 6,
-  "merged_from_asset_names": [
-    "Paris_radiator_mesh_01",
-    "Paris_radiator_mesh_02",
-    "Paris_radiator_mesh_03",
-    "Paris_radiator_mesh_04",
-    "Paris_radiator_mesh_05",
-    "Paris_radiator_mesh_06"
-  ],
-  "merged_from_asset_keys": [
-    "Bistro_Research_Interior_Paris_radiator_mesh_01",
-    "Bistro_Research_Interior_Paris_radiator_mesh_02",
-    "Bistro_Research_Interior_Paris_radiator_mesh_03",
-    "Bistro_Research_Interior_Paris_radiator_mesh_04",
-    "Bistro_Research_Interior_Paris_radiator_mesh_05",
-    "Bistro_Research_Interior_Paris_radiator_mesh_06"
-  ],
-  "selected_from_fine_asset_name": "Paris_radiator_mesh_06",
-  "selected_from_fine_export_name": "Paris_radiator_mesh_06"
+  }
 }
