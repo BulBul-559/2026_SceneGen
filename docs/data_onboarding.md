@@ -62,3 +62,36 @@ catalog 是资产对象列表。每个资产对象只保留运行时真正需要
 - generated/Bistro source adapter 在 `src/scenegen/sources.py`。
 
 新增数据源时，优先复用 asset catalog 管线；只有场景来源和摆放逻辑不同的部分需要新增 source adapter。
+
+## 3D-FRONT 第一阶段整理脚本
+
+第一阶段只整理数据，不接 SceneGen 主流程。离线脚本：
+
+```bash
+uv run python tools/prepare_front3d_phase1.py \
+  --source data/3D-Front \
+  --output data/3D-Front \
+  --copy-mode copy \
+  --architecture-granularity scene \
+  --scope all
+```
+
+脚本会在 `data/3D-Front` 下生成四个整理目录：
+
+- `scenegen_objects_raw`
+- `scenegen_objects_normalized`
+- `scenegen_architecture_raw`
+- `scenegen_architecture_normalized`
+
+其中室内物品来自 3D-FUTURE 的 `raw_model.obj` 和 `normalized_model.obj`；建筑结构来自每个 `3D-FRONT/*.json` 的 `mesh` 数组，并按场景导出 OBJ。raw 建筑保持 3D-FRONT 的 `Y-up` 坐标，normalized 建筑转换为 SceneGen/Sionna 更适合的 `Z-up` 坐标。
+
+全量运行会复制大量文件。正式执行前脚本会检查磁盘空间；开发时建议先跑小样本：
+
+```bash
+uv run python tools/prepare_front3d_phase1.py \
+  --source data/3D-Front \
+  --output /tmp/front3d-phase1-smoke \
+  --limit-objects 5 \
+  --limit-scenes 5 \
+  --skip-disk-check
+```
