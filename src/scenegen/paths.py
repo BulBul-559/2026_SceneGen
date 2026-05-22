@@ -45,7 +45,7 @@ def default_output_dir(repo_root: Path | None = None) -> Path:
 
 
 def default_config_path(repo_root: Path | None = None) -> Path:
-    return (repo_root or find_project_root()) / "config" / "default.yaml"
+    return (repo_root or find_project_root()) / "config" / "template.yaml"
 
 
 def require_file(path: Path, label: str) -> Path:

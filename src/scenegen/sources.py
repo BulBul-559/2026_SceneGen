@@ -5,9 +5,10 @@ import random
 from dataclasses import dataclass
 from pathlib import Path
 
-from .exporters import write_bistro_scene_files, write_scene_files
+from .exporters import write_bistro_scene_files, write_front3d_scene_files, write_scene_files
+from .front3d import Front3DConfig, Front3DIndex, build_scene_from_front3d, choose_scene_ids
 from .geometry import load_bistro_base_scene
-from .models import Asset, BistroBaseScene, PlacedAsset, Rect2D, Room
+from .models import Asset, BistroBaseScene, Front3DBaseScene, PlacedAsset, Rect2D, Room
 from .placement import build_bistro_scene_placements, build_scene_placements
 
 
@@ -18,6 +19,7 @@ class SceneBuildResult:
     record: dict[str, object]
     room: Room | None = None
     base_scene: BistroBaseScene | None = None
+    front3d_base_scene: Front3DBaseScene | None = None
 
 
 class GeneratedSceneSource:
@@ -104,15 +106,75 @@ class BistroSceneSource:
         )
 
 
+class Front3DSceneSource:
+    mode = "front3d"
+    scene_prefix = "front3d"
+    base_scene: BistroBaseScene | None = None
+    forbidden_xy_rects: tuple[Rect2D, ...] = ()
+
+    def __init__(self, args: argparse.Namespace):
+        config = Front3DConfig(
+            manifest=args.front3d_manifest,
+            source_scene_dir=args.front3d_source_scene_dir,
+            variant=args.front3d_variant,
+            object_variant=args.front3d_object_variant,
+            scene_ids=tuple(args.front3d_scene_ids),
+            scene_selection=args.front3d_scene_selection,
+            use_replace_jid=args.front3d_use_replace_jid,
+            skip_missing_objects=args.front3d_skip_missing_objects,
+            normalize_positive_xy=args.front3d_normalize_positive_xy,
+            ground_objects=args.front3d_ground_objects,
+        )
+        self.index = Front3DIndex(config)
+        self.selected_scene_ids = choose_scene_ids(
+            self.index.scene_ids,
+            config.scene_ids,
+            config.scene_selection,
+            args.scenes,
+            random.Random(args.seed),
+        )
+
+    def build_scene(
+        self,
+        scene_dir: Path,
+        scene_index: int,
+        scene_seed: int,
+        rng: random.Random,
+    ) -> SceneBuildResult:
+        build = build_scene_from_front3d(self.index, self.selected_scene_ids[scene_index], scene_index)
+        record = write_front3d_scene_files(
+            scene_dir,
+            build.base_scene,
+            build.placements,
+            build.skipped_objects,
+            scene_index,
+            scene_seed,
+            rng,
+        )
+        return SceneBuildResult(
+            placements=build.placements,
+            bounds_xy=(
+                build.base_scene.bbox_min[0],
+                build.base_scene.bbox_min[1],
+                build.base_scene.bbox_max[0],
+                build.base_scene.bbox_max[1],
+            ),
+            record=record,
+            front3d_base_scene=build.base_scene,
+        )
+
+
 def create_scene_source(
     args: argparse.Namespace,
     assets_by_class: dict[str, list[Asset]],
     bistro_base_dir: Path | None,
-) -> GeneratedSceneSource | BistroSceneSource:
+) -> GeneratedSceneSource | BistroSceneSource | Front3DSceneSource:
     if args.mode == "generated":
         return GeneratedSceneSource(assets_by_class, args)
     if args.mode == "bistro":
         if bistro_base_dir is None:
             raise ValueError("Bistro mode requires a base scene directory")
         return BistroSceneSource(assets_by_class, args, bistro_base_dir)
+    if args.mode == "front3d":
+        return Front3DSceneSource(args)
     raise ValueError(f"Unsupported scene generation mode: {args.mode}")

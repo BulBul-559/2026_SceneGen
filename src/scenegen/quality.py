@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .geometry import collides_with_bistro_static, inside_bistro_scene, inside_room, is_supported_on_floor, overlaps
-from .models import BistroBaseScene, Box3D, PlacedAsset, Rect2D, Room
+from .models import BistroBaseScene, Box3D, Front3DBaseScene, PlacedAsset, Rect2D, Room
 from .paths import portable_path
 from .placement import overlaps_forbidden_xy
 
@@ -69,11 +69,27 @@ def issue(
     return payload
 
 
-def floor_area_for_scene(mode: str, room: Room | None, base_scene: BistroBaseScene | None) -> float:
+def floor_area_for_scene(
+    mode: str,
+    room: Room | None,
+    base_scene: BistroBaseScene | None,
+    front3d_base_scene: Front3DBaseScene | None = None,
+) -> float:
     if mode == "generated" and room is not None:
         return room.width * room.length
     if mode == "bistro" and base_scene is not None:
         return sum(triangle.area for triangle in base_scene.floor_triangles)
+    if mode == "front3d" and front3d_base_scene is not None:
+        return box_xy_area(
+            (
+                front3d_base_scene.bbox_min[0],
+                front3d_base_scene.bbox_max[0],
+                front3d_base_scene.bbox_min[1],
+                front3d_base_scene.bbox_max[1],
+                front3d_base_scene.bbox_min[2],
+                front3d_base_scene.bbox_max[2],
+            )
+        )
     return 0.0
 
 
@@ -82,6 +98,7 @@ def scene_statistics(
     placements: list[PlacedAsset],
     room: Room | None = None,
     base_scene: BistroBaseScene | None = None,
+    front3d_base_scene: Front3DBaseScene | None = None,
 ) -> dict[str, object]:
     class_counts = Counter(placement.asset.placement_class for placement in placements)
     support_counts = Counter(placement.support_type for placement in placements)
@@ -92,7 +109,7 @@ def scene_statistics(
         total_footprint += area
         footprint_by_class[placement.asset.placement_class] += area
 
-    floor_area = floor_area_for_scene(mode, room, base_scene)
+    floor_area = floor_area_for_scene(mode, room, base_scene, front3d_base_scene)
     z_min = min((placement.min_z for placement in placements), default=0.0)
     z_max = max((placement.max_z for placement in placements), default=0.0)
     return {
@@ -132,7 +149,9 @@ def check_scene_quality(
     config: QualityConfig,
     room: Room | None = None,
     base_scene: BistroBaseScene | None = None,
+    front3d_base_scene: Front3DBaseScene | None = None,
     forbidden_xy_rects: tuple[Rect2D, ...] = (),
+    skipped_objects: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
     issues: list[dict[str, object]] = []
     name_counts = Counter(placement.instance_name for placement in placements)
@@ -164,6 +183,28 @@ def check_scene_quality(
             ):
                 issues.append(
                     issue("error", "bistro_static_collision", "Floor placement overlaps Bistro static geometry.", placement.instance_name)
+                )
+        elif mode == "front3d" and front3d_base_scene is not None:
+            scene_box = (
+                front3d_base_scene.bbox_min[0],
+                front3d_base_scene.bbox_max[0],
+                front3d_base_scene.bbox_min[1],
+                front3d_base_scene.bbox_max[1],
+                front3d_base_scene.bbox_min[2],
+                front3d_base_scene.bbox_max[2],
+            )
+            if box_xy_area(box) <= 0.0 or box[5] <= box[4]:
+                issues.append(issue("error", "invalid_bbox", "3D-FRONT placement has an empty bounding box.", placement.instance_name))
+            elif (
+                box[1] < scene_box[0]
+                or box[0] > scene_box[1]
+                or box[3] < scene_box[2]
+                or box[2] > scene_box[3]
+                or box[5] < scene_box[4]
+                or box[4] > scene_box[5] + 3.0
+            ):
+                issues.append(
+                    issue("warning", "front3d_outside_architecture_bbox", "Placement is outside the architecture bbox.", placement.instance_name)
                 )
 
         if placement.support_type in {"floor", "floor_near_table"}:
@@ -210,6 +251,8 @@ def check_scene_quality(
                     issues.append(
                         issue("warning", "tabletop_xy_overhang", "Tabletop placement overhangs its parent AABB.", placement.instance_name)
                     )
+        elif placement.support_type == "front3d_scene":
+            pass
         elif placement.support_type == "bistro_existing_support" and base_scene is not None:
             if not _support_surface_contains(base_scene, placement, config.support_tolerance_m):
                 issues.append(
@@ -221,19 +264,20 @@ def check_scene_quality(
                     )
                 )
 
-    for left_index, left in enumerate(placements):
-        left_box = placed_box(left)
-        for right in placements[left_index + 1 :]:
-            if overlaps(left_box, right, padding=config.collision_padding_m):
-                issues.append(
-                    issue(
-                        "error",
-                        "placement_collision",
-                        "Two generated placements overlap.",
-                        left.instance_name,
-                        {"other_instance_name": right.instance_name},
+    if mode != "front3d":
+        for left_index, left in enumerate(placements):
+            left_box = placed_box(left)
+            for right in placements[left_index + 1 :]:
+                if overlaps(left_box, right, padding=config.collision_padding_m):
+                    issues.append(
+                        issue(
+                            "error",
+                            "placement_collision",
+                            "Two generated placements overlap.",
+                            left.instance_name,
+                            {"other_instance_name": right.instance_name},
+                        )
                     )
-                )
 
     error_count = sum(1 for item in issues if item["severity"] == "error")
     warning_count = sum(1 for item in issues if item["severity"] == "warning")
@@ -246,6 +290,8 @@ def check_scene_quality(
             "bistro_static_clearance_m": config.bistro_static_clearance_m,
             "support_tolerance_m": config.support_tolerance_m,
         },
+        "skipped_object_count": len(skipped_objects or []),
+        "skipped_objects": skipped_objects or [],
         "issues": issues,
     }
 

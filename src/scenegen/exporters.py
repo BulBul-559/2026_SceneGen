@@ -3,7 +3,6 @@ from __future__ import annotations
 import datetime as dt
 import json
 import math
-import random
 import re
 import shutil
 from pathlib import Path
@@ -11,8 +10,8 @@ from xml.dom import minidom
 from xml.etree import ElementTree as ET
 
 from .assets import resolve_face_sionna_material, sionna_material_itu_type
-from .geometry import build_room_mesh, load_obj_material_mesh, load_obj_mesh, sample_support_point, transform_vertices
-from .models import Asset, BistroBaseScene, ObjMesh, PlacedAsset, Rect2D, Room, SionnaAssetPart, SionnaXmlShape
+from .geometry import build_room_mesh, load_obj_material_mesh, load_obj_mesh, transform_vertices
+from .models import Asset, BistroBaseScene, Front3DBaseScene, ObjMesh, PlacedAsset, Rect2D, Room, SionnaAssetPart, SionnaXmlShape
 from .paths import SIONNA_BASE_SCENE_MATERIAL, portable_path
 
 
@@ -71,6 +70,9 @@ def write_clean_obj_mesh(path: Path, object_name: str, mesh: ObjMesh) -> None:
 
 
 def transform_matrix_for_placement(placed: PlacedAsset) -> tuple[float, ...]:
+    if placed.transform_matrix_4x4_row_major is not None:
+        return placed.transform_matrix_4x4_row_major
+
     cos_yaw = math.cos(placed.yaw)
     sin_yaw = math.sin(placed.yaw)
     return (
@@ -132,6 +134,42 @@ def export_sionna_asset_parts(
         )
 
     cache[asset.obj_file] = parts
+    return parts
+
+
+def export_front3d_base_parts(
+    scene_dir: Path,
+    assets_dir: Path,
+    base_scene: Front3DBaseScene,
+) -> list[SionnaAssetPart]:
+    material_mesh = load_obj_material_mesh(base_scene.scene_obj)
+    material_lookup: dict[str, str] = {}
+    for source, material_name in base_scene.source_to_sionna_material.items():
+        material_lookup[source] = material_name
+        material_lookup[sanitize_path_segment(source)] = material_name
+
+    base_dir = assets_dir / "empty_scene"
+    offset_x, offset_y, offset_z = base_scene.world_offset
+    vertices = [(x + offset_x, y + offset_y, z + offset_z) for x, y, z in material_mesh.vertices]
+    parts: list[SionnaAssetPart] = []
+    for source_material, faces in sorted(material_mesh.faces_by_material.items(), key=lambda item: str(item[0])):
+        material_name = material_lookup.get(source_material or "", SIONNA_BASE_SCENE_MATERIAL)
+        material_suffix = sanitize_path_segment(sionna_material_itu_type(material_name))
+        source_suffix = sanitize_path_segment(source_material or "default")
+        path = base_dir / f"front3d_architecture__{source_suffix}__{material_suffix}.obj"
+        write_clean_obj_subset(
+            path,
+            f"front3d_architecture_{source_suffix}_{material_suffix}",
+            vertices,
+            faces,
+        )
+        parts.append(
+            SionnaAssetPart(
+                filename=relative_posix(path, scene_dir),
+                material_name=material_name,
+                face_count=len(faces),
+            )
+        )
     return parts
 
 
@@ -219,6 +257,76 @@ def write_sionna_scene_assets(
     }
 
 
+def write_front3d_sionna_scene_assets(
+    output_dir: Path,
+    base_scene: Front3DBaseScene,
+    placements: list[PlacedAsset],
+) -> dict[str, object]:
+    assets_dir = output_dir / "assets"
+    base_parts = export_front3d_base_parts(output_dir, assets_dir, base_scene)
+    shapes = [
+        SionnaXmlShape(
+            shape_id=f"empty_scene_{index:04d}_{sionna_material_itu_type(part.material_name)}",
+            filename=part.filename,
+            material_name=part.material_name,
+        )
+        for index, part in enumerate(base_parts)
+    ]
+    asset_cache: dict[Path, list[SionnaAssetPart]] = {}
+    placement_asset_parts: list[dict[str, object]] = []
+    for placed in placements:
+        parts = export_sionna_asset_parts(output_dir, assets_dir, placed.asset, asset_cache)
+        transform = transform_matrix_for_placement(placed)
+        placement_parts: list[dict[str, object]] = []
+        for part in parts:
+            material_suffix = sanitize_path_segment(sionna_material_itu_type(part.material_name))
+            shape_id = f"{placed.instance_name}_{material_suffix}"
+            shapes.append(
+                SionnaXmlShape(
+                    shape_id=shape_id,
+                    filename=part.filename,
+                    material_name=part.material_name,
+                    transform=transform,
+                )
+            )
+            placement_parts.append(
+                {
+                    "shape_id": sanitize_xml_id(shape_id),
+                    "asset_obj": part.filename,
+                    "sionna_material_name": part.material_name,
+                    "itu_type": sionna_material_itu_type(part.material_name),
+                    "face_count": part.face_count,
+                }
+            )
+        placement_asset_parts.append(
+            {
+                "instance_name": placed.instance_name,
+                "asset_name": placed.asset.name,
+                "parts": placement_parts,
+            }
+        )
+
+    (output_dir / "scene.xml").write_text(build_sionna_scene_xml(shapes), encoding="utf-8")
+    return {
+        "assets_dir": portable_path(assets_dir, output_dir),
+        "empty_scene_obj": portable_path(base_scene.scene_obj, output_dir),
+        "scene_xml": portable_path(output_dir / "scene.xml", output_dir),
+        "shape_count": len(shapes),
+        "asset_file_count": sum(len(parts) for parts in asset_cache.values()) + len(base_parts),
+        "materials": sorted({shape.material_name for shape in shapes}),
+        "base_scene_parts": [
+            {
+                "asset_obj": part.filename,
+                "sionna_material_name": part.material_name,
+                "itu_type": sionna_material_itu_type(part.material_name),
+                "face_count": part.face_count,
+            }
+            for part in base_parts
+        ],
+        "placements": placement_asset_parts,
+    }
+
+
 def write_obj(path: Path, room: Room, placements: list[PlacedAsset]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     room_mesh = build_room_mesh(room)
@@ -267,8 +375,33 @@ def write_bistro_obj(path: Path, base_scene: BistroBaseScene, placements: list[P
             vertex_offset += len(mesh.vertices)
 
 
+def write_front3d_obj(path: Path, base_scene: Front3DBaseScene, placements: list[PlacedAsset]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    base_mesh = load_obj_mesh(base_scene.scene_obj)
+    mesh_cache: dict[Path, ObjMesh] = {}
+    vertex_offset = 0
+    with path.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write("# Generated by SceneGen --mode front3d\n")
+        handle.write(f"o front3d_architecture_{sanitize_xml_id(base_scene.scene_id)}\n")
+        offset_x, offset_y, offset_z = base_scene.world_offset
+        for x, y, z in base_mesh.vertices:
+            handle.write(f"v {x + offset_x:.6f} {y + offset_y:.6f} {z + offset_z:.6f}\n")
+        for face in base_mesh.faces:
+            handle.write("f " + " ".join(str(vertex_offset + index + 1) for index in face) + "\n")
+        vertex_offset += len(base_mesh.vertices)
+
+        for placed in placements:
+            mesh = mesh_cache.setdefault(placed.asset.obj_file, load_obj_mesh(placed.asset.obj_file))
+            handle.write(f"o {placed.instance_name}\n")
+            for x, y, z in transform_vertices(mesh, placed):
+                handle.write(f"v {x:.6f} {y:.6f} {z:.6f}\n")
+            for face in mesh.faces:
+                handle.write("f " + " ".join(str(vertex_offset + index + 1) for index in face) + "\n")
+            vertex_offset += len(mesh.vertices)
+
+
 def placement_to_json(placed: PlacedAsset, path_root: Path) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "instance_name": placed.instance_name,
         "asset_name": placed.asset.name,
         "asset_obj": portable_path(placed.asset.obj_file, path_root),
@@ -289,56 +422,15 @@ def placement_to_json(placed: PlacedAsset, path_root: Path) -> dict[str, object]
             "height_z": placed.asset.height,
         },
     }
-
-
-def write_label_json(path: Path, room: Room, rng: random.Random) -> None:
-    bs_points = [
-        {"x": 0.5, "y": 0.5, "z": room.height - 0.5, "label": "BS0"},
-        {"x": room.width - 0.5, "y": 0.5, "z": room.height - 0.5, "label": "BS1"},
-        {"x": room.width - 0.5, "y": room.length - 0.5, "z": room.height - 0.5, "label": "BS2"},
-        {"x": 0.5, "y": room.length - 0.5, "z": room.height - 0.5, "label": "BS3"},
-    ]
-    ue_points = []
-    for index in range(12):
-        ue_points.append(
-            {
-                "x": round(rng.uniform(1.0, room.width - 1.0), 3),
-                "y": round(rng.uniform(1.0, room.length - 1.0), 3),
-                "z": 1.5,
-                "label": f"UE{index}",
-            }
-        )
-    payload = {
-        "scene_file": portable_path(path.parent / "scene.obj", path.parent),
-        "groups": [{"name": "generated_default", "note": "", "bs_points": bs_points, "ue_points": ue_points}],
-    }
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def write_bistro_label_json(path: Path, base_scene: BistroBaseScene, rng: random.Random) -> None:
-    if base_scene.label_json is not None:
-        payload = json.loads(base_scene.label_json.read_text(encoding="utf-8"))
-        payload["scene_file"] = portable_path(path.parent / "scene.obj", path.parent)
-    else:
-        min_x, min_y, _ = base_scene.bbox_min
-        max_x, max_y, max_z = base_scene.bbox_max
-        bs_points = [
-            {"x": round(min_x + 1.0, 3), "y": round(min_y + 1.0, 3), "z": round(max_z - 0.8, 3), "label": "BS0"},
-            {"x": round(max_x - 1.0, 3), "y": round(min_y + 1.0, 3), "z": round(max_z - 0.8, 3), "label": "BS1"},
-            {"x": round(max_x - 1.0, 3), "y": round(max_y - 1.0, 3), "z": round(max_z - 0.8, 3), "label": "BS2"},
-            {"x": round(min_x + 1.0, 3), "y": round(max_y - 1.0, 3), "z": round(max_z - 0.8, 3), "label": "BS3"},
+    if placed.transform_matrix_4x4_row_major is not None:
+        payload["transform_matrix_4x4_row_major"] = [
+            round(value, 9) for value in placed.transform_matrix_4x4_row_major
         ]
-        ue_points = []
-        for index in range(12):
-            x, y = sample_support_point(rng, base_scene.floor_triangles)
-            ue_points.append(
-                {"x": round(x, 3), "y": round(y, 3), "z": round(base_scene.floor_z + 1.5, 3), "label": f"UE{index}"}
-            )
-        payload = {
-            "scene_file": portable_path(path.parent / "scene.obj", path.parent),
-            "groups": [{"name": "bistro_generated_default", "note": "", "bs_points": bs_points, "ue_points": ue_points}],
-        }
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    if placed.source_ids:
+        payload["source_ids"] = placed.source_ids
+    if placed.metadata:
+        payload["metadata"] = placed.metadata
+    return payload
 
 
 def write_scene_files(
@@ -347,12 +439,11 @@ def write_scene_files(
     placements: list[PlacedAsset],
     scene_index: int,
     seed: int,
-    rng: random.Random,
+    rng: object,
 ) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
     write_obj(output_dir / "scene.obj", room, placements)
     sionna_assets = write_sionna_scene_assets(output_dir, build_room_mesh(room), placements)
-    write_label_json(output_dir / "label.json", room, rng)
     placement_payload = {
         "scene_index": scene_index,
         "seed": seed,
@@ -374,13 +465,12 @@ def write_bistro_scene_files(
     placements: list[PlacedAsset],
     scene_index: int,
     seed: int,
-    rng: random.Random,
+    rng: object,
     forbidden_xy_rects: tuple[Rect2D, ...],
 ) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
     write_bistro_obj(output_dir / "scene.obj", base_scene, placements)
     sionna_assets = write_sionna_scene_assets(output_dir, load_obj_mesh(base_scene.scene_obj), placements)
-    write_bistro_label_json(output_dir / "label.json", base_scene, rng)
     placement_payload = {
         "scene_index": scene_index,
         "seed": seed,
@@ -394,6 +484,40 @@ def write_bistro_scene_files(
     }
     (output_dir / "placements.json").write_text(json.dumps(placement_payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return scene_record(output_dir, scene_index, seed, sionna_assets, placements)
+
+
+def write_front3d_scene_files(
+    output_dir: Path,
+    base_scene: Front3DBaseScene,
+    placements: list[PlacedAsset],
+    skipped_objects: list[dict[str, object]],
+    scene_index: int,
+    seed: int,
+    rng: object,
+) -> dict[str, object]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    write_front3d_obj(output_dir / "scene.obj", base_scene, placements)
+    sionna_assets = write_front3d_sionna_scene_assets(output_dir, base_scene, placements)
+    placement_payload = {
+        "scene_index": scene_index,
+        "seed": seed,
+        "mode": "front3d",
+        "front3d_scene_id": base_scene.scene_id,
+        "source_scene": portable_path(base_scene.source_scene_json, output_dir),
+        "architecture": base_scene_summary(base_scene, output_dir),
+        "skipped_objects": skipped_objects,
+        "skipped_object_count": len(skipped_objects),
+        "sionna_assets": sionna_assets,
+        "placement_count": len(placements),
+        "placements": [placement_to_json(placement, output_dir) for placement in placements],
+    }
+    (output_dir / "placements.json").write_text(json.dumps(placement_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    record = scene_record(output_dir, scene_index, seed, sionna_assets, placements)
+    record["front3d_scene_id"] = base_scene.scene_id
+    record["source_scene"] = portable_path(base_scene.source_scene_json, output_dir.parent)
+    record["skipped_object_count"] = len(skipped_objects)
+    record["skipped_objects"] = skipped_objects
+    return record
 
 
 def scene_record(
@@ -417,7 +541,22 @@ def scene_record(
     }
 
 
-def base_scene_summary(base_scene: BistroBaseScene, path_root: Path | None = None) -> dict[str, object]:
+def base_scene_summary(base_scene: BistroBaseScene | Front3DBaseScene, path_root: Path | None = None) -> dict[str, object]:
+    if isinstance(base_scene, Front3DBaseScene):
+        root = path_root or base_scene.scene_obj.parent
+        return {
+            "scene_id": base_scene.scene_id,
+            "scene_obj": portable_path(base_scene.scene_obj, root),
+            "source_scene_json": portable_path(base_scene.source_scene_json, root),
+            "metadata_json": portable_path(base_scene.metadata_json, root),
+            "bbox_min": [round(value, 6) for value in base_scene.bbox_min],
+            "bbox_max": [round(value, 6) for value in base_scene.bbox_max],
+            "source_bbox_min": [round(value, 6) for value in base_scene.source_bbox_min],
+            "source_bbox_max": [round(value, 6) for value in base_scene.source_bbox_max],
+            "world_offset": [round(value, 6) for value in base_scene.world_offset],
+            "materials": list(base_scene.sionna_material_names),
+        }
+
     root = path_root or base_scene.base_dir
     return {
         "base_dir": portable_path(base_scene.base_dir, root),

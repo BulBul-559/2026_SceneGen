@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -100,6 +100,21 @@ class BistroBaseScene:
     obstacle_cell_size: float
 
 
+@dataclass(frozen=True)
+class Front3DBaseScene:
+    scene_id: str
+    scene_obj: Path
+    source_scene_json: Path
+    metadata_json: Path
+    bbox_min: Vec3
+    bbox_max: Vec3
+    source_bbox_min: Vec3
+    source_bbox_max: Vec3
+    world_offset: Vec3
+    source_to_sionna_material: dict[str, str]
+    sionna_material_names: tuple[str, ...]
+
+
 @dataclass
 class PlacedAsset:
     asset: Asset
@@ -116,3 +131,6 @@ class PlacedAsset:
     max_y: float
     min_z: float
     max_z: float
+    transform_matrix_4x4_row_major: tuple[float, ...] | None = None
+    source_ids: dict[str, str] = field(default_factory=dict)
+    metadata: dict[str, object] = field(default_factory=dict)

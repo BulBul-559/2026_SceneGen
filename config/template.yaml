@@ -1,5 +1,5 @@
-# SceneGen full configuration template.
-# Copy this file and edit the values you need. CLI options can override the same fields.
+# SceneGen full configuration template and default YAML entry.
+# Copy this file outside config/ for experiments, or override fields with CLI options.
 
 pipeline:
   mode: bistro
@@ -17,6 +17,18 @@ bistro:
   forbidden_xy_rects:
     - [1.0, 11.0, 4.5, 16.0]
     - [8.0, 8.0, 14.0, 10.0]
+
+front3d:
+  manifest: data/3D-Front/scenegen_manifest.json
+  source_scene_dir: data/3D-Front/3D-FRONT
+  variant: normalized
+  object_variant: raw
+  scene_ids: []
+  scene_selection: random
+  use_replace_jid: true
+  skip_missing_objects: true
+  normalize_positive_xy: true
+  ground_objects: true
 
 placement:
   min_tables: 4
@@ -36,6 +48,32 @@ quality:
   collision_padding_m: 0.0
   bistro_static_clearance_m: 0.0
   support_tolerance_m: 0.05
+
+label:
+  enabled: true
+  version: "1.1"
+  ue_height_m: 1.6
+  ue_strategy: free_space_grid
+  grid_resolution_m: 0.1
+  batch_strategies: [free_space_grid]
+  batch_grid_resolutions_m: [0.1]
+  ue_clearance_m: 0.35
+  obstacle_strategy: height_aware
+  walk_ignore_low_obstacles_below_m: 0.10
+  walk_blocking_classes: [table, seat, floor]
+  walk_min_component_area_m2: 0.25
+  bs_strategy: wall_or_corner
+  bs_count_strategy: fixed_per_room
+  bs_per_room: 4
+  bs_min_per_room: 1
+  bs_max_per_room: 8
+  bs_min_room_area_m2: 4.0
+  bs_area_per_point_m2: 12.0
+  bs_height_m: 2.4
+  bs_ceiling_margin_m: 0.3
+  wall_clearance_m: 0.25
+  overlay_enabled: true
+  fail_on_error: true
 
 floorplan:
   enabled: true

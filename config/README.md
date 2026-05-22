@@ -1,155 +1,217 @@
-# SceneGen 配置说明
+# SceneGen Config Reference
 
-默认配置文件是 `config/default.yaml`。运行时默认读取它，命令行参数会覆盖 YAML；每次生成结果时，SceneGen 会把最终实际生效的配置写到 run 目录下的 `effective_config.yaml`。
+`config/template.yaml` 是当前唯一保留的完整配置模板，也是 CLI 默认读取的 YAML。建议复制这份模板到其他位置作为实验配置，或直接用 CLI 参数覆盖其中字段。
 
-当使用 `config/sparse.yaml`、`config/medium.yaml`、`config/dense.yaml` 这类局部配置时，SceneGen 会先加载 `config/default.yaml`，再用指定 YAML 覆盖其中字段。因此 Bistro 禁区、floorplan 默认参数、质量检查等通用设置仍会继承默认配置。
+每次运行都会在 run 目录写出 `effective_config.yaml`，它记录 YAML 与 CLI 覆盖后真正生效的配置。
 
-## 配置链路
+## 合并规则
 
-SceneGen 的配置按下面顺序合并，后面的优先级更高：
+配置优先级从低到高：
 
-1. 代码内置默认值 `DEFAULT_CONFIG`。
-2. 如果 `--config` 指向的不是 `config/default.yaml`，先加载 `config/default.yaml` 作为项目默认模板。
-3. 加载 `--config` 指定的 YAML，并覆盖前面的默认值。
-4. 应用 CLI 参数覆盖，例如 `--scenes`、`--seed`、`--asset-catalog`、`--no-floorplan`。
-5. 归一化路径和类型：相对路径解析为 repo 下的绝对路径，数字和布尔值转成运行时类型。
-6. 写出 `<run_dir>/effective_config.yaml`，它记录实际生效配置。
+1. 代码内置默认值 `DEFAULT_CONFIG`
+2. `--config` 指定的 YAML，默认 `config/template.yaml`
+3. CLI 覆盖参数
+4. 路径、类型、旧字段别名归一化
+5. 字段名和取值校验
 
-兼容规则：旧 YAML 字段 `assets.manifest` 和旧 CLI 参数 `--asset-manifest` 仍可输入，但会被归一化为 `assets.catalog`。写出的 `effective_config.yaml` 只保留 `assets.catalog`。
-
-## 预设配置
-
-- `default.yaml`: 默认主实验配置，中等密度 Bistro 场景，默认生成 10 个。
-- `template.yaml`: 完整字段模板，适合复制后作为新实验配置起点。
-- `sparse.yaml`: 稀疏场景，低遮挡、低反射、多径相对简单，默认生成 3 个。
-- `medium.yaml`: 中等场景，主实验分布，默认生成 3 个。
-- `dense.yaml`: 稠密场景，高遮挡、高反射、多径更复杂，默认生成 3 个。
-
-运行示例：
-
-```bash
-uv run scenegen --config config/sparse.yaml
-uv run scenegen --config config/medium.yaml
-uv run scenegen --config config/dense.yaml
-```
+未知字段会直接报错。旧字段 `assets.manifest` 和旧 CLI `--asset-manifest` 仍兼容，但最终会归一化为 `assets.catalog`。
 
 ## pipeline
 
-- `mode`: `bistro` 或 `generated`。
-- `scenes`: 本次生成场景数量。
-- `seed`: 主随机种子。相同配置和 seed 可复现同一批场景。
-- `output_dir`: run 输出根目录。
-- `run_name`: run 目录名。为 `null` 时使用时间戳。
-- `clean`: 生成前是否清理 `output_dir` 下旧 run。
+| 字段 | 类型 / 可选值 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `mode` | `bistro` / `generated` / `front3d` | `bistro` | 生成模式。 |
+| `scenes` | integer, `>=1` | `10` | 本次生成场景数量。 |
+| `seed` | integer | `20260517` | 主随机种子。 |
+| `output_dir` | path | `results` | run 输出根目录。 |
+| `run_name` | string / `null` | `null` | run 目录名；不能包含路径分隔符。为 `null` 时用时间戳。 |
+| `clean` | boolean | `false` | 生成前是否清理 `output_dir` 下已有内容。 |
+
+CLI 覆盖：`--mode`、`--scenes`、`--seed`、`--output-dir`、`--run-name`、`--clean/--no-clean`。
 
 ## assets
 
-- `catalog`: 标准资产 catalog 路径，默认 `data/catalogs/bistro.v1.json`。
+| 字段 | 类型 / 可选值 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `catalog` | path | `data/catalogs/bistro.v1.json` | Bistro/generated 使用的资产 catalog。`front3d` 模式不依赖这个 Bistro catalog。 |
 
-兼容说明：旧 CLI 参数 `--asset-manifest` 和旧 YAML 字段 `assets.manifest` 仍然可用，但都会被映射到 `assets.catalog`。`data/assets/manifest.json` 也仍保留，但它只是兼容位置，内容应与 `data/catalogs/bistro.v1.json` 使用同一份清洗后的资产契约。
+CLI 覆盖：`--asset-catalog`。兼容别名：`--asset-manifest`。
 
 ## bistro
 
-- `base_dir`: 空 Bistro 场景目录，目录内需要 `scene.obj`，可选 `label.json`。
-- `forbidden_xy_rects`: Bistro 禁区列表，格式为 `[x_min, y_min, x_max, y_max]`。只在 `mode: bistro` 时使用。
+| 字段 | 类型 / 可选值 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `base_dir` | path | `data/scene` | 空 Bistro 场景目录，至少包含 `scene.obj`，可包含手工 `label.json`。 |
+| `forbidden_xy_rects` | list of `[x_min, y_min, x_max, y_max]` | 两个 Bistro 禁区 | Bistro 模式地面摆放禁区。 |
+
+CLI 覆盖：`--bistro-base-dir`。禁区目前通过 YAML 配置。
+
+## front3d
+
+| 字段 | 类型 / 可选值 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `manifest` | path | `data/3D-Front/scenegen_manifest.json` | 3D-FRONT phase1 整理输出总 manifest。 |
+| `source_scene_dir` | path | `data/3D-Front/3D-FRONT` | 原始 3D-FRONT scene JSON 目录。 |
+| `variant` | `normalized` / `raw` | `normalized` | 建筑结构使用的整理版本。默认 normalized，已转为 SceneGen/Sionna 的 Z-up。 |
+| `object_variant` | `raw` / `normalized` | `raw` | 室内物体使用的整理版本。默认 raw，因为 3D-FRONT 原始位姿通常按 raw 模型尺寸设计。 |
+| `scene_ids` | list of string / comma-separated CLI string | `[]` | 指定合成的 scene id；为空时按 `scene_selection` 自动选择。 |
+| `scene_selection` | `random` / `sequential` | `random` | `scene_ids` 为空时的自动选场景策略。 |
+| `use_replace_jid` | boolean | `true` | child 有 `replace_jid` 时优先使用 replacement 模型。 |
+| `skip_missing_objects` | boolean | `true` | 缺失家具模型时跳过并记录；为 `false` 时直接失败。 |
+| `normalize_positive_xy` | boolean | `true` | 将合成场景整体平移到 XY 正象限，保持 floorplan 左下为 `(0, 0)`。 |
+| `ground_objects` | boolean | `true` | 家具 bbox 低于 floor 时做轻量 Z 抬升。 |
+
+CLI 覆盖：`--front3d-manifest`、`--front3d-source-scene-dir`、`--front3d-variant`、`--front3d-object-variant`、`--front3d-scene-ids`、`--front3d-scene-selection`、`--front3d-use-replace-jid/--no-front3d-use-replace-jid`、`--front3d-skip-missing-objects/--no-front3d-skip-missing-objects`、`--front3d-normalize-positive-xy/--no-front3d-normalize-positive-xy`、`--front3d-ground-objects/--no-front3d-ground-objects`。
 
 ## placement
 
-- `min_tables` / `max_tables`: 每个场景随机桌子数量范围。
-- `floor_extras`: 地面额外物体数量。
-- `min_tabletop_items` / `max_tabletop_items`: 每张桌子桌面小物数量范围。
-- `bistro_support_items`: Bistro 现有台面/吧台上额外小物数量。
-- `max_attempts`: 每次摆放采样的最大尝试次数。
+只影响 `bistro` 和 `generated` 的随机摆放，不影响 `front3d` 已组合场景复现。
+
+| 字段 | 类型 / 范围 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `min_tables` | integer, `>=0` | `4` | 每场最少桌子数。 |
+| `max_tables` | integer, `>= min_tables` | `8` | 每场最多桌子数。 |
+| `floor_extras` | integer, `>=0` | `6` | 地面额外物体数量。 |
+| `min_tabletop_items` | integer, `>=0` | `3` | 每张桌面小物最少数量。 |
+| `max_tabletop_items` | integer, `>= min_tabletop_items` | `9` | 每张桌面小物最多数量。 |
+| `bistro_support_items` | integer, `>=0` | `18` | Bistro 已有台面/吧台上的额外小物数量。 |
+| `max_attempts` | integer, `>=1` | `300` | 摆放采样最大尝试次数。 |
+
+CLI 覆盖：`--min-tables`、`--max-tables`、`--floor-extras`、`--min-tabletop-items`、`--max-tabletop-items`、`--bistro-support-items`、`--max-attempts`。
 
 ## validation
 
-- `sionna`: 是否在每个场景生成后用 `sionna.rt.load_scene()` 验证 `scene.xml`。
+| 字段 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `sionna` | boolean | `false` | 是否生成后用 `sionna.rt.load_scene()` 验证 `scene.xml`。 |
+
+CLI 覆盖：`--validate-sionna/--no-validate-sionna`。
 
 ## quality
 
-- `enabled`: 是否在每个场景生成后执行质量检查。默认开启。
-- `fail_on_error`: 质量检查发现 error 时是否让整个命令返回失败。默认开启。
-- `collision_padding_m`: 物体间 AABB 碰撞检查的额外间距。默认 `0.0`，只检查真实重叠。
-- `bistro_static_clearance_m`: Bistro 地面物体与空场景静态几何的额外避让距离。默认 `0.0`，避免过严误报。
-- `support_tolerance_m`: 地面/桌面/已有台面支撑关系检查的高度容差，单位米。
+| 字段 | 类型 / 范围 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `enabled` | boolean | `true` | 是否执行质量检查。 |
+| `fail_on_error` | boolean | `true` | 质量检查有 error 时命令是否返回非零。 |
+| `collision_padding_m` | float, `>=0` | `0.0` | 动态物体 AABB 碰撞检查额外间距。 |
+| `bistro_static_clearance_m` | float, `>=0` | `0.0` | Bistro 地面物体与静态几何的额外避让距离。 |
+| `support_tolerance_m` | float, `>=0` | `0.05` | 地面/桌面/台面支撑关系高度容差。 |
 
-质量报告输出：
+CLI 覆盖：`--quality/--no-quality`、`--quality-fail-on-error/--no-quality-fail-on-error`、`--quality-collision-padding`、`--quality-bistro-static-clearance`、`--quality-support-tolerance`。
 
-- 单场景：`<scene_dir>/quality_report.json`
-- run 汇总：`<run_dir>/statistics.json`
-- manifest 中同步记录 `quality_requested`、`quality_ok` 和统计摘要。
+## label
+
+| 字段 | 类型 / 可选值 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `enabled` | boolean | `true` | 是否生成 `label.json` 和 `label_report.json`。 |
+| `version` | `"1.1"` | `"1.1"` | 当前固定版本。 |
+| `ue_height_m` | float, `>0` | `1.6` | UE 相对 floor 的高度。 |
+| `ue_strategy` | `free_space_grid` / `plane_grid` | `free_space_grid` | 单 label 兼容字段。若未显式设置 `batch_strategies`，CLI/YAML 设置该字段会同步到批量生成策略。 |
+| `grid_resolution_m` | float, `>0` | `0.1` | 单 label 兼容字段。若未显式设置 `batch_grid_resolutions_m`，CLI/YAML 设置该字段会同步到批量采样间隔。 |
+| `batch_strategies` | list: `free_space_grid` / `plane_grid` | `[free_space_grid]` | 批量 UE 采样策略。`free_space_grid` 使用可行走区域网格，输出名为 `label_walk_*`；`plane_grid` 在 room floor mesh 平面域内采样，输出名为 `label_panel_*`。 |
+| `batch_grid_resolutions_m` | list of float, `>0` | `[0.1]` | 批量 UE 网格间隔。会与 `batch_strategies` 做笛卡尔组合，例如 `[0.1, 0.2]` 与两种策略会生成 4 份 label。 |
+| `ue_clearance_m` | float, `>=0` | `0.35` | UE 与家具 bbox 的避让距离。 |
+| `obstacle_strategy` | `height_aware` / `footprint_column` | `height_aware` | 家具障碍物过滤方式。`height_aware` 只过滤与 UE 高度相交的物体；`footprint_column` 按家具 XY 占地整列过滤。 |
+| `walk_ignore_low_obstacles_below_m` | float, `>=0` | `0.10` | `free_space_grid` 专用。高度低于该阈值的低矮物体不作为可行走区域障碍，减少地毯、薄垫等误判。 |
+| `walk_blocking_classes` | list: `table` / `seat` / `tabletop` / `floor` / `skip` | `[table, seat, floor]` | `free_space_grid` 专用。只有这些 placement class 会从 walk 区域扣除。 |
+| `walk_min_component_area_m2` | float, `>=0` | `0.25` | `free_space_grid` 专用。删除面积小于该值的孤立小连通区域。 |
+| `bs_strategy` | `wall_or_corner` | `wall_or_corner` | BS 位置策略，当前支持墙边/角落候选点。 |
+| `bs_count_strategy` | `fixed_per_room` / `area_adaptive` | `fixed_per_room` | BS 数量策略。 |
+| `bs_per_room` | integer, `>=0` | `4` | `fixed_per_room` 下每个 room 的 BS 数量。 |
+| `bs_min_per_room` | integer, `>=0` | `1` | `area_adaptive` 下每个有效 room 最少 BS 数量。 |
+| `bs_max_per_room` | integer, `>= bs_min_per_room` | `8` | `area_adaptive` 下每个有效 room 最多 BS 数量。 |
+| `bs_min_room_area_m2` | float, `>=0` | `4.0` | `area_adaptive` 下小于该面积的 room 不放 BS。 |
+| `bs_area_per_point_m2` | float, `>0` | `12.0` | `area_adaptive` 下每多少平方米约增加一个 BS。 |
+| `bs_height_m` | float, `>0` | `2.4` | BS 目标高度。 |
+| `bs_ceiling_margin_m` | float, `>=0` | `0.3` | BS 距离天花的最小距离。 |
+| `wall_clearance_m` | float, `>=0` | `0.25` | UE/BS 与 room floor 边界的避让距离。 |
+| `overlay_enabled` | boolean | `true` | 是否生成 label 可视化。批量图写入 `label_floorplan/`，同时保留首个 label 的兼容图 `floorplan/label_overlay.png`。 |
+| `fail_on_error` | boolean | `true` | label 验证失败时命令是否返回非零。 |
+
+批量 label 输出约定：
+
+- 每个场景的所有 label JSON 写入 `label/`，命名为 `label_<strategy>_<resolution>.json`，例如 `label_panel_0p1.json`、`label_walk_0p2.json`。
+- 每份 label 对应一份报告，命名为 `label/report/<name>_report.json`。
+- 每份 label 对应一张点位可视化，命名为 `label_floorplan/<name>.png`。
+- 根目录 `label.json` 和 `label_report.json` 保留为兼容入口，内容等于批量列表中的第一份 label。
+- `floorplan/label_overlay.png` 保留为兼容入口，内容等于第一份 label 的可视化。
+- root 和 group 级都包含 `bs_points`、`ue_points`、`bs_positions`、`ue_positions`。
+- `bs_points` 单点坐标使用 `position: [x, y, z]`。
+- `ue_points` 当前使用 `x` / `y` / `z` 字段。
+- `bs_positions` / `ue_positions` 是快速读取用的坐标数组。
+
+`plane_grid` 和 `free_space_grid` 的区别：
+
+- `plane_grid` 表示指定高度上的采样平面，默认使用 `obstacle_strategy` 做高度感知过滤。
+- `free_space_grid` 表示可行走区域，会在 floor mask 上按家具 footprint 扣除障碍，不受 UE 高度影响；同时会忽略低于 `walk_ignore_low_obstacles_below_m` 的薄物体，并删除小于 `walk_min_component_area_m2` 的孤立区域。
+
+CLI 覆盖：`--label/--no-label`、`--label-version`、`--label-ue-height`、`--label-ue-strategy`、`--label-grid-resolution`、`--label-batch-strategies`、`--label-batch-grid-resolutions`、`--label-ue-clearance`、`--label-obstacle-strategy`、`--label-walk-ignore-low-obstacles-below`、`--label-walk-blocking-classes`、`--label-walk-min-component-area`、`--label-bs-strategy`、`--label-bs-count-strategy`、`--label-bs-per-room`、`--label-bs-min-per-room`、`--label-bs-max-per-room`、`--label-bs-min-room-area`、`--label-bs-area-per-point`、`--label-bs-height`、`--label-bs-ceiling-margin`、`--label-wall-clearance`、`--label-overlay/--no-label-overlay`、`--label-fail-on-error/--no-label-fail-on-error`。
 
 ## floorplan
 
-- `enabled`: 是否每个场景同步生成平面图。
-- `geometry_enabled`: 是否生成第一版几何占据平面图，也就是基于 `scene.obj` 采样和高度扫描的投影图。
-- `geometry_clean_enabled`: 是否额外生成去噪后的几何占据图 `geometry_clean.png`，用于降低随机采样点对模型训练的影响。默认关闭，默认训练输入优先使用高密度 raw 指定高度投影。
-- `geometry_clean_min_density`: clean 图保留像素的最低累计采样密度，调高会减少散点但可能损失细小物体。
-- `geometry_clean_min_neighbors`: clean 图保留像素所需的最少 8 邻域支撑像素数量，用于去掉孤立点。
-- `geometry_clean_min_z_m`: clean 图忽略低于该高度的采样点，默认跳过近地面采样噪声。
-- `geometry_clean_max_abs_normal_z`: clean 图保留的表面法线竖直分量上限；默认偏向保留墙体、家具侧面等竖直/倾斜表面，过滤地板、天花和桌面这类水平面。
-- `geometry_clean_opening_px`: clean 图的 opening 迭代半径，用于去掉小碎块；默认 `0`，避免误删细墙和家具。
-- `geometry_clean_closing_px`: clean 图的 closing 迭代半径，用于连通墙体和家具边缘的小缺口。
-- `semantic_enabled`: 是否生成第二版语义平面图，也就是直接基于 SceneGen 的 `placements` 绘制资产矩形和类别标注。默认关闭。
-- `resolution_m_per_pixel`: 平面图栅格分辨率，单位米/像素。
-- `height_mode`: 几何平面图高度策略。`heights` 表示只渲染指定高度序列；`layers` 表示使用旧版逐层扫描。
-- `heights_m`: `height_mode: heights` 时使用的高度序列，单位米。默认只渲染 `[1.6]`。
-- `step_m`: `height_mode: layers` 时的高度扫描层间隔。
-- `top_z_m`: `height_mode: layers` 时手动指定扫描顶部高度；为 `null` 时自动检测。
-- `bottom_z_m`: 扫描底部高度。
-- `sample_density_scale`: 表面采样密度倍率，越大越细但更慢。
-- `min_sample_points` / `max_sample_points`: 表面采样点数量上下限。
-- `preview_tile_size_px`: 分层预览图每个 tile 的尺寸。
-- `semantic_padding_m`: 语义平面图在场景边界外额外留白，单位米。
-- `semantic_draw_labels`: 是否在语义平面图中绘制类别文字标签。
-- `fail_on_error`: 平面图生成失败时是否让整个 run 返回失败。
+| 字段 | 类型 / 可选值 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `enabled` | boolean | `true` | 是否生成 floorplan。 |
+| `geometry_enabled` | boolean | `true` | 是否生成基于 `scene.obj` 采样的几何占据图。 |
+| `geometry_clean_enabled` | boolean | `false` | 是否生成去噪后的 `geometry_clean.png`。 |
+| `geometry_clean_min_density` | float | `2.0` | clean 图保留像素的最低累计采样密度。 |
+| `geometry_clean_min_neighbors` | integer | `2` | clean 图保留像素所需的 8 邻域支撑像素数量。 |
+| `geometry_clean_min_z_m` | float | `0.05` | clean 图忽略低于该高度的采样点。 |
+| `geometry_clean_max_abs_normal_z` | float | `0.7` | clean 图保留表面法线竖直分量上限。 |
+| `geometry_clean_opening_px` | integer | `0` | clean 图 opening 迭代半径。 |
+| `geometry_clean_closing_px` | integer | `1` | clean 图 closing 迭代半径。 |
+| `semantic_enabled` | boolean | `false` | 是否生成语义平面图。 |
+| `resolution_m_per_pixel` | float, `>0` | `0.05` | 平面图栅格分辨率。 |
+| `height_mode` | `heights` / `layers` | `heights` | `heights` 渲染指定高度；`layers` 使用逐层扫描。 |
+| `heights_m` | list of float | `[1.6]` | `height_mode: heights` 时的投影高度序列。 |
+| `step_m` | float, `>0` | `0.2` | `height_mode: layers` 时层间隔。 |
+| `top_z_m` | float / `null` | `null` | `height_mode: layers` 时扫描顶部；`null` 表示自动检测。 |
+| `bottom_z_m` | float | `0.0` | 扫描底部高度。 |
+| `sample_density_scale` | float, `>0` | `128.0` | 表面采样密度倍率。 |
+| `min_sample_points` | integer, `>=1` | `100000` | 表面采样点数量下限。 |
+| `max_sample_points` | integer, `>= min_sample_points` | `25000000` | 表面采样点数量上限。 |
+| `preview_tile_size_px` | integer | `360` | 分层预览图 tile 尺寸。 |
+| `semantic_padding_m` | float | `0.5` | 语义平面图场景外留白。 |
+| `semantic_draw_labels` | boolean | `true` | 语义平面图是否绘制文字标签。 |
+| `fail_on_error` | boolean | `true` | floorplan 失败时命令是否返回非零。 |
 
-## 命令行覆盖示例
+CLI 覆盖：`--floorplan/--no-floorplan`、`--floorplan-geometry/--no-floorplan-geometry`、`--floorplan-geometry-clean/--no-floorplan-geometry-clean`、`--floorplan-geometry-clean-min-density`、`--floorplan-geometry-clean-min-neighbors`、`--floorplan-geometry-clean-min-z`、`--floorplan-geometry-clean-max-abs-normal-z`、`--floorplan-geometry-clean-opening-px`、`--floorplan-geometry-clean-closing-px`、`--semantic-floorplan/--no-semantic-floorplan`、`--floorplan-resolution`、`--floorplan-height-mode`、`--floorplan-heights`、`--floorplan-step`、`--floorplan-top-z`、`--floorplan-bottom-z`、`--floorplan-sample-density-scale`、`--floorplan-min-sample-points`、`--floorplan-max-sample-points`、`--floorplan-preview-tile-size`、`--floorplan-semantic-padding`、`--floorplan-semantic-draw-labels/--no-floorplan-semantic-draw-labels`、`--floorplan-fail-on-error/--no-floorplan-fail-on-error`。
 
-```bash
-uv run scenegen --config config/default.yaml --scenes 3 --seed 123 --no-floorplan
+## 常用片段
+
+3D-FRONT 合成：
+
+```yaml
+pipeline:
+  mode: front3d
+  scenes: 3
 ```
 
-上面的命令会读取 YAML，但最终生效配置中的 `pipeline.scenes`、`pipeline.seed` 和 `floorplan.enabled` 会被命令行覆盖。
+UE 高密度平面采样，靠近墙和家具：
 
-只关闭几何占据平面图、打开语义平面图：
-
-```bash
-uv run scenegen --no-floorplan-geometry --semantic-floorplan
+```yaml
+label:
+  ue_strategy: plane_grid
+  ue_height_m: 1.8
+  ue_clearance_m: 0.1
+  wall_clearance_m: 0.1
+  obstacle_strategy: height_aware
 ```
 
-保留几何平面图，但关闭 clean 后处理：
+BS 按房间面积自适应：
 
-```bash
-uv run scenegen --floorplan-geometry --no-floorplan-geometry-clean
+```yaml
+label:
+  bs_count_strategy: area_adaptive
+  bs_min_room_area_m2: 4.0
+  bs_area_per_point_m2: 12.0
+  bs_min_per_room: 1
+  bs_max_per_room: 8
 ```
 
-保留几何占据平面图、显式关闭语义平面图：
+更高分辨率 floorplan：
 
-```bash
-uv run scenegen --floorplan-geometry --no-semantic-floorplan
-```
-
-切换回旧版逐层扫描：
-
-```bash
-uv run scenegen --floorplan-height-mode layers --floorplan-top-z 1.6 --floorplan-step 0.2
-```
-
-渲染多个指定高度：
-
-```bash
-uv run scenegen --floorplan-height-mode heights --floorplan-heights 1.2,1.6,2.0
-```
-
-临时关闭质量检查：
-
-```bash
-uv run scenegen --no-quality
-```
-
-临时使用另一个资产 catalog：
-
-```bash
-uv run scenegen --asset-catalog data/catalogs/bistro.v1.json
+```yaml
+floorplan:
+  resolution_m_per_pixel: 0.025
 ```

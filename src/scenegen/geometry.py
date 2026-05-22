@@ -121,7 +121,21 @@ def build_room_mesh(room: Room) -> ObjMesh:
     return ObjMesh(vertices=vertices, faces=faces)
 
 
+def transform_point_with_matrix(point: Vec3, matrix: tuple[float, ...]) -> Vec3:
+    if len(matrix) != 16:
+        raise ValueError("Transform matrix must contain 16 row-major values.")
+    x, y, z = point
+    return (
+        matrix[0] * x + matrix[1] * y + matrix[2] * z + matrix[3],
+        matrix[4] * x + matrix[5] * y + matrix[6] * z + matrix[7],
+        matrix[8] * x + matrix[9] * y + matrix[10] * z + matrix[11],
+    )
+
+
 def transform_vertices(mesh: ObjMesh, placed: PlacedAsset) -> list[Vec3]:
+    if placed.transform_matrix_4x4_row_major is not None:
+        return [transform_point_with_matrix(vertex, placed.transform_matrix_4x4_row_major) for vertex in mesh.vertices]
+
     cos_yaw = math.cos(placed.yaw)
     sin_yaw = math.sin(placed.yaw)
     transformed: list[Vec3] = []

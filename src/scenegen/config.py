@@ -7,9 +7,6 @@ from typing import Any
 
 import yaml
 
-from .paths import default_config_path
-
-
 DEFAULT_CONFIG: dict[str, Any] = {
     "pipeline": {
         "mode": "bistro",
@@ -24,7 +21,22 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "bistro": {
         "base_dir": "data/scene",
-        "forbidden_xy_rects": [],
+        "forbidden_xy_rects": [
+            [1.0, 11.0, 4.5, 16.0],
+            [8.0, 8.0, 14.0, 10.0],
+        ],
+    },
+    "front3d": {
+        "manifest": "data/3D-Front/scenegen_manifest.json",
+        "source_scene_dir": "data/3D-Front/3D-FRONT",
+        "variant": "normalized",
+        "object_variant": "raw",
+        "scene_ids": [],
+        "scene_selection": "random",
+        "use_replace_jid": True,
+        "skip_missing_objects": True,
+        "normalize_positive_xy": True,
+        "ground_objects": True,
     },
     "placement": {
         "min_tables": 4,
@@ -44,6 +56,32 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "collision_padding_m": 0.0,
         "bistro_static_clearance_m": 0.0,
         "support_tolerance_m": 0.05,
+    },
+    "label": {
+        "enabled": True,
+        "version": "1.1",
+        "ue_height_m": 1.6,
+        "ue_strategy": "free_space_grid",
+        "grid_resolution_m": 0.1,
+        "batch_strategies": ["free_space_grid"],
+        "batch_grid_resolutions_m": [0.1],
+        "ue_clearance_m": 0.35,
+        "obstacle_strategy": "height_aware",
+        "walk_ignore_low_obstacles_below_m": 0.10,
+        "walk_blocking_classes": ["table", "seat", "floor"],
+        "walk_min_component_area_m2": 0.25,
+        "bs_strategy": "wall_or_corner",
+        "bs_count_strategy": "fixed_per_room",
+        "bs_per_room": 4,
+        "bs_min_per_room": 1,
+        "bs_max_per_room": 8,
+        "bs_min_room_area_m2": 4.0,
+        "bs_area_per_point_m2": 12.0,
+        "bs_height_m": 2.4,
+        "bs_ceiling_margin_m": 0.3,
+        "wall_clearance_m": 0.25,
+        "overlay_enabled": True,
+        "fail_on_error": True,
     },
     "floorplan": {
         "enabled": True,
@@ -83,6 +121,16 @@ CLI_OVERRIDE_MAP: dict[str, tuple[str, ...]] = {
     "asset_manifest": ("assets", "catalog"),
     "asset_catalog": ("assets", "catalog"),
     "bistro_base_dir": ("bistro", "base_dir"),
+    "front3d_manifest": ("front3d", "manifest"),
+    "front3d_source_scene_dir": ("front3d", "source_scene_dir"),
+    "front3d_variant": ("front3d", "variant"),
+    "front3d_object_variant": ("front3d", "object_variant"),
+    "front3d_scene_ids": ("front3d", "scene_ids"),
+    "front3d_scene_selection": ("front3d", "scene_selection"),
+    "front3d_use_replace_jid": ("front3d", "use_replace_jid"),
+    "front3d_skip_missing_objects": ("front3d", "skip_missing_objects"),
+    "front3d_normalize_positive_xy": ("front3d", "normalize_positive_xy"),
+    "front3d_ground_objects": ("front3d", "ground_objects"),
     "min_tables": ("placement", "min_tables"),
     "max_tables": ("placement", "max_tables"),
     "floor_extras": ("placement", "floor_extras"),
@@ -96,6 +144,30 @@ CLI_OVERRIDE_MAP: dict[str, tuple[str, ...]] = {
     "quality_collision_padding": ("quality", "collision_padding_m"),
     "quality_bistro_static_clearance": ("quality", "bistro_static_clearance_m"),
     "quality_support_tolerance": ("quality", "support_tolerance_m"),
+    "label_enabled": ("label", "enabled"),
+    "label_version": ("label", "version"),
+    "label_ue_height": ("label", "ue_height_m"),
+    "label_ue_strategy": ("label", "ue_strategy"),
+    "label_grid_resolution": ("label", "grid_resolution_m"),
+    "label_batch_strategies": ("label", "batch_strategies"),
+    "label_batch_grid_resolutions": ("label", "batch_grid_resolutions_m"),
+    "label_ue_clearance": ("label", "ue_clearance_m"),
+    "label_obstacle_strategy": ("label", "obstacle_strategy"),
+    "label_walk_ignore_low_obstacles_below": ("label", "walk_ignore_low_obstacles_below_m"),
+    "label_walk_blocking_classes": ("label", "walk_blocking_classes"),
+    "label_walk_min_component_area": ("label", "walk_min_component_area_m2"),
+    "label_bs_strategy": ("label", "bs_strategy"),
+    "label_bs_count_strategy": ("label", "bs_count_strategy"),
+    "label_bs_per_room": ("label", "bs_per_room"),
+    "label_bs_min_per_room": ("label", "bs_min_per_room"),
+    "label_bs_max_per_room": ("label", "bs_max_per_room"),
+    "label_bs_min_room_area": ("label", "bs_min_room_area_m2"),
+    "label_bs_area_per_point": ("label", "bs_area_per_point_m2"),
+    "label_bs_height": ("label", "bs_height_m"),
+    "label_bs_ceiling_margin": ("label", "bs_ceiling_margin_m"),
+    "label_wall_clearance": ("label", "wall_clearance_m"),
+    "label_overlay_enabled": ("label", "overlay_enabled"),
+    "label_fail_on_error": ("label", "fail_on_error"),
     "floorplan_enabled": ("floorplan", "enabled"),
     "floorplan_geometry_enabled": ("floorplan", "geometry_enabled"),
     "floorplan_geometry_clean_enabled": ("floorplan", "geometry_clean_enabled"),
@@ -129,6 +201,33 @@ def load_yaml_config(config_path: Path) -> dict[str, Any]:
         payload = yaml.safe_load(handle) or {}
     if not isinstance(payload, dict):
         raise ValueError(f"Config root must be a mapping: {config_path}")
+    return payload
+
+
+def unknown_config_fields(config: dict[str, Any], schema: dict[str, Any] | None = None, prefix: tuple[str, ...] = ()) -> list[str]:
+    schema = DEFAULT_CONFIG if schema is None else schema
+    unknown: list[str] = []
+    for key, value in config.items():
+        path = (*prefix, str(key))
+        if key not in schema:
+            unknown.append(".".join(path))
+            continue
+        schema_value = schema[key]
+        if isinstance(value, dict) and isinstance(schema_value, dict):
+            unknown.extend(unknown_config_fields(value, schema_value, path))
+    return unknown
+
+
+def validate_known_config_fields(config: dict[str, Any], config_path: Path) -> None:
+    unknown = unknown_config_fields(config)
+    if unknown:
+        joined = ", ".join(sorted(unknown))
+        raise ValueError(f"Unknown config field(s) in {config_path}: {joined}")
+
+
+def load_project_config(config_path: Path) -> dict[str, Any]:
+    payload = upgrade_config_aliases(load_yaml_config(config_path))
+    validate_known_config_fields(payload, config_path)
     return payload
 
 
@@ -227,6 +326,18 @@ def parse_float_sequence(value: Any, key: str) -> list[float]:
     return [float(part) for part in parts]
 
 
+def parse_string_sequence(value: Any, key: str) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        parts = [part.strip() for part in value.split(",") if part.strip()]
+    elif isinstance(value, list | tuple):
+        parts = [str(part).strip() for part in value if str(part).strip()]
+    else:
+        raise ValueError(f"{key} must be a list or comma-separated string")
+    return parts
+
+
 def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_path: Path) -> dict[str, Any]:
     normalized = deepcopy(config)
     normalized.setdefault("runtime", {})
@@ -238,6 +349,9 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     assets["catalog"] = str(resolve_path(repo_root, catalog_value))
     assets.pop("manifest", None)
     normalized["bistro"]["base_dir"] = str(resolve_path(repo_root, normalized["bistro"]["base_dir"]))
+    front3d = normalized.setdefault("front3d", deepcopy(DEFAULT_CONFIG["front3d"]))
+    front3d["manifest"] = str(resolve_path(repo_root, front3d["manifest"]))
+    front3d["source_scene_dir"] = str(resolve_path(repo_root, front3d["source_scene_dir"]))
 
     normalized["pipeline"]["mode"] = str(normalized["pipeline"]["mode"])
     normalized["pipeline"]["scenes"] = int(normalized["pipeline"]["scenes"])
@@ -264,6 +378,34 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     quality["collision_padding_m"] = float(quality["collision_padding_m"])
     quality["bistro_static_clearance_m"] = float(quality["bistro_static_clearance_m"])
     quality["support_tolerance_m"] = float(quality["support_tolerance_m"])
+
+    label = normalized["label"]
+    label["enabled"] = as_bool(label["enabled"], "label.enabled")
+    label["version"] = str(label["version"])
+    label["ue_height_m"] = float(label["ue_height_m"])
+    label["ue_strategy"] = str(label["ue_strategy"])
+    label["grid_resolution_m"] = float(label["grid_resolution_m"])
+    label["batch_strategies"] = parse_string_sequence(label["batch_strategies"], "label.batch_strategies")
+    label["batch_grid_resolutions_m"] = parse_float_sequence(
+        label["batch_grid_resolutions_m"], "label.batch_grid_resolutions_m"
+    )
+    label["ue_clearance_m"] = float(label["ue_clearance_m"])
+    label["obstacle_strategy"] = str(label["obstacle_strategy"])
+    label["walk_ignore_low_obstacles_below_m"] = float(label["walk_ignore_low_obstacles_below_m"])
+    label["walk_blocking_classes"] = parse_string_sequence(label["walk_blocking_classes"], "label.walk_blocking_classes")
+    label["walk_min_component_area_m2"] = float(label["walk_min_component_area_m2"])
+    label["bs_strategy"] = str(label["bs_strategy"])
+    label["bs_count_strategy"] = str(label["bs_count_strategy"])
+    label["bs_per_room"] = int(label["bs_per_room"])
+    label["bs_min_per_room"] = int(label["bs_min_per_room"])
+    label["bs_max_per_room"] = int(label["bs_max_per_room"])
+    label["bs_min_room_area_m2"] = float(label["bs_min_room_area_m2"])
+    label["bs_area_per_point_m2"] = float(label["bs_area_per_point_m2"])
+    label["bs_height_m"] = float(label["bs_height_m"])
+    label["bs_ceiling_margin_m"] = float(label["bs_ceiling_margin_m"])
+    label["wall_clearance_m"] = float(label["wall_clearance_m"])
+    label["overlay_enabled"] = as_bool(label["overlay_enabled"], "label.overlay_enabled")
+    label["fail_on_error"] = as_bool(label["fail_on_error"], "label.fail_on_error")
 
     floorplan = normalized["floorplan"]
     floorplan["enabled"] = as_bool(floorplan["enabled"], "floorplan.enabled")
@@ -295,7 +437,147 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     normalized["bistro"]["forbidden_xy_rects"] = [
         list(rect) for rect in parse_forbidden_rects(normalized["bistro"].get("forbidden_xy_rects"))
     ]
+    front3d["variant"] = str(front3d["variant"])
+    front3d["object_variant"] = str(front3d["object_variant"])
+    front3d["scene_ids"] = parse_string_sequence(front3d.get("scene_ids"), "front3d.scene_ids")
+    front3d["scene_selection"] = str(front3d["scene_selection"])
+    front3d["use_replace_jid"] = as_bool(front3d["use_replace_jid"], "front3d.use_replace_jid")
+    front3d["skip_missing_objects"] = as_bool(front3d["skip_missing_objects"], "front3d.skip_missing_objects")
+    front3d["normalize_positive_xy"] = as_bool(front3d["normalize_positive_xy"], "front3d.normalize_positive_xy")
+    front3d["ground_objects"] = as_bool(front3d["ground_objects"], "front3d.ground_objects")
     return normalized
+
+
+def validate_effective_config(config: dict[str, Any]) -> None:
+    pipeline = config["pipeline"]
+    mode = pipeline["mode"]
+    if mode not in {"generated", "bistro", "front3d"}:
+        raise ValueError("pipeline.mode must be 'generated', 'bistro', or 'front3d'")
+    if pipeline["scenes"] < 1:
+        raise ValueError("pipeline.scenes must be at least 1")
+    run_name = pipeline.get("run_name")
+    if run_name is not None:
+        run_name = str(run_name)
+        if not run_name.strip():
+            raise ValueError("pipeline.run_name must not be empty")
+        if "/" in run_name or "\\" in run_name:
+            raise ValueError("pipeline.run_name must be a directory name, not a path")
+
+    placement = config["placement"]
+    if placement["min_tables"] < 0 or placement["max_tables"] < placement["min_tables"]:
+        raise ValueError("placement.max_tables must be greater than or equal to placement.min_tables")
+    if placement["floor_extras"] < 0:
+        raise ValueError("placement.floor_extras must be non-negative")
+    if placement["min_tabletop_items"] < 0 or placement["max_tabletop_items"] < placement["min_tabletop_items"]:
+        raise ValueError("placement.max_tabletop_items must be greater than or equal to placement.min_tabletop_items")
+    if placement["bistro_support_items"] < 0:
+        raise ValueError("placement.bistro_support_items must be non-negative")
+    if placement["max_attempts"] < 1:
+        raise ValueError("placement.max_attempts must be at least 1")
+
+    quality = config["quality"]
+    if quality["collision_padding_m"] < 0:
+        raise ValueError("quality.collision_padding_m must be non-negative")
+    if quality["bistro_static_clearance_m"] < 0:
+        raise ValueError("quality.bistro_static_clearance_m must be non-negative")
+    if quality["support_tolerance_m"] < 0:
+        raise ValueError("quality.support_tolerance_m must be non-negative")
+
+    label = config["label"]
+    if label["version"] != "1.1":
+        raise ValueError("label.version must be '1.1'")
+    if label["ue_height_m"] <= 0:
+        raise ValueError("label.ue_height_m must be positive")
+    if label["ue_strategy"] not in {"free_space_grid", "plane_grid"}:
+        raise ValueError("label.ue_strategy must be 'free_space_grid' or 'plane_grid'")
+    if label["grid_resolution_m"] <= 0:
+        raise ValueError("label.grid_resolution_m must be positive")
+    if any(strategy not in {"free_space_grid", "plane_grid"} for strategy in label["batch_strategies"]):
+        raise ValueError("label.batch_strategies values must be 'free_space_grid' or 'plane_grid'")
+    if any(resolution <= 0 for resolution in label["batch_grid_resolutions_m"]):
+        raise ValueError("label.batch_grid_resolutions_m values must be positive")
+    if label["ue_clearance_m"] < 0:
+        raise ValueError("label.ue_clearance_m must be non-negative")
+    if label["obstacle_strategy"] not in {"height_aware", "footprint_column"}:
+        raise ValueError("label.obstacle_strategy must be 'height_aware' or 'footprint_column'")
+    if label["walk_ignore_low_obstacles_below_m"] < 0:
+        raise ValueError("label.walk_ignore_low_obstacles_below_m must be non-negative")
+    if not label["walk_blocking_classes"]:
+        raise ValueError("label.walk_blocking_classes must not be empty")
+    allowed_walk_classes = {"table", "seat", "tabletop", "floor", "skip"}
+    if any(value not in allowed_walk_classes for value in label["walk_blocking_classes"]):
+        raise ValueError("label.walk_blocking_classes values must be table, seat, tabletop, floor, or skip")
+    if label["walk_min_component_area_m2"] < 0:
+        raise ValueError("label.walk_min_component_area_m2 must be non-negative")
+    if label["bs_strategy"] != "wall_or_corner":
+        raise ValueError("label.bs_strategy must be 'wall_or_corner'")
+    if label["bs_count_strategy"] not in {"fixed_per_room", "area_adaptive"}:
+        raise ValueError("label.bs_count_strategy must be 'fixed_per_room' or 'area_adaptive'")
+    if label["bs_per_room"] < 0:
+        raise ValueError("label.bs_per_room must be non-negative")
+    if label["bs_min_per_room"] < 0:
+        raise ValueError("label.bs_min_per_room must be non-negative")
+    if label["bs_max_per_room"] < label["bs_min_per_room"]:
+        raise ValueError("label.bs_max_per_room must be greater than or equal to label.bs_min_per_room")
+    if label["bs_min_room_area_m2"] < 0:
+        raise ValueError("label.bs_min_room_area_m2 must be non-negative")
+    if label["bs_area_per_point_m2"] <= 0:
+        raise ValueError("label.bs_area_per_point_m2 must be positive")
+    if label["bs_height_m"] <= 0:
+        raise ValueError("label.bs_height_m must be positive")
+    if label["bs_ceiling_margin_m"] < 0:
+        raise ValueError("label.bs_ceiling_margin_m must be non-negative")
+    if label["wall_clearance_m"] < 0:
+        raise ValueError("label.wall_clearance_m must be non-negative")
+
+    floorplan = config["floorplan"]
+    if floorplan["resolution_m_per_pixel"] <= 0:
+        raise ValueError("floorplan.resolution_m_per_pixel must be positive")
+    if floorplan["height_mode"] not in {"layers", "heights"}:
+        raise ValueError("floorplan.height_mode must be 'layers' or 'heights'")
+    if floorplan["height_mode"] == "heights":
+        if not floorplan["heights_m"]:
+            raise ValueError("floorplan.heights_m must contain at least one height when height_mode is 'heights'")
+        if any(height < floorplan["bottom_z_m"] for height in floorplan["heights_m"]):
+            raise ValueError("floorplan.heights_m values must be greater than or equal to floorplan.bottom_z_m")
+    if floorplan["top_z_m"] is not None and floorplan["top_z_m"] < floorplan["bottom_z_m"]:
+        raise ValueError("floorplan.top_z_m must be greater than or equal to floorplan.bottom_z_m")
+    if floorplan["step_m"] <= 0:
+        raise ValueError("floorplan.step_m must be positive")
+    if floorplan["sample_density_scale"] <= 0:
+        raise ValueError("floorplan.sample_density_scale must be positive")
+    if floorplan["min_sample_points"] < 1:
+        raise ValueError("floorplan.min_sample_points must be positive")
+    if floorplan["max_sample_points"] < floorplan["min_sample_points"]:
+        raise ValueError("floorplan.max_sample_points must be greater than or equal to floorplan.min_sample_points")
+    if floorplan["enabled"] and not (floorplan["geometry_enabled"] or floorplan["semantic_enabled"]):
+        raise ValueError("At least one of floorplan.geometry_enabled or floorplan.semantic_enabled must be true")
+    if floorplan["geometry_clean_enabled"] and not floorplan["geometry_enabled"]:
+        raise ValueError("floorplan.geometry_clean_enabled requires floorplan.geometry_enabled")
+    if floorplan["geometry_clean_min_density"] < 0:
+        raise ValueError("floorplan.geometry_clean_min_density must be non-negative")
+    if floorplan["geometry_clean_min_neighbors"] < 0:
+        raise ValueError("floorplan.geometry_clean_min_neighbors must be non-negative")
+    if floorplan["geometry_clean_min_z_m"] < 0:
+        raise ValueError("floorplan.geometry_clean_min_z_m must be non-negative")
+    if not 0 <= floorplan["geometry_clean_max_abs_normal_z"] <= 1:
+        raise ValueError("floorplan.geometry_clean_max_abs_normal_z must be between 0 and 1")
+    if floorplan["geometry_clean_opening_px"] < 0:
+        raise ValueError("floorplan.geometry_clean_opening_px must be non-negative")
+    if floorplan["geometry_clean_closing_px"] < 0:
+        raise ValueError("floorplan.geometry_clean_closing_px must be non-negative")
+    if floorplan["preview_tile_size_px"] < 1:
+        raise ValueError("floorplan.preview_tile_size_px must be positive")
+    if floorplan["semantic_padding_m"] < 0:
+        raise ValueError("floorplan.semantic_padding_m must be non-negative")
+
+    front3d = config["front3d"]
+    if front3d["variant"] not in {"raw", "normalized"}:
+        raise ValueError("front3d.variant must be 'raw' or 'normalized'")
+    if front3d["object_variant"] not in {"raw", "normalized"}:
+        raise ValueError("front3d.object_variant must be 'raw' or 'normalized'")
+    if front3d["scene_selection"] not in {"random", "sequential"}:
+        raise ValueError("front3d.scene_selection must be 'random' or 'sequential'")
 
 
 def save_effective_config(path: Path, config: dict[str, Any]) -> None:
@@ -309,9 +591,11 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
     pipeline = config["pipeline"]
     assets = config["assets"]
     bistro = config["bistro"]
+    front3d = config["front3d"]
     placement = config["placement"]
     validation = config["validation"]
     quality = config["quality"]
+    label = config["label"]
     floorplan = config["floorplan"]
     return argparse.Namespace(
         mode=pipeline["mode"],
@@ -324,6 +608,16 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         asset_manifest=Path(assets["catalog"]),
         bistro_base_dir=Path(bistro["base_dir"]),
         forbidden_xy_rects=parse_forbidden_rects(bistro.get("forbidden_xy_rects")),
+        front3d_manifest=Path(front3d["manifest"]),
+        front3d_source_scene_dir=Path(front3d["source_scene_dir"]),
+        front3d_variant=front3d["variant"],
+        front3d_object_variant=front3d["object_variant"],
+        front3d_scene_ids=front3d["scene_ids"],
+        front3d_scene_selection=front3d["scene_selection"],
+        front3d_use_replace_jid=front3d["use_replace_jid"],
+        front3d_skip_missing_objects=front3d["skip_missing_objects"],
+        front3d_normalize_positive_xy=front3d["normalize_positive_xy"],
+        front3d_ground_objects=front3d["ground_objects"],
         min_tables=placement["min_tables"],
         max_tables=placement["max_tables"],
         floor_extras=placement["floor_extras"],
@@ -337,6 +631,30 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         quality_collision_padding=quality["collision_padding_m"],
         quality_bistro_static_clearance=quality["bistro_static_clearance_m"],
         quality_support_tolerance=quality["support_tolerance_m"],
+        label_enabled=label["enabled"],
+        label_version=label["version"],
+        label_ue_height=label["ue_height_m"],
+        label_ue_strategy=label["ue_strategy"],
+        label_grid_resolution=label["grid_resolution_m"],
+        label_batch_strategies=label["batch_strategies"],
+        label_batch_grid_resolutions=label["batch_grid_resolutions_m"],
+        label_ue_clearance=label["ue_clearance_m"],
+        label_obstacle_strategy=label["obstacle_strategy"],
+        label_walk_ignore_low_obstacles_below=label["walk_ignore_low_obstacles_below_m"],
+        label_walk_blocking_classes=label["walk_blocking_classes"],
+        label_walk_min_component_area=label["walk_min_component_area_m2"],
+        label_bs_strategy=label["bs_strategy"],
+        label_bs_count_strategy=label["bs_count_strategy"],
+        label_bs_per_room=label["bs_per_room"],
+        label_bs_min_per_room=label["bs_min_per_room"],
+        label_bs_max_per_room=label["bs_max_per_room"],
+        label_bs_min_room_area=label["bs_min_room_area_m2"],
+        label_bs_area_per_point=label["bs_area_per_point_m2"],
+        label_bs_height=label["bs_height_m"],
+        label_bs_ceiling_margin=label["bs_ceiling_margin_m"],
+        label_wall_clearance=label["wall_clearance_m"],
+        label_overlay_enabled=label["overlay_enabled"],
+        label_fail_on_error=label["fail_on_error"],
         floorplan_enabled=floorplan["enabled"],
         floorplan_geometry_enabled=floorplan["geometry_enabled"],
         floorplan_geometry_clean_enabled=floorplan["geometry_clean_enabled"],
@@ -364,14 +682,23 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
 
 
 def load_effective_config(config_path: Path, repo_root: Path, args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]]:
-    yaml_config = upgrade_config_aliases(load_yaml_config(config_path))
-    base_config = deepcopy(DEFAULT_CONFIG)
-    default_yaml_path = default_config_path(repo_root).resolve()
-    if config_path.resolve() != default_yaml_path and default_yaml_path.is_file():
-        base_config = deep_merge(base_config, upgrade_config_aliases(load_yaml_config(default_yaml_path)))
-    merged = deep_merge(base_config, yaml_config)
+    yaml_config = load_project_config(config_path)
+    merged = deep_merge(deepcopy(DEFAULT_CONFIG), yaml_config)
     overrides = cli_overrides(args)
     effective = deep_merge(merged, overrides)
+    label_yaml = yaml_config.get("label", {}) if isinstance(yaml_config.get("label"), dict) else {}
+    label_overrides = overrides.get("label", {}) if isinstance(overrides.get("label"), dict) else {}
+    label_effective = effective.get("label", {}) if isinstance(effective.get("label"), dict) else {}
+    if "batch_strategies" not in label_overrides and "ue_strategy" in label_overrides:
+        label_effective["batch_strategies"] = [label_effective["ue_strategy"]]
+    elif "batch_strategies" not in label_yaml and "ue_strategy" in label_yaml:
+        label_effective["batch_strategies"] = [label_effective["ue_strategy"]]
+    if "batch_grid_resolutions_m" not in label_overrides and "grid_resolution_m" in label_overrides:
+        label_effective["batch_grid_resolutions_m"] = [label_effective["grid_resolution_m"]]
+    elif "batch_grid_resolutions_m" not in label_yaml and "grid_resolution_m" in label_yaml:
+        label_effective["batch_grid_resolutions_m"] = [label_effective["grid_resolution_m"]]
     effective.setdefault("runtime", {})
     effective["runtime"]["cli_overrides"] = overrides
-    return normalize_effective_config(effective, repo_root, config_path), overrides
+    normalized = normalize_effective_config(effective, repo_root, config_path)
+    validate_effective_config(normalized)
+    return normalized, overrides

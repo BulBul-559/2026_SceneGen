@@ -1,6 +1,8 @@
 # SceneGen 新数据源接入说明
 
-这份文档说明如何把新的资产数据源接入 SceneGen。当前 Bistro 已经使用统一资产契约；后续接入 3D-FRONT 时，也建议先生成同样结构的 asset catalog，再实现新的 source adapter。
+这份文档说明如何把新的资产数据源接入 SceneGen。当前 Bistro 已经使用统一资产契约；3D-FRONT 已完成第一阶段数据整理，并已接入 `front3d` 运行模式，用于复现和合成 3D-FRONT 原始已有组合场景。
+
+后续如果要接入新的数据源，建议分成两层处理：先整理可审计的资产、建筑结构和材质标注，再实现 source adapter，把数据转换成 SceneGen 统一的 `base scene + placements + label + metadata` 输出。
 
 ## 资产契约
 
@@ -45,12 +47,21 @@ catalog 是资产对象列表。每个资产对象只保留运行时真正需要
 9. 生成 `data/catalogs/<dataset>.v1.json`。
 10. 如需兼容旧入口，可同步写一份到该数据源资产目录下的 manifest。
 
-## 3D-FRONT 建议
+## 3D-FRONT 当前接入状态
 
-3D-FRONT 后续可以拆成两层接入：
+3D-FRONT 当前已经按两层接入：
 
-- 资产层：从 3D-FUTURE 的 `raw_model.obj`、模型元数据和 bbox 生成 SceneGen asset catalog。
-- 场景层：从 3D-FRONT 房间 JSON 读取已有家具组合，实现新的 source adapter，输出 SceneGen 统一的 `placements + bounds + base scene context`。
+- 数据整理层：`tools/prepare_front3d_phase1.py` 从 3D-FUTURE 和 3D-FRONT 原始数据中整理出物体、建筑结构、单项 JSON、预览图和 manifest。
+- 场景合成层：`front3d` 模式读取 `data/3D-Front/scenegen_manifest.json`，选择原始 3D-FRONT scene id，并合并建筑结构和室内家具实例，输出与 Bistro 一致的 `scene.obj`、`scene.xml`、`placements.json`、`label.json`、`floorplan/`、质量报告和统计报告。
+
+默认配置中，建筑结构使用 `variant: normalized`，室内物体使用 `object_variant: raw`。原因是 3D-FRONT 原始家具位姿按 3D-FUTURE `raw_model.obj` 的真实尺寸设计；如果把家具切到 `normalized_model.obj`，容易出现尺寸不匹配、拥挤或物体跑出房间的问题。
+
+`front3d` 默认还会执行两个轻量修正：
+
+- `normalize_positive_xy: true`: 将合成结果整体平移到 XY 正象限，保持 floorplan 左下角为 `(0, 0)`。
+- `ground_objects: true`: 对 bbox 低于地面的家具做 Z 方向抬升，避免模型局部原点导致物体沉入地面。
+
+后续第二阶段如果要做“基于 3D-FRONT 资产池的随机生成”，可以继续复用第一阶段整理出的物体 JSON 和 manifest，但需要新增随机布局策略、支撑面规则和更严格的碰撞/可达性检查。
 
 3D-FRONT 的物体名称、类别、bbox 和房间布局 JSON 可以用于推断 `placement.class`，但电磁材质不建议只靠名称硬猜。更稳妥的做法是先建立可审计的类别到 Sionna 材质映射表，例如 wood、concrete、metal、glass、plastic、fabric，并在 catalog 中记录 `confidence`。低置信度资产可以先标为默认材质，后续再人工抽样校正。
 
@@ -59,13 +70,14 @@ catalog 是资产对象列表。每个资产对象只保留运行时真正需要
 - 资产契约定义在 `src/scenegen/assets/schema.py`。
 - catalog 加载和 runtime `Asset` 转换在 `src/scenegen/assets/loaders.py`。
 - 旧 manifest 到新契约的一次性转换逻辑在 `src/scenegen/assets/legacy.py`。
-- generated/Bistro source adapter 在 `src/scenegen/sources.py`。
+- generated、Bistro 和 3D-FRONT source adapter 在 `src/scenegen/sources.py`。
+- 3D-FRONT manifest、原始 scene JSON、实例矩阵和坐标转换辅助逻辑在 `src/scenegen/front3d.py`。
 
-新增数据源时，优先复用 asset catalog 管线；只有场景来源和摆放逻辑不同的部分需要新增 source adapter。
+新增数据源时，优先复用 asset catalog 或 phase1 manifest 管线；只有场景来源、坐标转换和摆放逻辑不同的部分需要新增 source adapter。
 
 ## 3D-FRONT 第一阶段整理脚本
 
-第一阶段只整理数据，不接 SceneGen 主流程。离线脚本：
+第一阶段只整理数据，不直接生成 SceneGen 场景。离线脚本：
 
 ```bash
 uv run python tools/prepare_front3d_phase1.py \
@@ -90,8 +102,14 @@ uv run python tools/prepare_front3d_phase1.py \
 ```bash
 uv run python tools/prepare_front3d_phase1.py \
   --source data/3D-Front \
-  --output /tmp/front3d-phase1-smoke \
+  --output results/front3d_phase1_smoke \
   --limit-objects 5 \
   --limit-scenes 5 \
   --skip-disk-check
+```
+
+整理完成后，可以用当前 `front3d` 模式合成已有组合场景：
+
+```bash
+uv run scenegen --mode front3d --scenes 3 --run-name front3d_preview --output-dir results
 ```

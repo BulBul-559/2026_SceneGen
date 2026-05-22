@@ -29,6 +29,11 @@ SEMANTIC_SCENE_OUTLINE = (40, 40, 40)
 SEMANTIC_FORBIDDEN = (210, 64, 64)
 
 
+def floorplan_layer_filename(level_m: float) -> str:
+    height_token = f"{level_m:.2f}".replace("-", "m").replace(".", "p")
+    return f"floorplan_{height_token}.png"
+
+
 @dataclass(frozen=True)
 class FloorplanConfig:
     enabled: bool
@@ -446,6 +451,7 @@ def process_scene(
             {
                 "index": index,
                 "z_level_m": float(level),
+                "image": portable_path(output_dir / floorplan_layer_filename(float(level)), path_root),
                 "occupied_pixels": int(mask.sum()),
             }
         )
@@ -787,12 +793,12 @@ def render_projection_stack(
                 max_alpha=max_alpha,
                 foreground_color=foreground_color,
             )
-            raw_image.save(output_dir / f"{index:03d}_z_{level:.2f}.png")
+            raw_image.save(output_dir / floorplan_layer_filename(float(level)))
             raw_images_by_index[index] = raw_image
             if clean_output_dir is not None:
                 clean_output_dir.mkdir(parents=True, exist_ok=True)
                 clean_image = render_clean_geometry_mask(np.zeros(shape, dtype=bool))
-                clean_image.save(clean_output_dir / f"{index:03d}_z_{level:.2f}.png")
+                clean_image.save(clean_output_dir / floorplan_layer_filename(float(level)))
                 clean_images_by_index[index] = clean_image
                 clean_stats_by_index[index] = clean_geometry_stats(
                     index,
@@ -815,7 +821,7 @@ def render_projection_stack(
         if np.any(keep):
             np.add.at(density, (rows[keep], cols[keep]), 1.0)
         raw_image = render_density_projection(density, max_alpha=max_alpha, foreground_color=foreground_color)
-        raw_image.save(output_dir / f"000_z_{level:.2f}.png")
+        raw_image.save(output_dir / floorplan_layer_filename(level))
         raw_images_by_index[0] = raw_image
 
         if clean_output_dir is not None:
@@ -832,7 +838,7 @@ def render_projection_stack(
                 closing_px=clean_closing_px,
             )
             clean_image = render_clean_geometry_mask(clean_mask)
-            clean_image.save(clean_output_dir / f"000_z_{level:.2f}.png")
+            clean_image.save(clean_output_dir / floorplan_layer_filename(level))
             clean_images_by_index[0] = clean_image
             clean_stats_by_index[0] = clean_geometry_stats(0, level, clean_density, clean_mask)
 
@@ -878,7 +884,7 @@ def render_projection_stack(
                 clean_cursor = next_clean_cursor
 
         raw_image = render_density_projection(density, max_alpha=max_alpha, foreground_color=foreground_color)
-        raw_image.save(output_dir / f"{original_index:03d}_z_{level:.2f}.png")
+        raw_image.save(output_dir / floorplan_layer_filename(level))
         raw_images_by_index[original_index] = raw_image
 
         if clean_output_dir is not None:
@@ -890,7 +896,7 @@ def render_projection_stack(
                 closing_px=clean_closing_px,
             )
             clean_image = render_clean_geometry_mask(clean_mask)
-            clean_image.save(clean_output_dir / f"{original_index:03d}_z_{level:.2f}.png")
+            clean_image.save(clean_output_dir / floorplan_layer_filename(level))
             clean_images_by_index[original_index] = clean_image
             clean_stats_by_index[original_index] = clean_geometry_stats(original_index, level, clean_density, clean_mask)
 
@@ -932,7 +938,7 @@ def render_soft_projection_stack(
             np.add.at(density, (rows_sorted[cursor:next_cursor], cols_sorted[cursor:next_cursor]), 1.0)
             cursor = next_cursor
         image = render_density_projection(density, max_alpha=max_alpha, foreground_color=foreground_color)
-        image.save(output_dir / f"{original_index:03d}_z_{level:.2f}.png")
+        image.save(output_dir / floorplan_layer_filename(level))
         images_by_index[original_index] = image
     return images_by_index
 

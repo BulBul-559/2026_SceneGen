@@ -14,6 +14,7 @@ from .exporters import (
     make_timestamp,
 )
 from .floorplan import FloorplanConfig, generate_floorplan_for_scene
+from .labels import LabelConfig, generate_label_batch_for_scene, label_variants, write_label_overlay
 from .paths import clean_output_root, default_config_path, find_project_root, portable_path, require_dir, require_file
 from .quality import (
     QualityConfig,
@@ -30,10 +31,20 @@ def build_parser() -> argparse.ArgumentParser:
     repo_root = find_project_root()
     parser = argparse.ArgumentParser(description="Generate Sionna-compatible procedural indoor scenes.")
     parser.add_argument("--config", type=Path, default=default_config_path(repo_root), help="Path to SceneGen YAML config.")
-    parser.add_argument("--mode", choices=("generated", "bistro"), default=None)
+    parser.add_argument("--mode", choices=("generated", "bistro", "front3d"), default=None)
     parser.add_argument("--bistro-base-dir", type=Path, default=None)
     parser.add_argument("--asset-catalog", type=Path, default=None)
     parser.add_argument("--asset-manifest", type=Path, default=None, help="Deprecated alias for --asset-catalog.")
+    parser.add_argument("--front3d-manifest", type=Path, default=None)
+    parser.add_argument("--front3d-source-scene-dir", type=Path, default=None)
+    parser.add_argument("--front3d-variant", choices=("raw", "normalized"), default=None)
+    parser.add_argument("--front3d-object-variant", choices=("raw", "normalized"), default=None)
+    parser.add_argument("--front3d-scene-ids", default=None, help="Comma-separated 3D-FRONT scene ids to synthesize.")
+    parser.add_argument("--front3d-scene-selection", choices=("random", "sequential"), default=None)
+    parser.add_argument("--front3d-use-replace-jid", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--front3d-skip-missing-objects", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--front3d-normalize-positive-xy", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--front3d-ground-objects", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--run-name", default=None, help="Use a stable run directory name instead of a timestamp.")
     parser.add_argument("--scenes", type=int, default=None)
@@ -79,6 +90,32 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--quality-collision-padding", type=float, default=None)
     parser.add_argument("--quality-bistro-static-clearance", type=float, default=None)
     parser.add_argument("--quality-support-tolerance", type=float, default=None)
+    parser.add_argument("--label", dest="label_enabled", action="store_true", default=None)
+    parser.add_argument("--no-label", dest="label_enabled", action="store_false")
+    parser.add_argument("--label-version", default=None)
+    parser.add_argument("--label-ue-height", type=float, default=None)
+    parser.add_argument("--label-ue-strategy", choices=("free_space_grid", "plane_grid"), default=None)
+    parser.add_argument("--label-grid-resolution", type=float, default=None)
+    parser.add_argument("--label-batch-strategies", default=None, help="Comma-separated label UE strategies.")
+    parser.add_argument("--label-batch-grid-resolutions", default=None, help="Comma-separated label grid resolutions in meters.")
+    parser.add_argument("--label-ue-clearance", type=float, default=None)
+    parser.add_argument("--label-obstacle-strategy", choices=("height_aware", "footprint_column"), default=None)
+    parser.add_argument("--label-walk-ignore-low-obstacles-below", type=float, default=None)
+    parser.add_argument("--label-walk-blocking-classes", default=None, help="Comma-separated placement classes blocking walk labels.")
+    parser.add_argument("--label-walk-min-component-area", type=float, default=None)
+    parser.add_argument("--label-bs-strategy", choices=("wall_or_corner",), default=None)
+    parser.add_argument("--label-bs-count-strategy", choices=("fixed_per_room", "area_adaptive"), default=None)
+    parser.add_argument("--label-bs-per-room", type=int, default=None)
+    parser.add_argument("--label-bs-min-per-room", type=int, default=None)
+    parser.add_argument("--label-bs-max-per-room", type=int, default=None)
+    parser.add_argument("--label-bs-min-room-area", type=float, default=None)
+    parser.add_argument("--label-bs-area-per-point", type=float, default=None)
+    parser.add_argument("--label-bs-height", type=float, default=None)
+    parser.add_argument("--label-bs-ceiling-margin", type=float, default=None)
+    parser.add_argument("--label-wall-clearance", type=float, default=None)
+    parser.add_argument("--label-overlay", dest="label_overlay_enabled", action="store_true", default=None)
+    parser.add_argument("--no-label-overlay", dest="label_overlay_enabled", action="store_false")
+    parser.add_argument("--label-fail-on-error", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--floorplan", dest="floorplan_enabled", action="store_true", default=None)
     parser.add_argument("--no-floorplan", dest="floorplan_enabled", action="store_false")
     parser.add_argument("--floorplan-geometry", dest="floorplan_geometry_enabled", action="store_true", default=None)
@@ -137,58 +174,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return build_parser().parse_args(argv)
 
 
-def validate_args(args: argparse.Namespace) -> None:
-    if args.mode not in {"generated", "bistro"}:
-        raise ValueError("--mode must be 'generated' or 'bistro'")
-    if args.scenes < 1:
-        raise ValueError("--scenes must be at least 1")
-    if args.min_tables < 0 or args.max_tables < args.min_tables:
-        raise ValueError("--max-tables must be greater than or equal to --min-tables")
-    if args.min_tabletop_items < 0 or args.max_tabletop_items < args.min_tabletop_items:
-        raise ValueError("--max-tabletop-items must be greater than or equal to --min-tabletop-items")
-    if args.max_attempts < 1:
-        raise ValueError("--max-attempts must be at least 1")
-    if args.quality_collision_padding < 0:
-        raise ValueError("quality.collision_padding_m must be non-negative")
-    if args.quality_bistro_static_clearance < 0:
-        raise ValueError("quality.bistro_static_clearance_m must be non-negative")
-    if args.quality_support_tolerance < 0:
-        raise ValueError("quality.support_tolerance_m must be non-negative")
-    if args.floorplan_resolution <= 0:
-        raise ValueError("floorplan.resolution_m_per_pixel must be positive")
-    if args.floorplan_height_mode not in {"layers", "heights"}:
-        raise ValueError("floorplan.height_mode must be 'layers' or 'heights'")
-    if args.floorplan_height_mode == "heights":
-        if not args.floorplan_heights:
-            raise ValueError("floorplan.heights_m must contain at least one height when height_mode is 'heights'")
-        if any(height < args.floorplan_bottom_z for height in args.floorplan_heights):
-            raise ValueError("floorplan.heights_m values must be greater than or equal to floorplan.bottom_z_m")
-    if args.floorplan_step <= 0:
-        raise ValueError("floorplan.step_m must be positive")
-    if args.floorplan_min_sample_points < 1:
-        raise ValueError("floorplan.min_sample_points must be positive")
-    if args.floorplan_max_sample_points < args.floorplan_min_sample_points:
-        raise ValueError("floorplan.max_sample_points must be greater than or equal to min_sample_points")
-    if args.floorplan_enabled and not (args.floorplan_geometry_enabled or args.floorplan_semantic_enabled):
-        raise ValueError("At least one of floorplan.geometry_enabled or floorplan.semantic_enabled must be true")
-    if args.floorplan_geometry_clean_enabled and not args.floorplan_geometry_enabled:
-        raise ValueError("floorplan.geometry_clean_enabled requires floorplan.geometry_enabled")
-    if args.floorplan_geometry_clean_min_density < 0:
-        raise ValueError("floorplan.geometry_clean_min_density must be non-negative")
-    if args.floorplan_geometry_clean_min_neighbors < 0:
-        raise ValueError("floorplan.geometry_clean_min_neighbors must be non-negative")
-    if args.floorplan_geometry_clean_min_z < 0:
-        raise ValueError("floorplan.geometry_clean_min_z_m must be non-negative")
-    if not 0 <= args.floorplan_geometry_clean_max_abs_normal_z <= 1:
-        raise ValueError("floorplan.geometry_clean_max_abs_normal_z must be between 0 and 1")
-    if args.floorplan_geometry_clean_opening_px < 0:
-        raise ValueError("floorplan.geometry_clean_opening_px must be non-negative")
-    if args.floorplan_geometry_clean_closing_px < 0:
-        raise ValueError("floorplan.geometry_clean_closing_px must be non-negative")
-    if args.floorplan_semantic_padding < 0:
-        raise ValueError("floorplan.semantic_padding_m must be non-negative")
-
-
 def prepare_run_dir(output_root: Path, run_name: str, clean: bool) -> Path:
     output_root = output_root.expanduser().resolve()
     if clean:
@@ -209,13 +194,17 @@ def main(argv: list[str] | None = None) -> int:
     config_path = cli_args.config if cli_args.config.is_absolute() else (repo_root / cli_args.config)
     effective_config, _overrides = load_effective_config(config_path.resolve(), repo_root, cli_args)
     args = config_to_namespace(effective_config)
-    validate_args(args)
 
-    asset_catalog_path = require_file(args.asset_catalog, "asset catalog")
+    asset_catalog_path = require_file(args.asset_catalog, "asset catalog") if args.mode != "front3d" else args.asset_catalog
     if args.mode == "bistro":
         bistro_base_dir = require_dir(args.bistro_base_dir, "Bistro base scene directory")
     else:
         bistro_base_dir = None
+    front3d_manifest_path = None
+    if args.mode == "front3d":
+        front3d_manifest_path = require_file(args.front3d_manifest, "3D-FRONT SceneGen manifest")
+        args.front3d_manifest = front3d_manifest_path
+        args.front3d_source_scene_dir = require_dir(args.front3d_source_scene_dir, "3D-FRONT source scene directory")
 
     run_name = args.run_name or make_timestamp()
     run_dir = prepare_run_dir(args.output_dir, run_name, args.clean)
@@ -224,10 +213,14 @@ def main(argv: list[str] | None = None) -> int:
     save_effective_config(run_dir / "effective_config.yaml", effective_config)
     floorplan_config = FloorplanConfig.from_mapping(effective_config["floorplan"])
     quality_config = QualityConfig.from_mapping(effective_config["quality"])
+    label_config = LabelConfig.from_mapping(effective_config["label"])
 
-    assets = load_assets(asset_catalog_path)
-    assets_by_class = group_assets_by_class(assets)
-    validate_asset_pool(assets_by_class)
+    if args.mode == "front3d":
+        assets_by_class = {}
+    else:
+        assets = load_assets(asset_catalog_path)
+        assets_by_class = group_assets_by_class(assets)
+        validate_asset_pool(assets_by_class)
     source = create_scene_source(args, assets_by_class, bistro_base_dir)
     scene_prefix = source.scene_prefix
 
@@ -236,6 +229,7 @@ def main(argv: list[str] | None = None) -> int:
     validation_failed = False
     floorplan_failed = False
     quality_failed = False
+    label_failed = False
     for scene_index in range(args.scenes):
         scene_seed = master_rng.randrange(1, 2**31)
         rng = random.Random(scene_seed)
@@ -249,6 +243,7 @@ def main(argv: list[str] | None = None) -> int:
             placements,
             room=build.room,
             base_scene=build.base_scene,
+            front3d_base_scene=build.front3d_base_scene,
         )
         record["statistics"] = statistics
         record["statistics_file"] = write_json_report(scene_dir / "statistics.json", statistics, run_dir)
@@ -260,7 +255,9 @@ def main(argv: list[str] | None = None) -> int:
                 quality_config,
                 room=build.room,
                 base_scene=build.base_scene,
+                front3d_base_scene=build.front3d_base_scene,
                 forbidden_xy_rects=source.forbidden_xy_rects,
+                skipped_objects=record.get("skipped_objects") if isinstance(record.get("skipped_objects"), list) else None,
             )
             record["quality"] = quality
             record["quality_report"] = write_json_report(scene_dir / "quality_report.json", quality, run_dir)
@@ -270,6 +267,31 @@ def main(argv: list[str] | None = None) -> int:
             validation = validate_sionna_scene(scene_dir / "scene.xml", run_dir)
             record["sionna_validation"] = validation
             validation_failed = validation_failed or not bool(validation["ok"])
+        if label_config.enabled:
+            try:
+                label_record = generate_label_batch_for_scene(
+                    mode=args.mode,
+                    scene_dir=scene_dir,
+                    config=label_config,
+                    rng=rng,
+                    path_root=run_dir,
+                    room=build.room,
+                    base_scene=build.base_scene,
+                    front3d_base_scene=build.front3d_base_scene,
+                    placements=placements,
+                )
+                record["label"] = label_record
+                label_failed = label_failed or not bool(label_record["ok"])
+            except Exception as exc:
+                label_failed = True
+                record["label"] = {
+                    "ok": False,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                }
+                if label_config.fail_on_error:
+                    scene_records.append(record)
+                    break
         if floorplan_config.enabled:
             try:
                 record["floorplan"] = generate_floorplan_for_scene(
@@ -280,6 +302,30 @@ def main(argv: list[str] | None = None) -> int:
                     bounds_xy=build.bounds_xy,
                     forbidden_xy_rects=source.forbidden_xy_rects,
                 )
+                if label_config.enabled and label_config.overlay_enabled and bool(record.get("label", {}).get("ok")):
+                    label_record = record.get("label", {})
+                    overlays: list[dict[str, object]] = []
+                    if isinstance(label_record, dict):
+                        for variant in label_record.get("variants", []):
+                            if not isinstance(variant, dict):
+                                continue
+                            label_path = run_dir / str(variant["label_file"])
+                            overlay = write_label_overlay(
+                                scene_dir / "floorplan",
+                                label_path,
+                                run_dir,
+                                output_dir=scene_dir / "label_floorplan",
+                                output_name=str(variant["name"]),
+                            )
+                            overlay["name"] = variant["name"]
+                            variant["overlay"] = overlay
+                            overlays.append(overlay)
+                        primary_overlay = write_label_overlay(scene_dir / "floorplan", scene_dir / "label.json", run_dir)
+                        label_record["overlay"] = primary_overlay
+                        label_record["overlays"] = overlays
+                        label_record["label_floorplan_dir"] = portable_path(scene_dir / "label_floorplan", run_dir)
+                        record["floorplan"]["label_overlay"] = primary_overlay
+                        record["floorplan"]["label_overlays"] = overlays
             except Exception as exc:
                 floorplan_failed = True
                 record["floorplan"] = {
@@ -309,8 +355,16 @@ def main(argv: list[str] | None = None) -> int:
         "seed": args.seed,
         "run_name": run_name,
         "run_dir": ".",
-        "asset_catalog": portable_path(asset_catalog_path, run_dir),
+        "asset_catalog": portable_path(asset_catalog_path, run_dir) if args.mode != "front3d" else None,
         "asset_class_counts": class_counts,
+        "front3d_manifest": portable_path(front3d_manifest_path, run_dir) if front3d_manifest_path is not None else None,
+        "front3d_variant": args.front3d_variant if args.mode == "front3d" else None,
+        "front3d_object_variant": args.front3d_object_variant if args.mode == "front3d" else None,
+        "front3d_scene_selection": args.front3d_scene_selection if args.mode == "front3d" else None,
+        "front3d_scene_ids": args.front3d_scene_ids if args.mode == "front3d" else [],
+        "front3d_skipped_object_count": (
+            sum(int(record.get("skipped_object_count", 0)) for record in scene_records) if args.mode == "front3d" else 0
+        ),
         "forbidden_xy_rects": (
             [{"x_min": rect[0], "y_min": rect[1], "x_max": rect[2], "y_max": rect[3]} for rect in args.forbidden_xy_rects]
             if args.mode == "bistro"
@@ -324,6 +378,14 @@ def main(argv: list[str] | None = None) -> int:
         "quality_requested": bool(quality_config.enabled),
         "quality_ok": not quality_failed if quality_config.enabled else None,
         "quality_fail_on_error": bool(quality_config.fail_on_error),
+        "label_requested": bool(label_config.enabled),
+        "label_ok": not label_failed if label_config.enabled else None,
+        "label_fail_on_error": bool(label_config.fail_on_error),
+        "label_overlay_requested": bool(label_config.enabled and label_config.overlay_enabled),
+        "label_batch_strategies": list(label_config.batch_strategies) if label_config.enabled else [],
+        "label_batch_grid_resolutions_m": list(label_config.batch_grid_resolutions_m) if label_config.enabled else [],
+        "label_variants": [variant.name for variant in label_variants(label_config)] if label_config.enabled else [],
+        "label_variant_count": len(label_variants(label_config)) if label_config.enabled else 0,
         "statistics": run_statistics,
         "statistics_file": statistics_file,
         "floorplan_requested": bool(floorplan_config.enabled),
@@ -351,6 +413,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if quality_failed and quality_config.fail_on_error:
         print("Quality checks failed for at least one scene.")
+        return 1
+    if label_failed and label_config.fail_on_error:
+        print("Label generation failed for at least one scene.")
         return 1
     if floorplan_failed and floorplan_config.fail_on_error:
         print("Floorplan generation failed for at least one scene.")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import random
 from pathlib import Path
 
 import pytest
@@ -8,8 +9,19 @@ import yaml
 
 from scenegen.assets import AssetSpec, group_assets_by_class, legacy_item_to_spec, load_assets, resolve_obj_file
 from scenegen.cli import main, parse_args
-from scenegen.config import load_effective_config
+from scenegen.config import DEFAULT_CONFIG, load_effective_config
+from scenegen.floorplan import floorplan_layer_filename
+from scenegen.front3d import choose_scene_ids, scenegen_transform_for_child
 from scenegen.geometry import load_bistro_base_scene
+from scenegen.labels import (
+    LabelConfig,
+    LabelObstacle,
+    RoomLabelContext,
+    bs_count_for_room,
+    generate_bs_points_for_room,
+    generate_ue_points_for_room,
+)
+from scenegen.models import SupportTriangle
 from scenegen.paths import (
     default_asset_catalog,
     default_asset_manifest,
@@ -41,11 +53,207 @@ def test_default_paths_point_to_packaged_data() -> None:
     assert default_bistro_base_dir(root) == root / "data" / "scene"
     assert default_asset_catalog(root) == root / "data" / "catalogs" / "bistro.v1.json"
     assert default_asset_manifest(root) == root / "data" / "assets" / "manifest.json"
-    assert default_config_path(root) == root / "config" / "default.yaml"
+    assert default_config_path(root) == root / "config" / "template.yaml"
     assert (default_bistro_base_dir(root) / "scene.obj").is_file()
     assert default_asset_catalog(root).is_file()
     assert default_asset_manifest(root).is_file()
     assert default_config_path(root).is_file()
+
+
+def test_floorplan_layer_filename_uses_height_token() -> None:
+    assert floorplan_layer_filename(1.6) == "floorplan_1p60.png"
+    assert floorplan_layer_filename(2.0) == "floorplan_2p00.png"
+
+
+def test_template_config_matches_code_defaults() -> None:
+    root = find_project_root()
+
+    assert yaml.safe_load((root / "config" / "template.yaml").read_text(encoding="utf-8")) == DEFAULT_CONFIG
+
+
+@pytest.mark.parametrize("config_name", ["template.yaml"])
+def test_project_configs_load_through_config_pipeline(config_name: str) -> None:
+    root = find_project_root()
+
+    effective, _overrides = load_effective_config(root / "config" / config_name, root, parse_args([]))
+
+    assert effective["runtime"]["config_path"].endswith(f"config/{config_name}")
+    assert "manifest" not in effective["assets"]
+
+
+def test_unknown_config_field_is_rejected(tmp_path: Path) -> None:
+    root = find_project_root()
+    config_path = tmp_path / "bad_config.yaml"
+    config_path.write_text("floorplan:\n  resolution: 0.1\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="floorplan.resolution"):
+        load_effective_config(config_path, root, parse_args([]))
+
+
+def test_invalid_config_value_is_rejected(tmp_path: Path) -> None:
+    root = find_project_root()
+    config_path = tmp_path / "bad_config.yaml"
+    config_path.write_text("floorplan:\n  sample_density_scale: 0\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="sample_density_scale"):
+        load_effective_config(config_path, root, parse_args([]))
+
+
+def test_front3d_scene_selection_and_transform() -> None:
+    rng = random.Random(7)
+    assert choose_scene_ids(["a", "b"], ("b",), "random", 3, rng) == ["b", "b", "b"]
+    assert choose_scene_ids(["a", "b"], (), "sequential", 3, rng) == ["a", "b", "a"]
+
+    matrix = scenegen_transform_for_child({"pos": [1, 2, 3], "rot": [0, 0, 0, 1], "scale": [1, 1, 1]})
+    assert [round(matrix[index], 6) for index in (3, 7, 11)] == [1, -3, 2]
+
+
+def test_label_plane_grid_respects_floor_domain_and_obstacles() -> None:
+    config = LabelConfig.from_mapping(
+        {
+            **DEFAULT_CONFIG["label"],
+            "ue_strategy": "plane_grid",
+            "grid_resolution_m": 1.0,
+            "wall_clearance_m": 0.5,
+            "ue_clearance_m": 0.0,
+        }
+    )
+    tri = SupportTriangle(vertices=((0.0, 0.0, 0.0), (4.0, 0.0, 0.0), (0.0, 4.0, 0.0)), area=8.0, z=0.0)
+    context = RoomLabelContext(
+        room_index=0,
+        room_id="room",
+        room_type="test",
+        floor_source="test",
+        floor_triangles=(tri,),
+        floor_z=0.0,
+        ceiling_z=3.0,
+        bounds_xy=(0.0, 0.0, 4.0, 4.0),
+        obstacles=(LabelObstacle(1.9, 1.9, 2.1, 2.1, 0.0, 2.0, "blocking_box"),),
+    )
+
+    points = generate_ue_points_for_room(context, config)
+
+    assert (3.0, 3.0) not in points
+    assert (1.0, 1.0) in points
+    assert (2.0, 2.0) not in points
+
+
+def test_label_height_aware_obstacles_keep_points_above_low_objects() -> None:
+    config = LabelConfig.from_mapping(
+        {
+            **DEFAULT_CONFIG["label"],
+            "ue_height_m": 1.8,
+            "ue_strategy": "plane_grid",
+            "grid_resolution_m": 1.0,
+            "wall_clearance_m": 0.0,
+            "ue_clearance_m": 0.0,
+            "obstacle_strategy": "height_aware",
+        }
+    )
+    tri = SupportTriangle(vertices=((0.0, 0.0, 0.0), (3.0, 0.0, 0.0), (0.0, 3.0, 0.0)), area=4.5, z=0.0)
+    context = RoomLabelContext(
+        room_index=0,
+        room_id="room",
+        room_type="test",
+        floor_source="test",
+        floor_triangles=(tri,),
+        floor_z=0.0,
+        ceiling_z=3.0,
+        bounds_xy=(0.0, 0.0, 3.0, 3.0),
+        obstacles=(
+            LabelObstacle(0.9, 0.9, 1.1, 1.1, 0.0, 1.5, "table_below_ue"),
+            LabelObstacle(1.9, 1.9, 2.1, 2.1, 1.7, 2.0, "shelf_at_ue"),
+        ),
+    )
+
+    points = generate_ue_points_for_room(context, config)
+
+    assert (1.0, 1.0) in points
+    assert (2.0, 2.0) not in points
+
+
+def test_label_footprint_column_obstacles_block_points_above_low_objects() -> None:
+    config = LabelConfig.from_mapping(
+        {
+            **DEFAULT_CONFIG["label"],
+            "ue_height_m": 1.8,
+            "ue_strategy": "plane_grid",
+            "grid_resolution_m": 1.0,
+            "wall_clearance_m": 0.0,
+            "ue_clearance_m": 0.0,
+            "obstacle_strategy": "footprint_column",
+        }
+    )
+    tri = SupportTriangle(vertices=((0.0, 0.0, 0.0), (2.0, 0.0, 0.0), (0.0, 2.0, 0.0)), area=2.0, z=0.0)
+    context = RoomLabelContext(
+        room_index=0,
+        room_id="room",
+        room_type="test",
+        floor_source="test",
+        floor_triangles=(tri,),
+        floor_z=0.0,
+        ceiling_z=3.0,
+        bounds_xy=(0.0, 0.0, 2.0, 2.0),
+        obstacles=(LabelObstacle(0.9, 0.9, 1.1, 1.1, 0.0, 1.5, "table_below_ue"),),
+    )
+
+    points = generate_ue_points_for_room(context, config)
+
+    assert (1.0, 1.0) not in points
+
+
+def make_square_room_context(size_m: float) -> RoomLabelContext:
+    tri_a = SupportTriangle(vertices=((0.0, 0.0, 0.0), (size_m, 0.0, 0.0), (0.0, size_m, 0.0)), area=size_m * size_m / 2.0, z=0.0)
+    tri_b = SupportTriangle(vertices=((size_m, 0.0, 0.0), (size_m, size_m, 0.0), (0.0, size_m, 0.0)), area=size_m * size_m / 2.0, z=0.0)
+    return RoomLabelContext(
+        room_index=0,
+        room_id="room",
+        room_type="test",
+        floor_source="test",
+        floor_triangles=(tri_a, tri_b),
+        floor_z=0.0,
+        ceiling_z=3.0,
+        bounds_xy=(0.0, 0.0, size_m, size_m),
+        obstacles=(),
+    )
+
+
+def test_label_area_adaptive_bs_count_scales_with_room_area() -> None:
+    config = LabelConfig.from_mapping(
+        {
+            **DEFAULT_CONFIG["label"],
+            "bs_count_strategy": "area_adaptive",
+            "bs_min_room_area_m2": 4.0,
+            "bs_area_per_point_m2": 10.0,
+            "bs_min_per_room": 1,
+            "bs_max_per_room": 8,
+        }
+    )
+
+    assert bs_count_for_room(make_square_room_context(1.5), config) == 0
+    assert bs_count_for_room(make_square_room_context(3.0), config) == 1
+    assert bs_count_for_room(make_square_room_context(8.0), config) == 7
+    assert bs_count_for_room(make_square_room_context(12.0), config) == 8
+
+
+def test_label_area_adaptive_bs_generation_uses_computed_count() -> None:
+    config = LabelConfig.from_mapping(
+        {
+            **DEFAULT_CONFIG["label"],
+            "bs_count_strategy": "area_adaptive",
+            "bs_min_room_area_m2": 4.0,
+            "bs_area_per_point_m2": 10.0,
+            "bs_min_per_room": 1,
+            "bs_max_per_room": 8,
+            "grid_resolution_m": 1.0,
+        }
+    )
+    context = make_square_room_context(8.0)
+    free_points = [(float(x), float(y)) for x in range(1, 8) for y in range(1, 8)]
+
+    bs_points = generate_bs_points_for_room(context, free_points, config)
+
+    assert len(bs_points) == 7
 
 
 def legacy_table_fixture() -> dict[str, object]:
@@ -134,9 +342,11 @@ def test_bistro_base_scene_detection() -> None:
     assert base.static_obstacles
 
 
-def test_partial_config_inherits_default_bistro_forbidden_zones() -> None:
+def test_partial_config_inherits_builtin_defaults(tmp_path: Path) -> None:
     root = find_project_root()
-    effective, _overrides = load_effective_config(root / "config" / "sparse.yaml", root, parse_args([]))
+    config_path = tmp_path / "partial_config.yaml"
+    config_path.write_text("pipeline:\n  run_name: sparse\nplacement:\n  min_tables: 2\n  max_tables: 4\n", encoding="utf-8")
+    effective, _overrides = load_effective_config(config_path, root, parse_args([]))
 
     assert effective["pipeline"]["run_name"] == "sparse"
     assert effective["assets"]["catalog"].endswith("data/catalogs/bistro.v1.json")
@@ -157,6 +367,321 @@ def test_legacy_assets_manifest_config_normalizes_to_catalog(tmp_path: Path) -> 
 
     assert effective["assets"]["catalog"].endswith("data/assets/manifest.json")
     assert "manifest" not in effective["assets"]
+
+
+def write_front3d_fixture_obj(path: Path, *, material: str, height_axis_y: bool = False) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if height_axis_y:
+        vertices = [
+            (-0.2, 0.0, -0.2),
+            (0.2, 0.0, -0.2),
+            (0.2, 0.8, -0.2),
+            (-0.2, 0.8, -0.2),
+            (-0.2, 0.0, 0.2),
+            (0.2, 0.0, 0.2),
+            (0.2, 0.8, 0.2),
+            (-0.2, 0.8, 0.2),
+        ]
+    else:
+        vertices = [
+            (0.0, 0.0, 0.0),
+            (3.0, 0.0, 0.0),
+            (3.0, 3.0, 0.0),
+            (0.0, 3.0, 0.0),
+            (0.0, 0.0, 2.5),
+            (3.0, 0.0, 2.5),
+            (3.0, 3.0, 2.5),
+            (0.0, 3.0, 2.5),
+        ]
+    faces = [(1, 2, 3), (1, 3, 4), (5, 7, 6), (5, 8, 7), (1, 5, 6), (1, 6, 2)]
+    with path.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write(f"usemtl {material}\n")
+        for x, y, z in vertices:
+            handle.write(f"v {x} {y} {z}\n")
+        for face in faces:
+            handle.write("f " + " ".join(str(index) for index in face) + "\n")
+
+
+def make_front3d_runtime_fixture(tmp_path: Path) -> Path:
+    root = tmp_path / "front3d"
+    source_scene_dir = root / "3D-FRONT"
+    scene_id = "scene-front3d-test"
+    original_model_id = "model-original"
+    replacement_model_id = "model-replacement"
+    source_scene_dir.mkdir(parents=True)
+    (source_scene_dir / f"{scene_id}.json").write_text(
+        json.dumps(
+            {
+                "uid": scene_id,
+                "furniture": [{"uid": "100/model", "jid": original_model_id}],
+                "scene": {
+                    "room": [
+                        {
+                            "type": "Bedroom",
+                            "instanceid": "room/0",
+                            "children": [
+                                {
+                                    "ref": "100/model",
+                                    "instanceid": "furniture/0",
+                                    "pos": [1.0, 0.0, -1.0],
+                                    "rot": [0.0, 0.0, 0.0, 1.0],
+                                    "scale": [1.0, 1.0, 1.0],
+                                    "replace_jid": replacement_model_id,
+                                },
+                                {
+                                    "ref": "floor/0",
+                                    "instanceid": "mesh/0",
+                                    "pos": [0.0, 0.0, 0.0],
+                                    "rot": [0.0, 0.0, 0.0, 1.0],
+                                    "scale": [1.0, 1.0, 1.0],
+                                },
+                            ],
+                        }
+                    ]
+                },
+                "mesh": [
+                    {
+                        "uid": "floor/0",
+                        "type": "Floor",
+                        "material": "floor_mat",
+                        "xyz": [0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 3.0, 0.0, -3.0, 0.0, 0.0, -3.0],
+                        "faces": [0, 1, 2, 0, 2, 3],
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    arch_dir = root / "scenegen_architecture_normalized" / scene_id
+    arch_obj = arch_dir / f"{scene_id}.obj"
+    arch_json = arch_dir / f"{scene_id}.json"
+    write_front3d_fixture_obj(arch_obj, material="WallInner")
+    arch_json.write_text(
+        json.dumps(
+            {
+                "id": scene_id,
+                "files": {"obj": str(arch_obj), "source_scene": str(source_scene_dir / f"{scene_id}.json")},
+                "geometry": {"bbox": {"min": [0.0, 0.0, 0.0], "max": [3.0, 3.0, 2.5]}},
+                "materials": {
+                    "sionna": ["itu-concrete"],
+                    "source_to_sionna": [{"source": "WallInner", "sionna": "itu-concrete"}],
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    object_dir = root / "scenegen_objects_raw" / replacement_model_id
+    object_obj = object_dir / f"{replacement_model_id}.obj"
+    object_json = object_dir / f"{replacement_model_id}.json"
+    write_front3d_fixture_obj(object_obj, material="wood", height_axis_y=True)
+    object_json.write_text(
+        json.dumps(
+            {
+                "id": replacement_model_id,
+                "name": "test chair",
+                "files": {"obj": str(object_obj)},
+                "semantic": {"category": "chair", "super_category": "Chair", "material": "wood"},
+                "placement": {"class": "seat", "enabled": True, "support": ["floor"], "weight": 1.0},
+                "geometry": {"size": {"x": 0.4, "y": 0.8, "z": 0.4}},
+                "materials": {
+                    "sionna": ["itu-wood"],
+                    "source_to_sionna": [{"source": "wood", "sionna": "itu-wood"}],
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    manifest_path = root / "scenegen_manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "by_scene_id": {
+                    scene_id: {"normalized": {"json": str(arch_json), "obj": str(arch_obj), "preview": ""}}
+                },
+                "by_model_id": {
+                    replacement_model_id: {
+                        "raw": {"json": str(object_json), "obj": str(object_obj), "preview": ""}
+                    }
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    config_path = tmp_path / "front3d.yaml"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "pipeline": {
+                    "mode": "front3d",
+                    "scenes": 1,
+                    "seed": 123,
+                    "output_dir": str(tmp_path / "out"),
+                    "run_name": "smoke_front3d",
+                },
+                "front3d": {
+                    "manifest": str(manifest_path),
+                    "source_scene_dir": str(source_scene_dir),
+                    "variant": "normalized",
+                    "scene_ids": [scene_id],
+                    "scene_selection": "random",
+                    "use_replace_jid": True,
+                    "skip_missing_objects": True,
+                },
+                "floorplan": {
+                    "sample_density_scale": 0.01,
+                    "min_sample_points": 1000,
+                    "max_sample_points": 2000,
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    return config_path
+
+
+def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
+    pytest.importorskip("trimesh")
+    config_path = make_front3d_runtime_fixture(tmp_path)
+    output_dir = tmp_path / "out"
+
+    exit_code = main(["--config", str(config_path)])
+
+    scene_dir = output_dir / "smoke_front3d" / "front3d_0000"
+    assert exit_code == 0
+    for filename in ("scene.obj", "scene.xml", "label.json", "placements.json", "quality_report.json", "statistics.json"):
+        assert (scene_dir / filename).is_file()
+    for filename in ("floorplan_1p60.png", "geometry_raw.png", "preview.png", "side_view.png", "meta.json", "stack.npz"):
+        assert (scene_dir / "floorplan" / filename).is_file()
+    assert (output_dir / "smoke_front3d" / "manifest_front3d.json").is_file()
+    assert (output_dir / "smoke_front3d" / "summary_obj" / "front3d_0000.obj").is_file()
+    assert (output_dir / "smoke_front3d" / "summary_floorplan_raw" / "front3d_0000_geometry_raw.png").is_file()
+
+    placements = json.loads((scene_dir / "placements.json").read_text(encoding="utf-8"))
+    assert placements["mode"] == "front3d"
+    assert placements["placement_count"] == 1
+    assert placements["skipped_object_count"] == 0
+    placement = placements["placements"][0]
+    assert placement["source_ids"]["model_id"] == "model-replacement"
+    assert placement["source_ids"]["original_jid"] == "model-original"
+    assert placement["metadata"]["used_replace_jid"] is True
+    assert placement["translation"] == [1.0, 1.0, 0.0]
+    assert "transform_matrix_4x4_row_major" in placement
+    label = json.loads((scene_dir / "label.json").read_text(encoding="utf-8"))
+    assert label["label_version"] == "1.1"
+    assert label["generator"] == "front3d_auto"
+    assert len(label["groups"]) == 1
+    assert label["groups"][0]["room_id"] == "room/0"
+    assert label["groups"][0]["bs_positions"] == [point["position"] for point in label["groups"][0]["bs_points"]]
+    assert label["groups"][0]["ue_positions"] == [
+        [point["x"], point["y"], point["z"]] for point in label["groups"][0]["ue_points"]
+    ]
+    assert all("position" in point and "x" not in point and "y" not in point and "z" not in point for point in label["bs_points"])
+    assert label["ue_points"]
+    assert all(round(float(point["z"]), 3) == 1.6 for point in label["ue_points"])
+    assert {point["strategy"] for point in label["ue_points"]} == {"free_space_grid"}
+    assert len(label["groups"][0]["bs_points"]) <= 4
+    assert (scene_dir / "label_report.json").is_file()
+    assert (scene_dir / "label" / "label_walk_0p1.json").is_file()
+    assert (scene_dir / "label" / "report" / "label_walk_0p1_report.json").is_file()
+    assert not (scene_dir / "label" / "label_walk_0p1_report.json").exists()
+    assert (scene_dir / "floorplan" / "label_overlay.png").is_file()
+    assert (scene_dir / "label_floorplan" / "label_walk_0p1.png").is_file()
+
+    manifest = json.loads((output_dir / "smoke_front3d" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["mode"] == "front3d"
+    assert manifest["front3d_variant"] == "normalized"
+    assert manifest["front3d_object_variant"] == "raw"
+    assert manifest["front3d_skipped_object_count"] == 0
+    assert manifest["label_variants"] == ["label_walk_0p1"]
+    assert manifest["label_variant_count"] == 1
+    assert manifest["summary_floorplan_raw"]["count"] == 1
+    quality = json.loads((scene_dir / "quality_report.json").read_text(encoding="utf-8"))
+    assert quality["ok"] is True
+
+    json_files = [
+        output_dir / "smoke_front3d" / "manifest.json",
+        output_dir / "smoke_front3d" / "manifest_front3d.json",
+        output_dir / "smoke_front3d" / "statistics.json",
+        output_dir / "smoke_front3d" / "summary_obj" / "copy_manifest.json",
+        output_dir / "smoke_front3d" / "summary_floorplan_raw" / "copy_manifest.json",
+        scene_dir / "placements.json",
+        scene_dir / "label.json",
+        scene_dir / "label_report.json",
+        scene_dir / "label" / "label_walk_0p1.json",
+        scene_dir / "label" / "report" / "label_walk_0p1_report.json",
+        scene_dir / "floorplan" / "meta.json",
+        scene_dir / "quality_report.json",
+        scene_dir / "statistics.json",
+    ]
+    for json_file in json_files:
+        payload = json.loads(json_file.read_text(encoding="utf-8"))
+        assert not [value for value in iter_json_strings(payload) if value.startswith("/")]
+
+
+def test_front3d_batch_label_outputs(tmp_path: Path) -> None:
+    pytest.importorskip("trimesh")
+    config_path = make_front3d_runtime_fixture(tmp_path)
+    output_dir = tmp_path / "out"
+
+    exit_code = main(
+        [
+            "--config",
+            str(config_path),
+            "--label-batch-strategies",
+            "plane_grid,free_space_grid",
+            "--label-batch-grid-resolutions",
+            "0.1,0.2",
+        ]
+    )
+
+    scene_dir = output_dir / "smoke_front3d" / "front3d_0000"
+    assert exit_code == 0
+    expected_names = {"label_panel_0p1", "label_panel_0p2", "label_walk_0p1", "label_walk_0p2"}
+    assert {path.stem for path in (scene_dir / "label").glob("label_*.json")} == expected_names
+    assert not list((scene_dir / "label").glob("*_report.json"))
+    assert {path.stem.removesuffix("_report") for path in (scene_dir / "label" / "report").glob("*_report.json")} == expected_names
+    assert {path.stem for path in (scene_dir / "label_floorplan").glob("label_*.png")} == expected_names
+
+    for name in expected_names:
+        label_path = scene_dir / "label" / f"{name}.json"
+        report_path = scene_dir / "label" / "report" / f"{name}_report.json"
+        overlay_path = scene_dir / "label_floorplan" / f"{name}.png"
+        assert label_path.is_file()
+        assert report_path.is_file()
+        assert overlay_path.is_file()
+        label = json.loads(label_path.read_text(encoding="utf-8"))
+        strategy = "plane_grid" if "_panel_" in name else "free_space_grid"
+        assert {point["strategy"] for point in label["ue_points"]} == {strategy}
+
+    primary = json.loads((scene_dir / "label.json").read_text(encoding="utf-8"))
+    first_variant = json.loads((scene_dir / "label" / "label_panel_0p1.json").read_text(encoding="utf-8"))
+    assert primary["ue_positions"] == first_variant["ue_positions"]
+    panel_label = json.loads((scene_dir / "label" / "label_panel_0p1.json").read_text(encoding="utf-8"))
+    walk_label = json.loads((scene_dir / "label" / "label_walk_0p1.json").read_text(encoding="utf-8"))
+    assert len(panel_label["ue_points"]) > len(walk_label["ue_points"])
+    walk_report = json.loads((scene_dir / "label" / "report" / "label_walk_0p1_report.json").read_text(encoding="utf-8"))
+    walk_sampling = walk_report["rooms"][0]["ue_sampling"]
+    assert walk_sampling["walk_obstacle_mode"] == "footprint_column"
+    assert walk_sampling["walk_blocking_obstacle_count"] == 1
+    assert walk_sampling["obstacle_rejected_count"] > 0
+
+    manifest = json.loads((output_dir / "smoke_front3d" / "manifest.json").read_text(encoding="utf-8"))
+    assert set(manifest["label_variants"]) == expected_names
+    assert manifest["label_variant_count"] == 4
+    scene_record = manifest["scenes"][0]
+    assert scene_record["label"]["variant_count"] == 4
+    assert scene_record["label"]["primary"] == "label_panel_0p1"
+    assert scene_record["label"]["report_dir"] == "front3d_0000/label/report"
+    assert len(scene_record["label"]["overlays"]) == 4
 
 
 def test_generated_scene_outputs_and_sionna_load(tmp_path: Path) -> None:
@@ -196,7 +721,7 @@ def test_generated_scene_outputs_and_sionna_load(tmp_path: Path) -> None:
 
     scene_dir = output_dir / "smoke_generated" / "scene_0000"
     assert exit_code == 0
-    for filename in ("scene.obj", "scene.xml", "label.json", "placements.json"):
+    for filename in ("scene.obj", "scene.xml", "label.json", "label_report.json", "placements.json"):
         assert (scene_dir / filename).is_file()
     for filename in (
         "preview.png",
@@ -204,8 +729,11 @@ def test_generated_scene_outputs_and_sionna_load(tmp_path: Path) -> None:
         "meta.json",
         "stack.npz",
         "geometry_raw.png",
+        "floorplan_1p60.png",
+        "label_overlay.png",
     ):
         assert (scene_dir / "floorplan" / filename).is_file()
+    assert not (scene_dir / "floorplan" / "000_z_1.60.png").exists()
     for filename in ("semantic.png", "semantic.json"):
         assert not (scene_dir / "floorplan" / filename).exists()
     for filename in ("quality_report.json", "statistics.json"):
@@ -215,6 +743,9 @@ def test_generated_scene_outputs_and_sionna_load(tmp_path: Path) -> None:
     assert manifest["asset_catalog"].endswith("data/catalogs/bistro.v1.json")
     assert manifest["quality_requested"] is True
     assert manifest["quality_ok"] is True
+    assert manifest["label_requested"] is True
+    assert manifest["label_ok"] is True
+    assert manifest["label_overlay_requested"] is True
     assert manifest["statistics"]["scene_count"] == 1
     assert (output_dir / "smoke_generated" / "statistics.json").is_file()
     assert manifest["floorplan_ok"] is True
@@ -229,9 +760,16 @@ def test_generated_scene_outputs_and_sionna_load(tmp_path: Path) -> None:
     assert geometry_meta["z_levels_m"] == [1.6]
     assert geometry_meta["num_levels"] == 1
     assert geometry_meta["geometry_clean"] is None
+    assert geometry_meta["projection_stats"][0]["image"].endswith("floorplan/floorplan_1p60.png")
     quality = json.loads((scene_dir / "quality_report.json").read_text(encoding="utf-8"))
     assert quality["ok"] is True
     assert quality["error_count"] == 0
+    label = json.loads((scene_dir / "label.json").read_text(encoding="utf-8"))
+    assert label["label_version"] == "1.1"
+    assert label["generator"] == "generated_auto"
+    assert label["bs_positions"] == [point["position"] for point in label["bs_points"]]
+    assert all("position" in point and "x" not in point and "y" not in point and "z" not in point for point in label["bs_points"])
+    assert label["ue_positions"] == [[point["x"], point["y"], point["z"]] for point in label["ue_points"]]
     statistics = json.loads((scene_dir / "statistics.json").read_text(encoding="utf-8"))
     assert statistics["placement_count"] > 0
     assert statistics["object_count_by_class"]
@@ -246,6 +784,9 @@ def test_generated_scene_outputs_and_sionna_load(tmp_path: Path) -> None:
     assert effective_config["floorplan"]["heights_m"] == [1.6]
     assert effective_config["floorplan"]["semantic_enabled"] is False
     assert effective_config["quality"]["enabled"] is True
+    assert effective_config["label"]["enabled"] is True
+    assert effective_config["label"]["ue_strategy"] == "free_space_grid"
+    assert effective_config["label"]["obstacle_strategy"] == "height_aware"
 
     json_files = [
         output_dir / "smoke_generated" / "manifest.json",
@@ -255,6 +796,7 @@ def test_generated_scene_outputs_and_sionna_load(tmp_path: Path) -> None:
         output_dir / "smoke_generated" / "summary_floorplan_raw" / "copy_manifest.json",
         scene_dir / "placements.json",
         scene_dir / "label.json",
+        scene_dir / "label_report.json",
         scene_dir / "floorplan" / "meta.json",
         scene_dir / "quality_report.json",
         scene_dir / "statistics.json",
