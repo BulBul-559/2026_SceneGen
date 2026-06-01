@@ -29,6 +29,11 @@ front3d:
   skip_missing_objects: true
   normalize_positive_xy: true
   ground_objects: true
+  precheck_enabled: true
+  precheck_max_attempts_per_scene: 20
+  precheck_min_placements: 1
+  precheck_max_z_m: 8.0
+  precheck_max_footprint_ratio: 5.0
 
 placement:
   min_tables: 4

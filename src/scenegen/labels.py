@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import math
 import random
-import shutil
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -227,25 +226,50 @@ def report_payload(
     }
 
 
+def label_report_summary(payload: dict[str, object], report: dict[str, object]) -> dict[str, object]:
+    rooms = [room for room in report.get("rooms", []) if isinstance(room, dict)]
+    sampling_totals: dict[str, int] = {}
+    for room in rooms:
+        sampling = room.get("ue_sampling")
+        if not isinstance(sampling, dict):
+            continue
+        for key, value in sampling.items():
+            if isinstance(value, int):
+                sampling_totals[key] = sampling_totals.get(key, 0) + value
+    enriched = dict(report)
+    bs_count = len(payload.get("bs_points", []))
+    ue_count = len(payload.get("ue_points", []))
+    enriched.update(
+        {
+            "group_count": len(payload.get("groups", [])),
+            "bs_count": bs_count,
+            "ue_count": ue_count,
+            "point_count": bs_count + ue_count,
+            "valid_room_count": sum(1 for room in rooms if not room.get("skipped")),
+        }
+    )
+    if sampling_totals:
+        enriched["ue_sampling_summary"] = sampling_totals
+    return enriched
+
+
 def write_label_outputs(
     scene_dir: Path,
     payload: dict[str, object],
     report: dict[str, object],
     path_root: Path,
 ) -> dict[str, object]:
-    label_path = scene_dir / "label.json"
-    report_path = scene_dir / "label_report.json"
-    label_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    _ = (scene_dir, path_root)
+    report = label_report_summary(payload, report)
     return {
         "ok": bool(report["ok"]),
-        "label_file": portable_path(label_path, path_root),
-        "report_file": portable_path(report_path, path_root),
         "group_count": len(payload.get("groups", [])),
         "bs_count": len(payload.get("bs_points", [])),
         "ue_count": len(payload.get("ue_points", [])),
         "error_count": int(report.get("error_count", 0)),
         "warning_count": int(report.get("warning_count", 0)),
+        "_payload": payload,
+        "_report": report,
     }
 
 
@@ -1105,14 +1129,15 @@ def copy_label_variant_outputs(
     report_dir = label_dir / "report"
     label_dir.mkdir(parents=True, exist_ok=True)
     report_dir.mkdir(parents=True, exist_ok=True)
-    source_label = scene_dir / "label.json"
-    source_report = scene_dir / "label_report.json"
     label_path = label_dir / f"{variant.name}.json"
     report_path = report_dir / f"{variant.name}_report.json"
-    shutil.copyfile(source_label, label_path)
-    shutil.copyfile(source_report, report_path)
+    payload = record["_payload"]
+    report = record["_report"]
+    label_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    public_record = {key: value for key, value in record.items() if not str(key).startswith("_")}
     return {
-        **record,
+        **public_record,
         "name": variant.name,
         "ue_strategy": variant.config.ue_strategy,
         "grid_resolution_m": variant.config.grid_resolution_m,
@@ -1133,6 +1158,17 @@ def generate_label_batch_for_scene(
     front3d_base_scene: Front3DBaseScene | None = None,
     placements: list[PlacedAsset] | None = None,
 ) -> dict[str, object]:
+    for stale_path in (scene_dir / "label.json", scene_dir / "label_report.json"):
+        stale_path.unlink(missing_ok=True)
+    label_dir = scene_dir / "label"
+    report_dir = label_dir / "report"
+    if label_dir.is_dir():
+        for stale_path in label_dir.glob("label_*.json"):
+            stale_path.unlink()
+    if report_dir.is_dir():
+        for stale_path in report_dir.glob("*_report.json"):
+            stale_path.unlink()
+
     variants = label_variants(config)
     records: list[dict[str, object]] = []
     rng_state = rng.getstate()
@@ -1151,16 +1187,6 @@ def generate_label_batch_for_scene(
         )
         records.append(copy_label_variant_outputs(scene_dir, variant, variant_record, path_root))
 
-    primary = records[0]
-    primary_label = scene_dir / str(primary["label_file"])
-    primary_report = scene_dir / str(primary["report_file"])
-    if not primary_label.is_file():
-        primary_label = path_root / str(primary["label_file"])
-    if not primary_report.is_file():
-        primary_report = path_root / str(primary["report_file"])
-    shutil.copyfile(primary_label, scene_dir / "label.json")
-    shutil.copyfile(primary_report, scene_dir / "label_report.json")
-
     return {
         "ok": all(bool(record["ok"]) for record in records),
         "primary": records[0]["name"],
@@ -1173,8 +1199,6 @@ def generate_label_batch_for_scene(
         "ue_count": records[0].get("ue_count", 0),
         "error_count": sum(int(record.get("error_count", 0)) for record in records),
         "warning_count": sum(int(record.get("warning_count", 0)) for record in records),
-        "label_file": portable_path(scene_dir / "label.json", path_root),
-        "report_file": portable_path(scene_dir / "label_report.json", path_root),
     }
 
 

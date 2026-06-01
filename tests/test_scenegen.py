@@ -8,7 +8,7 @@ import pytest
 import yaml
 
 from scenegen.assets import AssetSpec, group_assets_by_class, legacy_item_to_spec, load_assets, resolve_obj_file
-from scenegen.cli import main, parse_args
+from scenegen.cli import evaluate_front3d_precheck, main, parse_args
 from scenegen.config import DEFAULT_CONFIG, load_effective_config
 from scenegen.floorplan import floorplan_layer_filename
 from scenegen.front3d import choose_scene_ids, scenegen_transform_for_child
@@ -106,6 +106,46 @@ def test_front3d_scene_selection_and_transform() -> None:
 
     matrix = scenegen_transform_for_child({"pos": [1, 2, 3], "rot": [0, 0, 0, 1], "scale": [1, 1, 1]})
     assert [round(matrix[index], 6) for index in (3, 7, 11)] == [1, -3, 2]
+
+
+def test_front3d_precheck_rejects_anomalous_statistics() -> None:
+    args = parse_args(
+        [
+            "--mode",
+            "front3d",
+            "--front3d-precheck",
+            "--front3d-precheck-min-placements",
+            "1",
+            "--front3d-precheck-max-z",
+            "8",
+            "--front3d-precheck-max-footprint-ratio",
+            "5",
+        ]
+    )
+    ok = evaluate_front3d_precheck(
+        args,
+        {
+            "placement_count": 2,
+            "z_range_m": [0.0, 2.0],
+            "approx_footprint_ratio": 1.2,
+        },
+    )
+    bad = evaluate_front3d_precheck(
+        args,
+        {
+            "placement_count": 0,
+            "z_range_m": [0.0, 82.9],
+            "approx_footprint_ratio": 202.0,
+        },
+    )
+
+    assert ok["ok"] is True
+    assert bad["ok"] is False
+    assert {error["code"] for error in bad["errors"]} == {
+        "too_few_placements",
+        "z_range_too_high",
+        "footprint_ratio_too_high",
+    }
 
 
 def test_label_plane_grid_respects_floor_domain_and_obstacles() -> None:
@@ -557,7 +597,7 @@ def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
 
     scene_dir = output_dir / "smoke_front3d" / "front3d_0000"
     assert exit_code == 0
-    for filename in ("scene.obj", "scene.xml", "label.json", "placements.json", "quality_report.json", "statistics.json"):
+    for filename in ("scene.obj", "scene.xml", "placements.json", "quality_report.json", "statistics.json"):
         assert (scene_dir / filename).is_file()
     for filename in ("floorplan_1p60.png", "geometry_raw.png", "preview.png", "side_view.png", "meta.json", "stack.npz"):
         assert (scene_dir / "floorplan" / filename).is_file()
@@ -575,7 +615,9 @@ def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
     assert placement["metadata"]["used_replace_jid"] is True
     assert placement["translation"] == [1.0, 1.0, 0.0]
     assert "transform_matrix_4x4_row_major" in placement
-    label = json.loads((scene_dir / "label.json").read_text(encoding="utf-8"))
+    assert not (scene_dir / "label.json").exists()
+    assert not (scene_dir / "label_report.json").exists()
+    label = json.loads((scene_dir / "label" / "label_walk_0p1.json").read_text(encoding="utf-8"))
     assert label["label_version"] == "1.1"
     assert label["generator"] == "front3d_auto"
     assert len(label["groups"]) == 1
@@ -589,11 +631,13 @@ def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
     assert all(round(float(point["z"]), 3) == 1.6 for point in label["ue_points"])
     assert {point["strategy"] for point in label["ue_points"]} == {"free_space_grid"}
     assert len(label["groups"][0]["bs_points"]) <= 4
-    assert (scene_dir / "label_report.json").is_file()
     assert (scene_dir / "label" / "label_walk_0p1.json").is_file()
-    assert (scene_dir / "label" / "report" / "label_walk_0p1_report.json").is_file()
+    report = json.loads((scene_dir / "label" / "report" / "label_walk_0p1_report.json").read_text(encoding="utf-8"))
+    assert report["bs_count"] == len(label["bs_points"])
+    assert report["ue_count"] == len(label["ue_points"])
+    assert report["group_count"] == len(label["groups"])
     assert not (scene_dir / "label" / "label_walk_0p1_report.json").exists()
-    assert (scene_dir / "floorplan" / "label_overlay.png").is_file()
+    assert not (scene_dir / "floorplan" / "label_overlay.png").exists()
     assert (scene_dir / "label_floorplan" / "label_walk_0p1.png").is_file()
 
     manifest = json.loads((output_dir / "smoke_front3d" / "manifest.json").read_text(encoding="utf-8"))
@@ -614,8 +658,6 @@ def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
         output_dir / "smoke_front3d" / "summary_obj" / "copy_manifest.json",
         output_dir / "smoke_front3d" / "summary_floorplan_raw" / "copy_manifest.json",
         scene_dir / "placements.json",
-        scene_dir / "label.json",
-        scene_dir / "label_report.json",
         scene_dir / "label" / "label_walk_0p1.json",
         scene_dir / "label" / "report" / "label_walk_0p1_report.json",
         scene_dir / "floorplan" / "meta.json",
@@ -662,14 +704,16 @@ def test_front3d_batch_label_outputs(tmp_path: Path) -> None:
         strategy = "plane_grid" if "_panel_" in name else "free_space_grid"
         assert {point["strategy"] for point in label["ue_points"]} == {strategy}
 
-    primary = json.loads((scene_dir / "label.json").read_text(encoding="utf-8"))
-    first_variant = json.loads((scene_dir / "label" / "label_panel_0p1.json").read_text(encoding="utf-8"))
-    assert primary["ue_positions"] == first_variant["ue_positions"]
+    assert not (scene_dir / "label.json").exists()
+    assert not (scene_dir / "label_report.json").exists()
     panel_label = json.loads((scene_dir / "label" / "label_panel_0p1.json").read_text(encoding="utf-8"))
     walk_label = json.loads((scene_dir / "label" / "label_walk_0p1.json").read_text(encoding="utf-8"))
     assert len(panel_label["ue_points"]) > len(walk_label["ue_points"])
     walk_report = json.loads((scene_dir / "label" / "report" / "label_walk_0p1_report.json").read_text(encoding="utf-8"))
     walk_sampling = walk_report["rooms"][0]["ue_sampling"]
+    assert walk_report["bs_count"] == len(walk_label["bs_points"])
+    assert walk_report["ue_count"] == len(walk_label["ue_points"])
+    assert walk_report["group_count"] == len(walk_label["groups"])
     assert walk_sampling["walk_obstacle_mode"] == "footprint_column"
     assert walk_sampling["walk_blocking_obstacle_count"] == 1
     assert walk_sampling["obstacle_rejected_count"] > 0
@@ -721,7 +765,7 @@ def test_generated_scene_outputs_and_sionna_load(tmp_path: Path) -> None:
 
     scene_dir = output_dir / "smoke_generated" / "scene_0000"
     assert exit_code == 0
-    for filename in ("scene.obj", "scene.xml", "label.json", "label_report.json", "placements.json"):
+    for filename in ("scene.obj", "scene.xml", "placements.json"):
         assert (scene_dir / filename).is_file()
     for filename in (
         "preview.png",
@@ -730,9 +774,14 @@ def test_generated_scene_outputs_and_sionna_load(tmp_path: Path) -> None:
         "stack.npz",
         "geometry_raw.png",
         "floorplan_1p60.png",
-        "label_overlay.png",
     ):
         assert (scene_dir / "floorplan" / filename).is_file()
+    assert not (scene_dir / "label.json").exists()
+    assert not (scene_dir / "label_report.json").exists()
+    assert not (scene_dir / "floorplan" / "label_overlay.png").exists()
+    assert (scene_dir / "label" / "label_walk_0p1.json").is_file()
+    assert (scene_dir / "label" / "report" / "label_walk_0p1_report.json").is_file()
+    assert (scene_dir / "label_floorplan" / "label_walk_0p1.png").is_file()
     assert not (scene_dir / "floorplan" / "000_z_1.60.png").exists()
     for filename in ("semantic.png", "semantic.json"):
         assert not (scene_dir / "floorplan" / filename).exists()
@@ -764,12 +813,15 @@ def test_generated_scene_outputs_and_sionna_load(tmp_path: Path) -> None:
     quality = json.loads((scene_dir / "quality_report.json").read_text(encoding="utf-8"))
     assert quality["ok"] is True
     assert quality["error_count"] == 0
-    label = json.loads((scene_dir / "label.json").read_text(encoding="utf-8"))
+    label = json.loads((scene_dir / "label" / "label_walk_0p1.json").read_text(encoding="utf-8"))
     assert label["label_version"] == "1.1"
     assert label["generator"] == "generated_auto"
     assert label["bs_positions"] == [point["position"] for point in label["bs_points"]]
     assert all("position" in point and "x" not in point and "y" not in point and "z" not in point for point in label["bs_points"])
     assert label["ue_positions"] == [[point["x"], point["y"], point["z"]] for point in label["ue_points"]]
+    label_report = json.loads((scene_dir / "label" / "report" / "label_walk_0p1_report.json").read_text(encoding="utf-8"))
+    assert label_report["bs_count"] == len(label["bs_points"])
+    assert label_report["ue_count"] == len(label["ue_points"])
     statistics = json.loads((scene_dir / "statistics.json").read_text(encoding="utf-8"))
     assert statistics["placement_count"] > 0
     assert statistics["object_count_by_class"]
@@ -795,8 +847,8 @@ def test_generated_scene_outputs_and_sionna_load(tmp_path: Path) -> None:
         output_dir / "smoke_generated" / "summary_obj" / "copy_manifest.json",
         output_dir / "smoke_generated" / "summary_floorplan_raw" / "copy_manifest.json",
         scene_dir / "placements.json",
-        scene_dir / "label.json",
-        scene_dir / "label_report.json",
+        scene_dir / "label" / "label_walk_0p1.json",
+        scene_dir / "label" / "report" / "label_walk_0p1_report.json",
         scene_dir / "floorplan" / "meta.json",
         scene_dir / "quality_report.json",
         scene_dir / "statistics.json",

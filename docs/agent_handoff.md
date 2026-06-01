@@ -4,7 +4,7 @@
 
 ## 项目一句话
 
-SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把空场景、资产目录或 3D-FRONT 已组合场景合成为标准输出：`scene.obj`、Sionna/Mitsuba 可加载的 `scene.xml`、`placements.json`、`label.json`、floorplan、质量报告和统计报告。
+SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把空场景、资产目录或 3D-FRONT 已组合场景合成为标准输出：`scene.obj`、Sionna/Mitsuba 可加载的 `scene.xml`、`placements.json`、批量 `label/*.json`、floorplan、质量报告和统计报告。
 
 ## 当前主要模式
 
@@ -66,6 +66,7 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 - `object_variant: raw`: 家具用 3D-FUTURE raw 模型，因为 3D-FRONT 原始位姿按 raw 尺寸设计。
 - `normalize_positive_xy: true`: 整体平移到 XY 正象限，floorplan 左下保持 `(0, 0)`。
 - `ground_objects: true`: 家具 bbox 低于地面时做轻量 Z 抬升。
+- `precheck_enabled: true`: 生成正式 label/floorplan 前先检查候选场景；家具过少、Z 范围异常或投影占比异常时跳过该 scene id 并自动补齐。
 
 `label` 默认策略：
 
@@ -132,8 +133,12 @@ summary_floorplan_raw/
 <mode_prefix>_0000/
   scene.obj
   scene.xml
-  label.json
-  label_report.json
+  label/
+    label_walk_0p1.json
+    report/
+      label_walk_0p1_report.json
+  label_floorplan/
+    label_walk_0p1.png
   placements.json
   quality_report.json
   statistics.json
@@ -141,7 +146,6 @@ summary_floorplan_raw/
   floorplan/
     floorplan_1p60.png
     geometry_raw.png
-    label_overlay.png
     preview.png
     side_view.png
     stack.npz

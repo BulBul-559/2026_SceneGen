@@ -37,6 +37,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "skip_missing_objects": True,
         "normalize_positive_xy": True,
         "ground_objects": True,
+        "precheck_enabled": True,
+        "precheck_max_attempts_per_scene": 20,
+        "precheck_min_placements": 1,
+        "precheck_max_z_m": 8.0,
+        "precheck_max_footprint_ratio": 5.0,
     },
     "placement": {
         "min_tables": 4,
@@ -131,6 +136,11 @@ CLI_OVERRIDE_MAP: dict[str, tuple[str, ...]] = {
     "front3d_skip_missing_objects": ("front3d", "skip_missing_objects"),
     "front3d_normalize_positive_xy": ("front3d", "normalize_positive_xy"),
     "front3d_ground_objects": ("front3d", "ground_objects"),
+    "front3d_precheck_enabled": ("front3d", "precheck_enabled"),
+    "front3d_precheck_max_attempts_per_scene": ("front3d", "precheck_max_attempts_per_scene"),
+    "front3d_precheck_min_placements": ("front3d", "precheck_min_placements"),
+    "front3d_precheck_max_z": ("front3d", "precheck_max_z_m"),
+    "front3d_precheck_max_footprint_ratio": ("front3d", "precheck_max_footprint_ratio"),
     "min_tables": ("placement", "min_tables"),
     "max_tables": ("placement", "max_tables"),
     "floor_extras": ("placement", "floor_extras"),
@@ -445,6 +455,11 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     front3d["skip_missing_objects"] = as_bool(front3d["skip_missing_objects"], "front3d.skip_missing_objects")
     front3d["normalize_positive_xy"] = as_bool(front3d["normalize_positive_xy"], "front3d.normalize_positive_xy")
     front3d["ground_objects"] = as_bool(front3d["ground_objects"], "front3d.ground_objects")
+    front3d["precheck_enabled"] = as_bool(front3d["precheck_enabled"], "front3d.precheck_enabled")
+    front3d["precheck_max_attempts_per_scene"] = int(front3d["precheck_max_attempts_per_scene"])
+    front3d["precheck_min_placements"] = int(front3d["precheck_min_placements"])
+    front3d["precheck_max_z_m"] = float(front3d["precheck_max_z_m"])
+    front3d["precheck_max_footprint_ratio"] = float(front3d["precheck_max_footprint_ratio"])
     return normalized
 
 
@@ -578,6 +593,14 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("front3d.object_variant must be 'raw' or 'normalized'")
     if front3d["scene_selection"] not in {"random", "sequential"}:
         raise ValueError("front3d.scene_selection must be 'random' or 'sequential'")
+    if front3d["precheck_max_attempts_per_scene"] < 1:
+        raise ValueError("front3d.precheck_max_attempts_per_scene must be at least 1")
+    if front3d["precheck_min_placements"] < 0:
+        raise ValueError("front3d.precheck_min_placements must be non-negative")
+    if front3d["precheck_max_z_m"] <= 0:
+        raise ValueError("front3d.precheck_max_z_m must be positive")
+    if front3d["precheck_max_footprint_ratio"] <= 0:
+        raise ValueError("front3d.precheck_max_footprint_ratio must be positive")
 
 
 def save_effective_config(path: Path, config: dict[str, Any]) -> None:
@@ -618,6 +641,11 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         front3d_skip_missing_objects=front3d["skip_missing_objects"],
         front3d_normalize_positive_xy=front3d["normalize_positive_xy"],
         front3d_ground_objects=front3d["ground_objects"],
+        front3d_precheck_enabled=front3d["precheck_enabled"],
+        front3d_precheck_max_attempts_per_scene=front3d["precheck_max_attempts_per_scene"],
+        front3d_precheck_min_placements=front3d["precheck_min_placements"],
+        front3d_precheck_max_z=front3d["precheck_max_z_m"],
+        front3d_precheck_max_footprint_ratio=front3d["precheck_max_footprint_ratio"],
         min_tables=placement["min_tables"],
         max_tables=placement["max_tables"],
         floor_extras=placement["floor_extras"],

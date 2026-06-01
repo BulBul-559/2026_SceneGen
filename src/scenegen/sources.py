@@ -126,6 +126,10 @@ class Front3DSceneSource:
             ground_objects=args.front3d_ground_objects,
         )
         self.index = Front3DIndex(config)
+        self.config = config
+        self._selection_rng = random.Random(args.seed)
+        self._selection_cursor = 0
+        self._rejected_scene_ids: set[str] = set()
         self.selected_scene_ids = choose_scene_ids(
             self.index.scene_ids,
             config.scene_ids,
@@ -134,14 +138,35 @@ class Front3DSceneSource:
             random.Random(args.seed),
         )
 
-    def build_scene(
+    def next_scene_id(self) -> str:
+        if self.config.scene_ids:
+            candidates = [scene_id for scene_id in self.config.scene_ids if scene_id not in self._rejected_scene_ids]
+        elif self.config.scene_selection == "sequential":
+            candidates = [scene_id for scene_id in self.index.scene_ids if scene_id not in self._rejected_scene_ids]
+        else:
+            candidates = [scene_id for scene_id in self.index.scene_ids if scene_id not in self._rejected_scene_ids]
+            if candidates:
+                return self._selection_rng.choice(candidates)
+
+        if not candidates:
+            raise RuntimeError("No 3D-FRONT scene ids remain after precheck filtering.")
+        scene_id = candidates[self._selection_cursor % len(candidates)]
+        self._selection_cursor += 1
+        return scene_id
+
+    def mark_scene_rejected(self, scene_id: str) -> None:
+        if scene_id:
+            self._rejected_scene_ids.add(scene_id)
+
+    def build_scene_for_scene_id(
         self,
         scene_dir: Path,
         scene_index: int,
         scene_seed: int,
         rng: random.Random,
+        scene_id: str,
     ) -> SceneBuildResult:
-        build = build_scene_from_front3d(self.index, self.selected_scene_ids[scene_index], scene_index)
+        build = build_scene_from_front3d(self.index, scene_id, scene_index)
         record = write_front3d_scene_files(
             scene_dir,
             build.base_scene,
@@ -162,6 +187,15 @@ class Front3DSceneSource:
             record=record,
             front3d_base_scene=build.base_scene,
         )
+
+    def build_scene(
+        self,
+        scene_dir: Path,
+        scene_index: int,
+        scene_seed: int,
+        rng: random.Random,
+    ) -> SceneBuildResult:
+        return self.build_scene_for_scene_id(scene_dir, scene_index, scene_seed, rng, self.next_scene_id())
 
 
 def create_scene_source(

@@ -60,8 +60,13 @@ CLI 覆盖：`--bistro-base-dir`。禁区目前通过 YAML 配置。
 | `skip_missing_objects` | boolean | `true` | 缺失家具模型时跳过并记录；为 `false` 时直接失败。 |
 | `normalize_positive_xy` | boolean | `true` | 将合成场景整体平移到 XY 正象限，保持 floorplan 左下为 `(0, 0)`。 |
 | `ground_objects` | boolean | `true` | 家具 bbox 低于 floor 时做轻量 Z 抬升。 |
+| `precheck_enabled` | boolean | `true` | 写出 label/floorplan 前对候选场景做轻量异常预检；失败的 scene id 会被跳过并自动补齐。 |
+| `precheck_max_attempts_per_scene` | integer, `>=1` | `20` | 每个输出编号最多尝试多少个候选 scene。 |
+| `precheck_min_placements` | integer, `>=0` | `1` | 候选场景至少需要保留多少个家具实例。 |
+| `precheck_max_z_m` | float, `>0` | `8.0` | 候选家具 bbox 的最大 Z 超过该值时判为异常。 |
+| `precheck_max_footprint_ratio` | float, `>0` | `5.0` | 家具总投影面积 / 建筑 bbox 面积超过该值时判为异常。 |
 
-CLI 覆盖：`--front3d-manifest`、`--front3d-source-scene-dir`、`--front3d-variant`、`--front3d-object-variant`、`--front3d-scene-ids`、`--front3d-scene-selection`、`--front3d-use-replace-jid/--no-front3d-use-replace-jid`、`--front3d-skip-missing-objects/--no-front3d-skip-missing-objects`、`--front3d-normalize-positive-xy/--no-front3d-normalize-positive-xy`、`--front3d-ground-objects/--no-front3d-ground-objects`。
+CLI 覆盖：`--front3d-manifest`、`--front3d-source-scene-dir`、`--front3d-variant`、`--front3d-object-variant`、`--front3d-scene-ids`、`--front3d-scene-selection`、`--front3d-use-replace-jid/--no-front3d-use-replace-jid`、`--front3d-skip-missing-objects/--no-front3d-skip-missing-objects`、`--front3d-normalize-positive-xy/--no-front3d-normalize-positive-xy`、`--front3d-ground-objects/--no-front3d-ground-objects`、`--front3d-precheck/--no-front3d-precheck`、`--front3d-precheck-max-attempts-per-scene`、`--front3d-precheck-min-placements`、`--front3d-precheck-max-z`、`--front3d-precheck-max-footprint-ratio`。
 
 ## placement
 
@@ -103,7 +108,7 @@ CLI 覆盖：`--quality/--no-quality`、`--quality-fail-on-error/--no-quality-fa
 
 | 字段 | 类型 / 可选值 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `enabled` | boolean | `true` | 是否生成 `label.json` 和 `label_report.json`。 |
+| `enabled` | boolean | `true` | 是否生成 `label/*.json` 和 `label/report/*_report.json`。 |
 | `version` | `"1.1"` | `"1.1"` | 当前固定版本。 |
 | `ue_height_m` | float, `>0` | `1.6` | UE 相对 floor 的高度。 |
 | `ue_strategy` | `free_space_grid` / `plane_grid` | `free_space_grid` | 单 label 兼容字段。若未显式设置 `batch_strategies`，CLI/YAML 设置该字段会同步到批量生成策略。 |
@@ -125,7 +130,7 @@ CLI 覆盖：`--quality/--no-quality`、`--quality-fail-on-error/--no-quality-fa
 | `bs_height_m` | float, `>0` | `2.4` | BS 目标高度。 |
 | `bs_ceiling_margin_m` | float, `>=0` | `0.3` | BS 距离天花的最小距离。 |
 | `wall_clearance_m` | float, `>=0` | `0.25` | UE/BS 与 room floor 边界的避让距离。 |
-| `overlay_enabled` | boolean | `true` | 是否生成 label 可视化。批量图写入 `label_floorplan/`，同时保留首个 label 的兼容图 `floorplan/label_overlay.png`。 |
+| `overlay_enabled` | boolean | `true` | 是否生成 label 可视化。批量图写入 `label_floorplan/`。 |
 | `fail_on_error` | boolean | `true` | label 验证失败时命令是否返回非零。 |
 
 批量 label 输出约定：
@@ -133,12 +138,11 @@ CLI 覆盖：`--quality/--no-quality`、`--quality-fail-on-error/--no-quality-fa
 - 每个场景的所有 label JSON 写入 `label/`，命名为 `label_<strategy>_<resolution>.json`，例如 `label_panel_0p1.json`、`label_walk_0p2.json`。
 - 每份 label 对应一份报告，命名为 `label/report/<name>_report.json`。
 - 每份 label 对应一张点位可视化，命名为 `label_floorplan/<name>.png`。
-- 根目录 `label.json` 和 `label_report.json` 保留为兼容入口，内容等于批量列表中的第一份 label。
-- `floorplan/label_overlay.png` 保留为兼容入口，内容等于第一份 label 的可视化。
 - root 和 group 级都包含 `bs_points`、`ue_points`、`bs_positions`、`ue_positions`。
 - `bs_points` 单点坐标使用 `position: [x, y, z]`。
 - `ue_points` 当前使用 `x` / `y` / `z` 字段。
 - `bs_positions` / `ue_positions` 是快速读取用的坐标数组。
+- report 根部包含总 `bs_count`、`ue_count`、`group_count`、`valid_room_count` 和可用时的 `ue_sampling_summary`；逐房间细节仍在 `rooms` 中。
 
 `plane_grid` 和 `free_space_grid` 的区别：
 

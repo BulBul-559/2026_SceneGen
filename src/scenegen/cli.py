@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import shutil
 from pathlib import Path
 
 from .assets import group_assets_by_class, load_assets, validate_asset_pool
@@ -45,6 +46,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--front3d-skip-missing-objects", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--front3d-normalize-positive-xy", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--front3d-ground-objects", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--front3d-precheck", dest="front3d_precheck_enabled", action="store_true", default=None)
+    parser.add_argument("--no-front3d-precheck", dest="front3d_precheck_enabled", action="store_false")
+    parser.add_argument("--front3d-precheck-max-attempts-per-scene", type=int, default=None)
+    parser.add_argument("--front3d-precheck-min-placements", type=int, default=None)
+    parser.add_argument("--front3d-precheck-max-z", type=float, default=None)
+    parser.add_argument("--front3d-precheck-max-footprint-ratio", type=float, default=None)
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--run-name", default=None, help="Use a stable run directory name instead of a timestamp.")
     parser.add_argument("--scenes", type=int, default=None)
@@ -188,6 +195,61 @@ def prepare_run_dir(output_root: Path, run_name: str, clean: bool) -> Path:
     return run_dir
 
 
+def evaluate_front3d_precheck(args: argparse.Namespace, statistics: dict[str, object]) -> dict[str, object]:
+    enabled = args.mode == "front3d" and bool(args.front3d_precheck_enabled)
+    result: dict[str, object] = {"enabled": enabled, "ok": True, "errors": []}
+    if not enabled:
+        return result
+
+    errors: list[dict[str, object]] = []
+    placement_count = int(statistics.get("placement_count", 0))
+    if placement_count < int(args.front3d_precheck_min_placements):
+        errors.append(
+            {
+                "code": "too_few_placements",
+                "value": placement_count,
+                "threshold": int(args.front3d_precheck_min_placements),
+            }
+        )
+
+    z_range = statistics.get("z_range_m")
+    z_max = float(z_range[1]) if isinstance(z_range, (list, tuple)) and len(z_range) >= 2 else 0.0
+    if z_max > float(args.front3d_precheck_max_z):
+        errors.append(
+            {
+                "code": "z_range_too_high",
+                "value": z_max,
+                "threshold": float(args.front3d_precheck_max_z),
+            }
+        )
+
+    footprint_ratio = float(statistics.get("approx_footprint_ratio", 0.0))
+    if footprint_ratio > float(args.front3d_precheck_max_footprint_ratio):
+        errors.append(
+            {
+                "code": "footprint_ratio_too_high",
+                "value": footprint_ratio,
+                "threshold": float(args.front3d_precheck_max_footprint_ratio),
+            }
+        )
+
+    result["ok"] = not errors
+    result["errors"] = errors
+    return result
+
+
+def front3d_precheck_settings(args: argparse.Namespace) -> dict[str, object]:
+    if args.mode != "front3d":
+        return {}
+    return {
+        "enabled": bool(args.front3d_precheck_enabled),
+        "max_attempts_per_scene": int(args.front3d_precheck_max_attempts_per_scene),
+        "min_placements": int(args.front3d_precheck_min_placements),
+        "max_z_m": float(args.front3d_precheck_max_z),
+        "max_footprint_ratio": float(args.front3d_precheck_max_footprint_ratio),
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     cli_args = parse_args(argv)
     repo_root = find_project_root()
@@ -226,86 +288,135 @@ def main(argv: list[str] | None = None) -> int:
 
     master_rng = random.Random(args.seed)
     scene_records: list[dict[str, object]] = []
+    precheck_skipped_scenes: list[dict[str, object]] = []
     validation_failed = False
     floorplan_failed = False
     quality_failed = False
     label_failed = False
-    for scene_index in range(args.scenes):
-        scene_seed = master_rng.randrange(1, 2**31)
-        rng = random.Random(scene_seed)
-        scene_dir = run_dir / f"{scene_prefix}_{scene_index:04d}"
-        build = source.build_scene(scene_dir, scene_index, scene_seed, rng)
-        placements = build.placements
-        record = build.record
-
-        statistics = scene_statistics(
-            args.mode,
-            placements,
-            room=build.room,
-            base_scene=build.base_scene,
-            front3d_base_scene=build.front3d_base_scene,
+    precheck_failed = False
+    stop_generation = False
+    while len(scene_records) < args.scenes and not stop_generation:
+        scene_index = len(scene_records)
+        max_attempts = (
+            int(args.front3d_precheck_max_attempts_per_scene)
+            if args.mode == "front3d" and bool(args.front3d_precheck_enabled)
+            else 1
         )
-        record["statistics"] = statistics
-        record["statistics_file"] = write_json_report(scene_dir / "statistics.json", statistics, run_dir)
+        accepted = False
+        for attempt_index in range(max_attempts):
+            scene_seed = master_rng.randrange(1, 2**31)
+            rng = random.Random(scene_seed)
+            scene_dir = run_dir / f"{scene_prefix}_{scene_index:04d}"
+            if scene_dir.exists():
+                shutil.rmtree(scene_dir)
+            build = source.build_scene(scene_dir, scene_index, scene_seed, rng)
+            placements = build.placements
+            record = build.record
 
-        if quality_config.enabled:
-            quality = check_scene_quality(
+            statistics = scene_statistics(
                 args.mode,
                 placements,
-                quality_config,
                 room=build.room,
                 base_scene=build.base_scene,
                 front3d_base_scene=build.front3d_base_scene,
-                forbidden_xy_rects=source.forbidden_xy_rects,
-                skipped_objects=record.get("skipped_objects") if isinstance(record.get("skipped_objects"), list) else None,
             )
-            record["quality"] = quality
-            record["quality_report"] = write_json_report(scene_dir / "quality_report.json", quality, run_dir)
-            quality_failed = quality_failed or not bool(quality["ok"])
+            record["statistics"] = statistics
+            record["statistics_file"] = write_json_report(scene_dir / "statistics.json", statistics, run_dir)
+            precheck = evaluate_front3d_precheck(args, statistics)
+            record["precheck"] = precheck
+            if not bool(precheck["ok"]):
+                scene_id = str(record.get("front3d_scene_id") or "")
+                precheck_skipped_scenes.append(
+                    {
+                        "target_index": scene_index,
+                        "attempt": attempt_index + 1,
+                        "scene_seed": scene_seed,
+                        "front3d_scene_id": scene_id,
+                        "errors": precheck["errors"],
+                        "statistics": statistics,
+                        "skipped_object_count": int(record.get("skipped_object_count", 0)),
+                    }
+                )
+                mark_rejected = getattr(source, "mark_scene_rejected", None)
+                if callable(mark_rejected):
+                    mark_rejected(scene_id)
+                shutil.rmtree(scene_dir, ignore_errors=True)
+                error_codes = ",".join(str(item.get("code")) for item in precheck["errors"] if isinstance(item, dict))
+                print(
+                    f"[precheck skip] target={scene_index + 1}/{args.scenes} "
+                    f"scene_id={scene_id or '<unknown>'} errors={error_codes}"
+                )
+                continue
 
-        if args.validate_sionna:
-            validation = validate_sionna_scene(scene_dir / "scene.xml", run_dir)
-            record["sionna_validation"] = validation
-            validation_failed = validation_failed or not bool(validation["ok"])
-        if label_config.enabled:
-            try:
-                label_record = generate_label_batch_for_scene(
-                    mode=args.mode,
-                    scene_dir=scene_dir,
-                    config=label_config,
-                    rng=rng,
-                    path_root=run_dir,
+            if quality_config.enabled:
+                quality = check_scene_quality(
+                    args.mode,
+                    placements,
+                    quality_config,
                     room=build.room,
                     base_scene=build.base_scene,
                     front3d_base_scene=build.front3d_base_scene,
-                    placements=placements,
-                )
-                record["label"] = label_record
-                label_failed = label_failed or not bool(label_record["ok"])
-            except Exception as exc:
-                label_failed = True
-                record["label"] = {
-                    "ok": False,
-                    "error_type": type(exc).__name__,
-                    "error": str(exc),
-                }
-                if label_config.fail_on_error:
-                    scene_records.append(record)
-                    break
-        if floorplan_config.enabled:
-            try:
-                record["floorplan"] = generate_floorplan_for_scene(
-                    scene_dir / "scene.obj",
-                    scene_dir / "floorplan",
-                    floorplan_config,
-                    placements=placements,
-                    bounds_xy=build.bounds_xy,
                     forbidden_xy_rects=source.forbidden_xy_rects,
+                    skipped_objects=(
+                        record.get("skipped_objects") if isinstance(record.get("skipped_objects"), list) else None
+                    ),
                 )
-                if label_config.enabled and label_config.overlay_enabled and bool(record.get("label", {}).get("ok")):
-                    label_record = record.get("label", {})
-                    overlays: list[dict[str, object]] = []
-                    if isinstance(label_record, dict):
+                record["quality"] = quality
+                record["quality_report"] = write_json_report(scene_dir / "quality_report.json", quality, run_dir)
+                quality_failed = quality_failed or not bool(quality["ok"])
+
+            if args.validate_sionna:
+                validation = validate_sionna_scene(scene_dir / "scene.xml", run_dir)
+                record["sionna_validation"] = validation
+                validation_failed = validation_failed or not bool(validation["ok"])
+            if label_config.enabled:
+                try:
+                    label_record = generate_label_batch_for_scene(
+                        mode=args.mode,
+                        scene_dir=scene_dir,
+                        config=label_config,
+                        rng=rng,
+                        path_root=run_dir,
+                        room=build.room,
+                        base_scene=build.base_scene,
+                        front3d_base_scene=build.front3d_base_scene,
+                        placements=placements,
+                    )
+                    record["label"] = label_record
+                    label_failed = label_failed or not bool(label_record["ok"])
+                except Exception as exc:
+                    label_failed = True
+                    record["label"] = {
+                        "ok": False,
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    }
+                    if label_config.fail_on_error:
+                        scene_records.append(record)
+                        stop_generation = True
+                        accepted = True
+                        break
+            if floorplan_config.enabled:
+                try:
+                    record["floorplan"] = generate_floorplan_for_scene(
+                        scene_dir / "scene.obj",
+                        scene_dir / "floorplan",
+                        floorplan_config,
+                        placements=placements,
+                        bounds_xy=build.bounds_xy,
+                        forbidden_xy_rects=source.forbidden_xy_rects,
+                    )
+                    label_value = record.get("label", {})
+                    if label_config.enabled and label_config.overlay_enabled and isinstance(label_value, dict) and bool(
+                        label_value.get("ok")
+                    ):
+                        label_record = label_value
+                        overlays: list[dict[str, object]] = []
+                        (scene_dir / "floorplan" / "label_overlay.png").unlink(missing_ok=True)
+                        label_floorplan_dir = scene_dir / "label_floorplan"
+                        if label_floorplan_dir.is_dir():
+                            for stale_path in label_floorplan_dir.glob("label_*.png"):
+                                stale_path.unlink()
                         for variant in label_record.get("variants", []):
                             if not isinstance(variant, dict):
                                 continue
@@ -314,35 +425,40 @@ def main(argv: list[str] | None = None) -> int:
                                 scene_dir / "floorplan",
                                 label_path,
                                 run_dir,
-                                output_dir=scene_dir / "label_floorplan",
+                                output_dir=label_floorplan_dir,
                                 output_name=str(variant["name"]),
                             )
                             overlay["name"] = variant["name"]
                             variant["overlay"] = overlay
                             overlays.append(overlay)
-                        primary_overlay = write_label_overlay(scene_dir / "floorplan", scene_dir / "label.json", run_dir)
-                        label_record["overlay"] = primary_overlay
                         label_record["overlays"] = overlays
                         label_record["label_floorplan_dir"] = portable_path(scene_dir / "label_floorplan", run_dir)
-                        record["floorplan"]["label_overlay"] = primary_overlay
                         record["floorplan"]["label_overlays"] = overlays
-            except Exception as exc:
-                floorplan_failed = True
-                record["floorplan"] = {
-                    "ok": False,
-                    "error_type": type(exc).__name__,
-                    "error": str(exc),
-                }
-                if floorplan_config.fail_on_error:
-                    scene_records.append(record)
-                    break
-        scene_records.append(record)
-        quality_note = ""
-        if quality_config.enabled:
-            quality = record.get("quality", {})
-            if isinstance(quality, dict):
-                quality_note = f" quality_errors={quality.get('error_count', 0)}"
-        print(f"[{scene_index + 1}/{args.scenes}] {scene_dir} placements={len(placements)}{quality_note}")
+                except Exception as exc:
+                    floorplan_failed = True
+                    record["floorplan"] = {
+                        "ok": False,
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    }
+                    if floorplan_config.fail_on_error:
+                        scene_records.append(record)
+                        stop_generation = True
+                        accepted = True
+                        break
+            scene_records.append(record)
+            quality_note = ""
+            if quality_config.enabled:
+                quality = record.get("quality", {})
+                if isinstance(quality, dict):
+                    quality_note = f" quality_errors={quality.get('error_count', 0)}"
+            print(f"[{scene_index + 1}/{args.scenes}] {scene_dir} placements={len(placements)}{quality_note}")
+            accepted = True
+            break
+        if not accepted:
+            precheck_failed = True
+            print(f"3D-FRONT precheck could not fill scene index {scene_index} after {max_attempts} attempts.")
+            break
 
     copy_manifest = collect_scene_objs(run_dir, scene_records, scene_prefix)
     raw_floorplan_manifest = collect_raw_floorplans(run_dir, scene_records, scene_prefix)
@@ -365,6 +481,10 @@ def main(argv: list[str] | None = None) -> int:
         "front3d_skipped_object_count": (
             sum(int(record.get("skipped_object_count", 0)) for record in scene_records) if args.mode == "front3d" else 0
         ),
+        "front3d_precheck": front3d_precheck_settings(args),
+        "front3d_precheck_ok": (not precheck_failed) if args.mode == "front3d" else None,
+        "front3d_precheck_skipped_count": len(precheck_skipped_scenes) if args.mode == "front3d" else 0,
+        "front3d_precheck_skipped_scenes": precheck_skipped_scenes if args.mode == "front3d" else [],
         "forbidden_xy_rects": (
             [{"x_min": rect[0], "y_min": rect[1], "x_max": rect[2], "y_max": rect[3]} for rect in args.forbidden_xy_rects]
             if args.mode == "bistro"
@@ -413,6 +533,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if quality_failed and quality_config.fail_on_error:
         print("Quality checks failed for at least one scene.")
+        return 1
+    if precheck_failed:
+        print("3D-FRONT precheck failed to backfill all requested scenes.")
         return 1
     if label_failed and label_config.fail_on_error:
         print("Label generation failed for at least one scene.")
