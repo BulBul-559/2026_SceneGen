@@ -139,7 +139,7 @@ CLI 覆盖：`--quality/--no-quality`、`--quality-fail-on-error/--no-quality-fa
 | `wall_clearance_m` | float, `>=0` | `0.25` | `room_floor` 采样域下 UE 与 room floor 边界的避让距离。 |
 | `corridor_room_id` | string | `__corridor__` | `global_floor` 采样域下，不属于任何 room 但仍在 global floor 上的点使用的 room id。 |
 | `corridor_room_type` | string | `ConnectedArea` | 全局采样后无法归属到具体 room 的 connected area group 的 room type。 |
-| `corridor_clearance_m` | float, `>=0` | `0.05` | `global_floor` 采样域下 UE 与 global floor 边界、墙体和门洞边缘的避让距离，默认更小以保留门洞/联通区域。 |
+| `corridor_clearance_m` | float, `>=0` | `0.05` | `global_floor` 采样域下 UE 与 global floor 边界和墙体的避让距离，默认更小以保留门洞/联通区域。 |
 | `overlay_enabled` | boolean | `true` | 是否生成 label 可视化。批量图写入 `label_floorplan/`。 |
 | `fail_on_error` | boolean | `true` | label 验证失败时命令是否返回非零。 |
 
@@ -161,7 +161,7 @@ CLI 覆盖：`--quality/--no-quality`、`--quality-fail-on-error/--no-quality-fa
 
 采样域补充：
 
-- `global_floor` 更适合 3D-FRONT。`plane_grid` 和 `free_space_grid` 都使用同一个全局矩形减法域：`Door/Hole/Pocket` 会先被标为 free space，随后墙体按 `corridor_clearance_m` 膨胀并自然收窄门洞；label 的门洞候选区也会按同一距离收缩，不做膨胀后的门洞恢复。窗户不会作为 UE 采样开口。`connected_area_enabled: true` 时，归属不到 room 的点进入 connected area group。
+- `global_floor` 更适合 3D-FRONT。`plane_grid` 和 `free_space_grid` 都使用同一个全局矩形减法域：`Door/Hole/Pocket` 会先被标为 free space，随后墙体按 `corridor_clearance_m` 膨胀并自然收窄门洞；不做膨胀后的门洞恢复，也不在采样前做 room 分类。窗户不会作为 UE 采样开口。`connected_area_enabled: true` 时，归属不到 room 的点进入 connected area group。
 - `room_floor` 更保守，适合需要严格房间内采样的实验，但门洞/联通处可能缺点。
 
 四种组合示例：

@@ -749,9 +749,6 @@ def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
     assert room_sampling["door_opening_mode"] == "doors"
     assert room_sampling["windows_used_as_openings"] is False
     assert room_sampling["door_type_counts"]["door"] == 1
-    assert room_sampling["door_safe_candidate_count"] <= room_sampling["door_candidate_count"]
-    assert room_sampling["door_clearance_eroded_count"] >= 0
-    assert room_sampling["door_unsafe_rejected_count"] >= 0
     assert room_sampling["door_after_wall_clearance_count"] > 0
     assert not (scene_dir / "label" / "label_walk_0p1_report.json").exists()
     assert not (scene_dir / "floorplan" / "label_overlay.png").exists()
@@ -789,24 +786,6 @@ def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
     for json_file in json_files:
         payload = json.loads(json_file.read_text(encoding="utf-8"))
         assert not [value for value in iter_json_strings(payload) if value.startswith("/")]
-
-
-def test_front3d_label_erodes_narrow_door_openings_by_corridor_clearance(tmp_path: Path) -> None:
-    pytest.importorskip("trimesh")
-    config_path = make_front3d_runtime_fixture(tmp_path)
-    output_dir = tmp_path / "out"
-
-    exit_code = main(["--config", str(config_path), "--label-corridor-clearance", "0.1"])
-
-    scene_dir = output_dir / "smoke_front3d" / "front3d_0000"
-    assert exit_code == 0
-    report = json.loads((scene_dir / "label" / "report" / "label_walk_0p1_report.json").read_text(encoding="utf-8"))
-    room_sampling = report["rooms"][0]["ue_sampling"]
-    assert room_sampling["door_candidate_count"] > 0
-    assert room_sampling["door_safe_candidate_count"] == 0
-    assert room_sampling["door_clearance_eroded_count"] == room_sampling["door_candidate_count"]
-    assert room_sampling["door_unsafe_rejected_count"] > 0
-    assert room_sampling["door_after_wall_clearance_count"] == 0
 
 
 def test_front3d_batch_label_outputs(tmp_path: Path) -> None:
@@ -874,6 +853,18 @@ def test_front3d_connected_area_batch_outputs_four_modes(tmp_path: Path) -> None
     pytest.importorskip("trimesh")
     config_path = make_front3d_runtime_fixture(tmp_path)
     output_dir = tmp_path / "out"
+    source_scene_path = tmp_path / "front3d" / "3D-FRONT" / "scene-front3d-test.json"
+    source_scene = json.loads(source_scene_path.read_text(encoding="utf-8"))
+    source_scene["mesh"].append(
+        {
+            "uid": "floor/connected",
+            "type": "Floor",
+            "material": "floor_mat",
+            "xyz": [3.1, 0.0, -1.7, 3.9, 0.0, -1.7, 3.9, 0.0, -1.3, 3.1, 0.0, -1.3],
+            "faces": [0, 1, 2, 0, 2, 3],
+        }
+    )
+    source_scene_path.write_text(json.dumps(source_scene, ensure_ascii=False), encoding="utf-8")
 
     exit_code = main(
         [
@@ -900,6 +891,15 @@ def test_front3d_connected_area_batch_outputs_four_modes(tmp_path: Path) -> None
     }
     assert {path.stem for path in (scene_dir / "label").glob("label_*.json")} == expected_names
     assert {path.stem for path in (scene_dir / "label_floorplan").glob("label_*.png")} == expected_names
+    panel_connected_label = json.loads((scene_dir / "label" / "label_panel_connected_0p1.json").read_text(encoding="utf-8"))
+    panel_room_label = json.loads((scene_dir / "label" / "label_panel_room_0p1.json").read_text(encoding="utf-8"))
+    walk_connected_label = json.loads((scene_dir / "label" / "label_walk_connected_0p1.json").read_text(encoding="utf-8"))
+    walk_room_label = json.loads((scene_dir / "label" / "label_walk_room_0p1.json").read_text(encoding="utf-8"))
+    corridor_groups = [group for group in panel_connected_label["groups"] if group["room_id"] == "__corridor__"]
+    assert corridor_groups
+    assert len(corridor_groups[0]["ue_points"]) > 0
+    assert len(panel_connected_label["ue_points"]) > len(panel_room_label["ue_points"])
+    assert len(walk_connected_label["ue_points"]) > len(walk_room_label["ue_points"])
 
     panel_connected = json.loads((scene_dir / "label" / "report" / "label_panel_connected_0p1_report.json").read_text(encoding="utf-8"))
     panel_room = json.loads((scene_dir / "label" / "report" / "label_panel_room_0p1_report.json").read_text(encoding="utf-8"))

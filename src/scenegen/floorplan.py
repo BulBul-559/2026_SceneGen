@@ -541,13 +541,6 @@ def dilate_binary_image(image: Image.Image, dilation_m: float, resolution: float
     return image.filter(ImageFilter.MaxFilter(radius_px * 2 + 1))
 
 
-def erode_binary_image(image: Image.Image, erosion_m: float, resolution: float) -> Image.Image:
-    radius_px = int(round(erosion_m / resolution))
-    if radius_px <= 0:
-        return image
-    return image.filter(ImageFilter.MinFilter(radius_px * 2 + 1))
-
-
 def render_class_mask_preview(class_mask: np.ndarray) -> Image.Image:
     rgb = np.zeros((*class_mask.shape, 3), dtype=np.uint8)
     for class_id, color in CLASS_MASK_COLORS.items():

@@ -13,7 +13,6 @@ from PIL import Image, ImageDraw, ImageOps
 from .floorplan import (
     dilate_binary_image,
     draw_front3d_mesh_projection,
-    erode_binary_image,
     front3d_mesh_type_is_wall,
     front3d_opening_kind,
 )
@@ -1270,19 +1269,13 @@ def generate_front3d_global_subtractive_points(
 
     indoor_layer = np.asarray(indoor_image, dtype=np.uint8) > 0
     door_layer = np.asarray(door_image, dtype=np.uint8) > 0
-    if config.corridor_clearance_m > 0:
-        door_safe_image = erode_binary_image(door_image, config.corridor_clearance_m, resolution)
-        door_safe_layer = np.asarray(door_safe_image, dtype=np.uint8) > 0
-    else:
-        door_safe_layer = door_layer
-    door_unsafe_layer = door_layer & ~door_safe_layer
     wall_without_doors_layer = (np.asarray(wall_image, dtype=np.uint8) > 0) & ~door_layer
     wall_image = Image.fromarray((wall_without_doors_layer.astype(np.uint8) * 255), mode="L")
     if config.corridor_clearance_m > 0:
         wall_image = dilate_binary_image(wall_image, config.corridor_clearance_m, resolution)
     wall_layer = np.asarray(wall_image, dtype=np.uint8) > 0
-    indoor_with_doors_layer = indoor_layer | door_safe_layer
-    panel_layer = indoor_with_doors_layer & ~wall_layer & ~door_unsafe_layer
+    indoor_with_doors_layer = indoor_layer | door_layer
+    panel_layer = indoor_with_doors_layer & ~wall_layer
 
     walk_blockers = walk_blocking_obstacles(context.obstacles, config)
     ignored_low_obstacle_count = sum(
@@ -1301,10 +1294,7 @@ def generate_front3d_global_subtractive_points(
     wall_rejected_count = int((indoor_with_doors_layer & wall_layer).sum())
     panel_candidate_count = int(panel_layer.sum())
     door_candidate_count = int(door_layer.sum())
-    door_safe_candidate_count = int(door_safe_layer.sum())
-    door_clearance_eroded_count = max(0, door_candidate_count - door_safe_candidate_count)
-    door_unsafe_rejected_count = int((door_unsafe_layer & indoor_layer & ~wall_layer).sum())
-    door_after_wall_clearance_count = int((door_safe_layer & panel_layer).sum())
+    door_after_wall_clearance_count = int((door_layer & panel_layer).sum())
     bounds_rejected_count = 0
     output_bounds_clamped_count = 0
     obstacle_rejected_count = 0
@@ -1352,16 +1342,13 @@ def generate_front3d_global_subtractive_points(
         "wall_clearance_rejected_count": wall_rejected_count,
         "panel_candidate_count": panel_candidate_count,
         "door_candidate_count": door_candidate_count,
-        "door_safe_candidate_count": door_safe_candidate_count,
-        "door_clearance_eroded_count": door_clearance_eroded_count,
-        "door_unsafe_rejected_count": door_unsafe_rejected_count,
         "door_after_wall_clearance_count": door_after_wall_clearance_count,
         "bounds_rejected_count": bounds_rejected_count,
         "output_bounds_clamped_count": output_bounds_clamped_count,
         "obstacle_rejected_count": obstacle_rejected_count,
         "kept_count": len(free_points),
         "door_opening_mode": "doors",
-        "door_marking_policy": "door_free_before_wall_dilation_safe_region_eroded_no_restore",
+        "door_marking_policy": "door_free_before_wall_dilation_no_restore",
         "windows_used_as_openings": False,
         "floor_mesh_count": floor_mesh_count,
         "wall_mesh_count": wall_mesh_count,
