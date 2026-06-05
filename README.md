@@ -315,6 +315,8 @@ label:
   grid_resolution_m: 0.1
   batch_strategies: [free_space_grid]
   batch_grid_resolutions_m: [0.1]
+  connected_area_enabled: true
+  batch_connected_area_enabled: [true]
   ue_clearance_m: 0.35
   obstacle_strategy: height_aware
   walk_ignore_low_obstacles_below_m: 0.10
@@ -341,21 +343,22 @@ label:
   fail_on_error: true
 ```
 
-3D-FRONT 的 UE 默认使用 `sampling_domain: global_floor`：`free_space_grid` 会先基于 opening-aware class mask 在整个建筑自由空间采样，再把点按 room floor mesh 归属到各个 room；归属不到任何 room 但仍在 free space 上的点会进入 `corridor_room_id: "__corridor__"` 的 connected area group。这个采样会使用 3D-FRONT 原始 `Door/Hole/Pocket` 扣出门洞，但不会把窗户当成 UE 采样开口。旧的逐 room 采样可切回 `sampling_domain: room_floor`。
+3D-FRONT 的 UE 默认使用 `sampling_domain: global_floor` 与 `connected_area_enabled: true`：`plane_grid` 和 `free_space_grid` 都会先基于 opening-aware class mask 在整个建筑自由空间采样，再把点按 room floor mesh 归属到各个 room；归属不到任何 room 但仍在 free space 上的点会进入 `corridor_room_id: "__corridor__"` 的 connected area group。这个采样会使用 3D-FRONT 原始 `Door/Hole/Pocket` 扣出门洞，但不会把窗户当成 UE 采样开口。旧的逐 room 采样可切回 `sampling_domain: room_floor`，或设置 `connected_area_enabled: false` 只保留 room 内点。
 
 `plane_grid` 表示指定高度上的采样平面，默认使用 `obstacle_strategy: height_aware` 做高度感知过滤，UE 高于桌面等低矮物体时不再被占地投影清理；如需旧的整列占用行为，可切换为 `footprint_column`。
 
 `free_space_grid` 表示更保守的可行走区域：它在 floor mask 基础上按家具 footprint 扣除障碍，不受 UE 高度影响；同时会忽略高度低于 `walk_ignore_low_obstacles_below_m` 的薄物体，并删除小于 `walk_min_component_area_m2` 的孤立小区域。默认参与 walk 扣除的 placement class 是 `table`、`seat` 和 `floor`。
 
-label 支持批量生成：`batch_strategies` 和 `batch_grid_resolutions_m` 会做笛卡尔组合。例如：
+label 支持批量生成：`batch_strategies`、`batch_grid_resolutions_m` 和 `batch_connected_area_enabled` 会做笛卡尔组合。例如：
 
 ```yaml
 label:
   batch_strategies: [plane_grid, free_space_grid]
-  batch_grid_resolutions_m: [0.1, 0.2, 0.5]
+  batch_grid_resolutions_m: [0.1]
+  batch_connected_area_enabled: [true, false]
 ```
 
-上面会生成 6 份 label：`label_panel_0p1`、`label_panel_0p2`、`label_panel_0p5`、`label_walk_0p1`、`label_walk_0p2`、`label_walk_0p5`。其中 `plane_grid` 对应文件名里的 `panel`，表示在 room floor mesh 平面域内采样；`free_space_grid` 对应 `walk`，表示在可行走区域采样。单值字段 `ue_strategy` 和 `grid_resolution_m` 仍保留为兼容入口，如果没有显式设置批量字段，CLI/YAML 设置这两个字段会同步到批量配置。
+上面会生成 4 份 label：`label_panel_connected_0p1`、`label_panel_room_0p1`、`label_walk_connected_0p1`、`label_walk_room_0p1`。其中 `connected` 表示保留 connected area group，`room` 表示只保留 room 内点。单值字段 `ue_strategy`、`grid_resolution_m` 和 `connected_area_enabled` 仍保留为兼容入口，如果没有显式设置对应批量字段，CLI/YAML 设置这些单值字段会同步到批量配置。只有一个 connected area 模式时，文件名仍沿用 `label_panel_0p1` / `label_walk_0p1`。
 
 BS 默认每个有效 room 最多 4 个，优先放在墙边或角落附近；也可以把 `bs_count_strategy` 切换为 `area_adaptive`，按房间 floor 面积决定每个 room 的 BS 数量，小房间可不放，大房间可放更多。若要评测单基站定位性能，可以改用几何中心 BS：
 

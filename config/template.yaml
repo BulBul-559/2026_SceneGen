@@ -63,6 +63,8 @@ label:
   grid_resolution_m: 0.1
   batch_strategies: [free_space_grid]
   batch_grid_resolutions_m: [0.1]
+  connected_area_enabled: true
+  batch_connected_area_enabled: [true]
   ue_clearance_m: 0.35
   obstacle_strategy: height_aware
   walk_ignore_low_obstacles_below_m: 0.10

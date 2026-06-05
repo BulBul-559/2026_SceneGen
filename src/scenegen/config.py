@@ -71,6 +71,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "grid_resolution_m": 0.1,
         "batch_strategies": ["free_space_grid"],
         "batch_grid_resolutions_m": [0.1],
+        "connected_area_enabled": True,
+        "batch_connected_area_enabled": [True],
         "ue_clearance_m": 0.35,
         "obstacle_strategy": "height_aware",
         "walk_ignore_low_obstacles_below_m": 0.10,
@@ -179,6 +181,8 @@ CLI_OVERRIDE_MAP: dict[str, tuple[str, ...]] = {
     "label_grid_resolution": ("label", "grid_resolution_m"),
     "label_batch_strategies": ("label", "batch_strategies"),
     "label_batch_grid_resolutions": ("label", "batch_grid_resolutions_m"),
+    "label_connected_area_enabled": ("label", "connected_area_enabled"),
+    "label_batch_connected_area_enabled": ("label", "batch_connected_area_enabled"),
     "label_ue_clearance": ("label", "ue_clearance_m"),
     "label_obstacle_strategy": ("label", "obstacle_strategy"),
     "label_walk_ignore_low_obstacles_below": ("label", "walk_ignore_low_obstacles_below_m"),
@@ -370,6 +374,18 @@ def parse_float_sequence(value: Any, key: str) -> list[float]:
     return [float(part) for part in parts]
 
 
+def parse_bool_sequence(value: Any, key: str) -> list[bool]:
+    if isinstance(value, str):
+        parts = [part.strip() for part in value.split(",") if part.strip()]
+    elif isinstance(value, list | tuple):
+        parts = list(value)
+    else:
+        raise ValueError(f"{key} must be a list or comma-separated string")
+    if not parts:
+        raise ValueError(f"{key} must not be empty")
+    return [as_bool(part, key) for part in parts]
+
+
 def parse_string_sequence(value: Any, key: str) -> list[str]:
     if value is None:
         return []
@@ -433,6 +449,10 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     label["batch_strategies"] = parse_string_sequence(label["batch_strategies"], "label.batch_strategies")
     label["batch_grid_resolutions_m"] = parse_float_sequence(
         label["batch_grid_resolutions_m"], "label.batch_grid_resolutions_m"
+    )
+    label["connected_area_enabled"] = as_bool(label["connected_area_enabled"], "label.connected_area_enabled")
+    label["batch_connected_area_enabled"] = parse_bool_sequence(
+        label["batch_connected_area_enabled"], "label.batch_connected_area_enabled"
     )
     label["ue_clearance_m"] = float(label["ue_clearance_m"])
     label["obstacle_strategy"] = str(label["obstacle_strategy"])
@@ -568,6 +588,8 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("label.batch_strategies values must be 'free_space_grid' or 'plane_grid'")
     if any(resolution <= 0 for resolution in label["batch_grid_resolutions_m"]):
         raise ValueError("label.batch_grid_resolutions_m values must be positive")
+    if not label["batch_connected_area_enabled"]:
+        raise ValueError("label.batch_connected_area_enabled must not be empty")
     if label["ue_clearance_m"] < 0:
         raise ValueError("label.ue_clearance_m must be non-negative")
     if label["obstacle_strategy"] not in {"height_aware", "footprint_column"}:
@@ -759,6 +781,8 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         label_grid_resolution=label["grid_resolution_m"],
         label_batch_strategies=label["batch_strategies"],
         label_batch_grid_resolutions=label["batch_grid_resolutions_m"],
+        label_connected_area_enabled=label["connected_area_enabled"],
+        label_batch_connected_area_enabled=label["batch_connected_area_enabled"],
         label_ue_clearance=label["ue_clearance_m"],
         label_obstacle_strategy=label["obstacle_strategy"],
         label_walk_ignore_low_obstacles_below=label["walk_ignore_low_obstacles_below_m"],
@@ -834,6 +858,10 @@ def load_effective_config(config_path: Path, repo_root: Path, args: argparse.Nam
         label_effective["batch_grid_resolutions_m"] = [label_effective["grid_resolution_m"]]
     elif "batch_grid_resolutions_m" not in label_yaml and "grid_resolution_m" in label_yaml:
         label_effective["batch_grid_resolutions_m"] = [label_effective["grid_resolution_m"]]
+    if "batch_connected_area_enabled" not in label_overrides and "connected_area_enabled" in label_overrides:
+        label_effective["batch_connected_area_enabled"] = [label_effective["connected_area_enabled"]]
+    elif "batch_connected_area_enabled" not in label_yaml and "connected_area_enabled" in label_yaml:
+        label_effective["batch_connected_area_enabled"] = [label_effective["connected_area_enabled"]]
     effective.setdefault("runtime", {})
     effective["runtime"]["cli_overrides"] = overrides
     normalized = normalize_effective_config(effective, repo_root, config_path)

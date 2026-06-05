@@ -108,6 +108,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--label-grid-resolution", type=float, default=None)
     parser.add_argument("--label-batch-strategies", default=None, help="Comma-separated label UE strategies.")
     parser.add_argument("--label-batch-grid-resolutions", default=None, help="Comma-separated label grid resolutions in meters.")
+    parser.add_argument("--label-connected-area", dest="label_connected_area_enabled", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument(
+        "--label-batch-connected-area-enabled",
+        default=None,
+        help="Comma-separated booleans controlling connected-area label variants, e.g. true,false.",
+    )
     parser.add_argument("--label-ue-clearance", type=float, default=None)
     parser.add_argument("--label-obstacle-strategy", choices=("height_aware", "footprint_column"), default=None)
     parser.add_argument("--label-walk-ignore-low-obstacles-below", type=float, default=None)
@@ -538,6 +544,7 @@ def main(argv: list[str] | None = None) -> int:
         "label_overlay_requested": bool(label_config.enabled and label_config.overlay_enabled),
         "label_batch_strategies": list(label_config.batch_strategies) if label_config.enabled else [],
         "label_batch_grid_resolutions_m": list(label_config.batch_grid_resolutions_m) if label_config.enabled else [],
+        "label_batch_connected_area_enabled": list(label_config.batch_connected_area_enabled) if label_config.enabled else [],
         "label_variants": [variant.name for variant in label_variants(label_config)] if label_config.enabled else [],
         "label_variant_count": len(label_variants(label_config)) if label_config.enabled else 0,
         "statistics": run_statistics,

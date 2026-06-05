@@ -111,11 +111,13 @@ CLI 覆盖：`--quality/--no-quality`、`--quality-fail-on-error/--no-quality-fa
 | `enabled` | boolean | `true` | 是否生成 `label/*.json` 和 `label/report/*_report.json`。 |
 | `version` | `"1.1"` | `"1.1"` | 当前固定版本。 |
 | `ue_height_m` | float, `>0` | `1.6` | UE 相对 floor 的高度。 |
-| `sampling_domain` | `global_floor` / `room_floor` | `global_floor` | UE 采样域。`front3d + global_floor + free_space_grid` 会先在 opening-aware 全局 free-space mask 上采样，再按 room floor mesh 归属；剩余点进入 connected area group。`room_floor` 为旧逻辑，每个 room 单独采样。 |
+| `sampling_domain` | `global_floor` / `room_floor` | `global_floor` | UE 采样域。`front3d + global_floor + connected_area_enabled: true` 会先在 opening-aware 全局 free-space mask 上采样，再按 room floor mesh 归属；剩余点进入 connected area group。`room_floor` 为旧逻辑，每个 room 单独采样。 |
 | `ue_strategy` | `free_space_grid` / `plane_grid` | `free_space_grid` | 单 label 兼容字段。若未显式设置 `batch_strategies`，CLI/YAML 设置该字段会同步到批量生成策略。 |
 | `grid_resolution_m` | float, `>0` | `0.1` | 单 label 兼容字段。若未显式设置 `batch_grid_resolutions_m`，CLI/YAML 设置该字段会同步到批量采样间隔。 |
 | `batch_strategies` | list: `free_space_grid` / `plane_grid` | `[free_space_grid]` | 批量 UE 采样策略。`free_space_grid` 使用可行走区域网格，输出名为 `label_walk_*`；`plane_grid` 在 room floor mesh 平面域内采样，输出名为 `label_panel_*`。 |
 | `batch_grid_resolutions_m` | list of float, `>0` | `[0.1]` | 批量 UE 网格间隔。会与 `batch_strategies` 做笛卡尔组合，例如 `[0.1, 0.2]` 与两种策略会生成 4 份 label。 |
+| `connected_area_enabled` | boolean | `true` | 单 label 兼容字段。是否启用 3D-FRONT connected area 采样；开启时 panel/walk 都使用 Door/Hole/Pocket 扣出门洞，剩余未归属点进入 connected area group；关闭时只保留 room 内点。 |
+| `batch_connected_area_enabled` | list of boolean | `[true]` | 批量 connected area 维度。会与 `batch_strategies`、`batch_grid_resolutions_m` 做笛卡尔组合，例如 `[true, false]` 可同时生成 connected 和 room-only 两套 label。 |
 | `ue_clearance_m` | float, `>=0` | `0.35` | UE 与家具 bbox 的避让距离。 |
 | `obstacle_strategy` | `height_aware` / `footprint_column` | `height_aware` | 家具障碍物过滤方式。`height_aware` 只过滤与 UE 高度相交的物体；`footprint_column` 按家具 XY 占地整列过滤。 |
 | `walk_ignore_low_obstacles_below_m` | float, `>=0` | `0.10` | `free_space_grid` 专用。高度低于该阈值的低矮物体不作为可行走区域障碍，减少地毯、薄垫等误判。 |
@@ -143,7 +145,7 @@ CLI 覆盖：`--quality/--no-quality`、`--quality-fail-on-error/--no-quality-fa
 
 批量 label 输出约定：
 
-- 每个场景的所有 label JSON 写入 `label/`，命名为 `label_<strategy>_<resolution>.json`，例如 `label_panel_0p1.json`、`label_walk_0p2.json`。
+- 每个场景的所有 label JSON 写入 `label/`。只有一个 connected area 模式时沿用 `label_<strategy>_<resolution>.json`，例如 `label_panel_0p1.json`、`label_walk_0p2.json`；同时生成 connected 和 room-only 时使用 `label_<strategy>_<connected|room>_<resolution>.json`，例如 `label_panel_connected_0p1.json`、`label_panel_room_0p1.json`。
 - 每份 label 对应一份报告，命名为 `label/report/<name>_report.json`。
 - 每份 label 对应一张点位可视化，命名为 `label_floorplan/<name>.png`。
 - root 和 group 级都包含 `bs_points`、`ue_points`、`bs_positions`、`ue_positions`。
@@ -159,10 +161,21 @@ CLI 覆盖：`--quality/--no-quality`、`--quality-fail-on-error/--no-quality-fa
 
 采样域补充：
 
-- `global_floor` 更适合 3D-FRONT。`free_space_grid` 会先用 3D-FRONT 原始 `Door/Hole/Pocket` 扣出门洞，得到全局 free-space 采样区域，再把点归属到具体 room；归属不到 room 的点进入 connected area group。窗户不会作为 UE 采样开口。
+- `global_floor` 更适合 3D-FRONT。`connected_area_enabled: true` 时，`plane_grid` 和 `free_space_grid` 都会先用 3D-FRONT 原始 `Door/Hole/Pocket` 扣出门洞，得到全局 free-space 采样区域，再把点归属到具体 room；归属不到 room 的点进入 connected area group。窗户不会作为 UE 采样开口。
 - `room_floor` 更保守，适合需要严格房间内采样的实验，但门洞/联通处可能缺点。
 
-CLI 覆盖：`--label/--no-label`、`--label-version`、`--label-ue-height`、`--label-sampling-domain`、`--label-ue-strategy`、`--label-grid-resolution`、`--label-batch-strategies`、`--label-batch-grid-resolutions`、`--label-ue-clearance`、`--label-obstacle-strategy`、`--label-walk-ignore-low-obstacles-below`、`--label-walk-blocking-classes`、`--label-walk-min-component-area`、`--label-bs-strategy`、`--label-bs-count-strategy`、`--label-bs-per-room`、`--label-bs-min-per-room`、`--label-bs-max-per-room`、`--label-bs-min-room-area`、`--label-bs-area-per-point`、`--label-bs-height`、`--label-bs-ceiling-margin`、`--label-bs-wall-clearance`、`--label-bs-center-initial-radius`、`--label-bs-center-radius-step`、`--label-bs-center-max-radius`、`--label-wall-clearance`、`--label-corridor-room-id`、`--label-corridor-room-type`、`--label-corridor-clearance`、`--label-overlay/--no-label-overlay`、`--label-fail-on-error/--no-label-fail-on-error`。
+四种组合示例：
+
+```yaml
+label:
+  batch_strategies: [plane_grid, free_space_grid]
+  batch_grid_resolutions_m: [0.1]
+  batch_connected_area_enabled: [true, false]
+```
+
+会生成：`label_panel_connected_0p1`、`label_panel_room_0p1`、`label_walk_connected_0p1`、`label_walk_room_0p1`。
+
+CLI 覆盖：`--label/--no-label`、`--label-version`、`--label-ue-height`、`--label-sampling-domain`、`--label-ue-strategy`、`--label-grid-resolution`、`--label-batch-strategies`、`--label-batch-grid-resolutions`、`--label-connected-area/--no-label-connected-area`、`--label-batch-connected-area-enabled`、`--label-ue-clearance`、`--label-obstacle-strategy`、`--label-walk-ignore-low-obstacles-below`、`--label-walk-blocking-classes`、`--label-walk-min-component-area`、`--label-bs-strategy`、`--label-bs-count-strategy`、`--label-bs-per-room`、`--label-bs-min-per-room`、`--label-bs-max-per-room`、`--label-bs-min-room-area`、`--label-bs-area-per-point`、`--label-bs-height`、`--label-bs-ceiling-margin`、`--label-bs-wall-clearance`、`--label-bs-center-initial-radius`、`--label-bs-center-radius-step`、`--label-bs-center-max-radius`、`--label-wall-clearance`、`--label-corridor-room-id`、`--label-corridor-room-type`、`--label-corridor-clearance`、`--label-overlay/--no-label-overlay`、`--label-fail-on-error/--no-label-fail-on-error`。
 
 ## floorplan
 

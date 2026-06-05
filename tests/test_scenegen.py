@@ -26,6 +26,7 @@ from scenegen.labels import (
     corridor_context_from_global,
     generate_bs_points_for_room,
     generate_ue_points_for_room,
+    label_variants,
 )
 from scenegen.models import SupportTriangle
 from scenegen.paths import (
@@ -322,6 +323,27 @@ def test_global_floor_assignment_keeps_corridor_points() -> None:
 
     assert by_room["room"] == [(0.5, 0.5)]
     assert by_room["__corridor__"] == [(2.0, 2.0)]
+
+
+def test_label_variants_combine_strategy_resolution_and_connected_area() -> None:
+    config = LabelConfig.from_mapping(
+        {
+            **DEFAULT_CONFIG["label"],
+            "batch_strategies": ["plane_grid", "free_space_grid"],
+            "batch_grid_resolutions_m": [0.1],
+            "batch_connected_area_enabled": [True, False],
+        }
+    )
+
+    variants = label_variants(config)
+
+    assert [variant.name for variant in variants] == [
+        "label_panel_connected_0p1",
+        "label_panel_room_0p1",
+        "label_walk_connected_0p1",
+        "label_walk_room_0p1",
+    ]
+    assert [variant.config.connected_area_enabled for variant in variants] == [True, False, True, False]
 
 
 def test_geometry_center_bs_selects_near_center_free_point() -> None:
@@ -821,6 +843,57 @@ def test_front3d_batch_label_outputs(tmp_path: Path) -> None:
     assert scene_record["label"]["primary"] == "label_panel_0p1"
     assert scene_record["label"]["report_dir"] == "front3d_0000/label/report"
     assert len(scene_record["label"]["overlays"]) == 4
+
+
+def test_front3d_connected_area_batch_outputs_four_modes(tmp_path: Path) -> None:
+    pytest.importorskip("trimesh")
+    config_path = make_front3d_runtime_fixture(tmp_path)
+    output_dir = tmp_path / "out"
+
+    exit_code = main(
+        [
+            "--config",
+            str(config_path),
+            "--label-batch-strategies",
+            "plane_grid,free_space_grid",
+            "--label-batch-grid-resolutions",
+            "0.1",
+            "--label-batch-connected-area-enabled",
+            "true,false",
+            "--label-bs-strategy",
+            "geometry_center",
+        ]
+    )
+
+    scene_dir = output_dir / "smoke_front3d" / "front3d_0000"
+    assert exit_code == 0
+    expected_names = {
+        "label_panel_connected_0p1",
+        "label_panel_room_0p1",
+        "label_walk_connected_0p1",
+        "label_walk_room_0p1",
+    }
+    assert {path.stem for path in (scene_dir / "label").glob("label_*.json")} == expected_names
+    assert {path.stem for path in (scene_dir / "label_floorplan").glob("label_*.png")} == expected_names
+
+    panel_connected = json.loads((scene_dir / "label" / "report" / "label_panel_connected_0p1_report.json").read_text(encoding="utf-8"))
+    panel_room = json.loads((scene_dir / "label" / "report" / "label_panel_room_0p1_report.json").read_text(encoding="utf-8"))
+    walk_connected = json.loads((scene_dir / "label" / "report" / "label_walk_connected_0p1_report.json").read_text(encoding="utf-8"))
+    walk_room = json.loads((scene_dir / "label" / "report" / "label_walk_room_0p1_report.json").read_text(encoding="utf-8"))
+
+    assert panel_connected["rooms"][0]["ue_sampling"]["sampling_source"] == "front3d_opening_aware_class_mask"
+    assert panel_connected["rooms"][0]["ue_sampling"]["connected_area_enabled"] is True
+    assert panel_connected["rooms"][0]["ue_sampling"]["panel_obstacle_mode"] == "height_aware"
+    assert walk_connected["rooms"][0]["ue_sampling"]["sampling_source"] == "front3d_opening_aware_class_mask"
+    assert walk_connected["rooms"][0]["ue_sampling"]["connected_area_enabled"] is True
+    assert "sampling_source" not in panel_room["rooms"][0]["ue_sampling"]
+    assert panel_room["rooms"][0]["ue_sampling"]["connected_area_enabled"] is False
+    assert "sampling_source" not in walk_room["rooms"][0]["ue_sampling"]
+    assert walk_room["rooms"][0]["ue_sampling"]["connected_area_enabled"] is False
+
+    manifest = json.loads((output_dir / "smoke_front3d" / "manifest.json").read_text(encoding="utf-8"))
+    assert set(manifest["label_variants"]) == expected_names
+    assert manifest["label_batch_connected_area_enabled"] == [True, False]
 
 
 def test_generated_scene_outputs_and_sionna_load(tmp_path: Path) -> None:

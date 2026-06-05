@@ -32,6 +32,8 @@ class LabelConfig:
     grid_resolution_m: float
     batch_strategies: tuple[str, ...]
     batch_grid_resolutions_m: tuple[float, ...]
+    connected_area_enabled: bool
+    batch_connected_area_enabled: tuple[bool, ...]
     ue_clearance_m: float
     obstacle_strategy: str
     walk_ignore_low_obstacles_below_m: float
@@ -68,6 +70,8 @@ class LabelConfig:
             grid_resolution_m=float(payload["grid_resolution_m"]),
             batch_strategies=tuple(str(value) for value in payload["batch_strategies"]),  # type: ignore[union-attr]
             batch_grid_resolutions_m=tuple(float(value) for value in payload["batch_grid_resolutions_m"]),  # type: ignore[union-attr]
+            connected_area_enabled=bool(payload["connected_area_enabled"]),
+            batch_connected_area_enabled=tuple(bool(value) for value in payload["batch_connected_area_enabled"]),  # type: ignore[union-attr]
             ue_clearance_m=float(payload["ue_clearance_m"]),
             obstacle_strategy=str(payload["obstacle_strategy"]),
             walk_ignore_low_obstacles_below_m=float(payload["walk_ignore_low_obstacles_below_m"]),
@@ -316,18 +320,30 @@ def label_strategy_name(strategy: str) -> str:
 def label_variants(config: LabelConfig) -> list[LabelVariant]:
     variants: list[LabelVariant] = []
     seen: set[str] = set()
+    include_connected_suffix = len(set(config.batch_connected_area_enabled)) > 1
     for strategy in config.batch_strategies:
         for resolution in config.batch_grid_resolutions_m:
-            name = f"label_{label_strategy_name(strategy)}_{height_token(resolution)}"
-            if name in seen:
-                continue
-            seen.add(name)
-            variants.append(
-                LabelVariant(
-                    name=name,
-                    config=replace(config, ue_strategy=strategy, grid_resolution_m=resolution),
+            for connected_area_enabled in config.batch_connected_area_enabled:
+                connected_token = "_connected" if connected_area_enabled else "_room"
+                name = (
+                    f"label_{label_strategy_name(strategy)}{connected_token}_{height_token(resolution)}"
+                    if include_connected_suffix
+                    else f"label_{label_strategy_name(strategy)}_{height_token(resolution)}"
                 )
-            )
+                if name in seen:
+                    continue
+                seen.add(name)
+                variants.append(
+                    LabelVariant(
+                        name=name,
+                        config=replace(
+                            config,
+                            ue_strategy=strategy,
+                            grid_resolution_m=resolution,
+                            connected_area_enabled=connected_area_enabled,
+                        ),
+                    )
+                )
     if not variants:
         variants.append(
             LabelVariant(
@@ -1103,6 +1119,8 @@ def assign_global_free_points(
     points: list[tuple[float, float]],
     room_contexts: list[RoomLabelContext],
     corridor_context: RoomLabelContext,
+    *,
+    include_connected_area: bool = True,
 ) -> list[tuple[RoomLabelContext, list[tuple[float, float]]]]:
     assignments: dict[str, list[tuple[float, float]]] = {context.room_id: [] for context in room_contexts}
     assignments[corridor_context.room_id] = []
@@ -1114,7 +1132,7 @@ def assign_global_free_points(
         assignments[room_id].append((x, y))
     grouped = [(context, assignments[context.room_id]) for context in room_contexts]
     corridor_points = assignments[corridor_context.room_id]
-    if corridor_points:
+    if include_connected_area and corridor_points:
         grouped.append((corridor_context, corridor_points))
     return grouped
 
@@ -1128,6 +1146,7 @@ def room_sampling_result_from_assigned_points(
     stats = {
         "ue_strategy": config.ue_strategy,
         "sampling_domain": config.sampling_domain,
+        "connected_area_enabled": config.connected_area_enabled,
         "grid_resolution_m": config.grid_resolution_m,
         "boundary_clearance_m": context.boundary_clearance_m,
         "assigned_count": len(points),
@@ -1143,6 +1162,8 @@ def room_sampling_result_from_assigned_points(
     if context.is_corridor:
         stats["corridor_room_id"] = context.room_id
         stats["corridor_clearance_m"] = config.corridor_clearance_m
+    elif not config.connected_area_enabled:
+        stats["connected_area_residual_discarded"] = True
     for key, value in global_result.stats.items():
         if key in stats or key in {
             "floor_candidate_count",
@@ -1254,6 +1275,7 @@ def generate_front3d_opening_free_space_points(
     bounds_rejected_count = 0
     output_bounds_clamped_count = 0
     obstacle_rejected_count = 0
+    point_z = context.floor_z + config.ue_height_m
     for row, col in np.argwhere(free_layer):
         x = min_x + int(col) * resolution
         y = max_y - int(row) * resolution
@@ -1263,7 +1285,11 @@ def generate_front3d_opening_free_space_points(
         ):
             bounds_rejected_count += 1
             continue
-        if any(point_in_obstacle_xy(x, y, obstacle) for obstacle in walk_blockers):
+        if config.ue_strategy == "free_space_grid":
+            blocked = any(point_in_obstacle_xy(x, y, obstacle) for obstacle in walk_blockers)
+        else:
+            blocked = point_in_obstacles(x, y, point_z, context.obstacles, config.obstacle_strategy)
+        if blocked:
             obstacle_rejected_count += 1
             continue
         safe_x = clamp_coordinate_for_label_output(x, base_scene.bbox_min[0], base_scene.bbox_max[0])
@@ -1272,14 +1298,17 @@ def generate_front3d_opening_free_space_points(
             output_bounds_clamped_count += 1
         free_points.append((safe_x, safe_y))
 
-    free_points, component_stats = filter_small_components(
-        free_points,
-        config.grid_resolution_m,
-        config.walk_min_component_area_m2,
-    )
+    component_stats: dict[str, object] = {}
+    if config.ue_strategy == "free_space_grid":
+        free_points, component_stats = filter_small_components(
+            free_points,
+            config.grid_resolution_m,
+            config.walk_min_component_area_m2,
+        )
     stats: dict[str, object] = {
         "ue_strategy": config.ue_strategy,
         "sampling_domain": config.sampling_domain,
+        "connected_area_enabled": config.connected_area_enabled,
         "sampling_source": "front3d_opening_aware_class_mask",
         "grid_resolution_m": config.grid_resolution_m,
         "boundary_clearance_m": config.corridor_clearance_m,
@@ -1289,13 +1318,6 @@ def generate_front3d_opening_free_space_points(
         "output_bounds_clamped_count": output_bounds_clamped_count,
         "obstacle_rejected_count": obstacle_rejected_count,
         "kept_count": len(free_points),
-        "walk_obstacle_mode": "footprint_column",
-        "walk_blocking_classes": list(config.walk_blocking_classes),
-        "walk_ignore_low_obstacles_below_m": config.walk_ignore_low_obstacles_below_m,
-        "walk_min_component_area_m2": config.walk_min_component_area_m2,
-        "walk_blocking_obstacle_count": len(walk_blockers),
-        "ignored_low_obstacle_count": ignored_low_obstacle_count,
-        "ignored_class_obstacle_count": ignored_class_obstacle_count,
         "class_mask_opening_mode": "doors",
         "class_mask_windows_used_as_openings": False,
         "class_mask_floor_mesh_count": floor_mesh_count,
@@ -1304,7 +1326,21 @@ def generate_front3d_opening_free_space_points(
         "class_mask_opening_type_counts": opening_type_counts,
         "class_mask_grid_shape": [height_px, width_px],
     }
-    stats.update(component_stats)
+    if config.ue_strategy == "free_space_grid":
+        stats.update(
+            {
+                "walk_obstacle_mode": "footprint_column",
+                "walk_blocking_classes": list(config.walk_blocking_classes),
+                "walk_ignore_low_obstacles_below_m": config.walk_ignore_low_obstacles_below_m,
+                "walk_min_component_area_m2": config.walk_min_component_area_m2,
+                "walk_blocking_obstacle_count": len(walk_blockers),
+                "ignored_low_obstacle_count": ignored_low_obstacle_count,
+                "ignored_class_obstacle_count": ignored_class_obstacle_count,
+            }
+        )
+        stats.update(component_stats)
+    else:
+        stats["panel_obstacle_mode"] = config.obstacle_strategy
     return UeSamplingResult(points=free_points, stats=stats)
 
 
@@ -1375,7 +1411,7 @@ def generate_front3d_label(
         if global_context is None:
             skipped.append({"room_id": "__global__", "room_type": "GlobalFloor", "reason": "missing_global_floor_mesh"})
         else:
-            if config.ue_strategy == "free_space_grid":
+            if config.connected_area_enabled:
                 global_result = generate_front3d_opening_free_space_points(base_scene, placements, global_context, config)
             else:
                 global_result = generate_ue_points_for_room(global_context, config)
@@ -1384,7 +1420,12 @@ def generate_front3d_label(
                 for context in contexts
             ]
             corridor_context = corridor_context_from_global(global_context, config)
-            assigned_groups = assign_global_free_points(global_result.points, room_contexts, corridor_context)
+            assigned_groups = assign_global_free_points(
+                global_result.points,
+                room_contexts,
+                corridor_context,
+                include_connected_area=config.connected_area_enabled,
+            )
             grouped_sampling = [
                 (context, room_sampling_result_from_assigned_points(context, global_result, points, config))
                 for context, points in assigned_groups
@@ -1457,6 +1498,7 @@ def generate_front3d_label(
                 "floor_area_m2": round(floor_area_m2, 3),
                 "sampling_domain": config.sampling_domain,
                 "ue_strategy": config.ue_strategy,
+                "connected_area_enabled": config.connected_area_enabled,
                 "obstacle_strategy": config.obstacle_strategy,
                 "bs_strategy": config.bs_strategy,
                 "bs_count_strategy": config.bs_count_strategy,
@@ -1476,6 +1518,7 @@ def generate_front3d_label(
                 "floor_area_m2": round(floor_area_m2, 3),
                 "sampling_domain": config.sampling_domain,
                 "ue_strategy": config.ue_strategy,
+                "connected_area_enabled": config.connected_area_enabled,
                 "obstacle_strategy": config.obstacle_strategy,
                 "bs_strategy": config.bs_strategy,
                 "bs_count_strategy": config.bs_count_strategy,
@@ -1568,6 +1611,7 @@ def copy_label_variant_outputs(
         "name": variant.name,
         "ue_strategy": variant.config.ue_strategy,
         "grid_resolution_m": variant.config.grid_resolution_m,
+        "connected_area_enabled": variant.config.connected_area_enabled,
         "label_file": portable_path(label_path, path_root),
         "report_file": portable_path(report_path, path_root),
     }

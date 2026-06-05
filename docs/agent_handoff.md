@@ -76,6 +76,8 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 - `sampling_domain: global_floor`
 - `ue_strategy: free_space_grid`
 - `grid_resolution_m: 0.1`
+- `connected_area_enabled: true`
+- `batch_connected_area_enabled: [true]`
 - `obstacle_strategy: height_aware`
 - `bs_strategy: wall_or_corner`
 - `bs_count_strategy: fixed_per_room`
@@ -85,7 +87,7 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 - `corridor_clearance_m: 0.05`
 - `overlay_enabled: true`
 
-`sampling_domain: global_floor` 是当前 front3d 推荐策略：`free_space_grid` 先在 opening-aware 全建筑 free-space mask 上采样，再按 room floor mesh 分类，未归属点进入 `ConnectedArea` group。门洞使用原始 `Door/Hole/Pocket` 打开，窗户不作为 UE 采样开口。需要严格旧行为时切换为 `room_floor`。单基站定位实验可用 `bs_strategy: geometry_center`，它会在建筑几何中心附近搜索一个满足自由空间和 BS 离墙约束的 `BS0`。
+`sampling_domain: global_floor` + `connected_area_enabled: true` 是当前 front3d 推荐策略：`plane_grid` 和 `free_space_grid` 先在 opening-aware 全建筑 free-space mask 上采样，再按 room floor mesh 分类，未归属点进入 `ConnectedArea` group。门洞使用原始 `Door/Hole/Pocket` 打开，窗户不作为 UE 采样开口。`batch_connected_area_enabled: [true, false]` 可同时生成 connected 和 room-only 两套 label。需要严格旧行为时切换为 `room_floor`。单基站定位实验可用 `bs_strategy: geometry_center`，它会在建筑几何中心附近搜索一个满足自由空间和 BS 离墙约束的 `BS0`。
 
 ## 常用命令
 
