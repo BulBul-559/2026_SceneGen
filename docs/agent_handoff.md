@@ -72,13 +72,19 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 
 - `version: "1.1"`
 - `ue_height_m: 1.6`
+- `sampling_domain: global_floor`
 - `ue_strategy: free_space_grid`
 - `grid_resolution_m: 0.1`
 - `obstacle_strategy: height_aware`
 - `bs_strategy: wall_or_corner`
 - `bs_count_strategy: fixed_per_room`
 - `bs_per_room: 4`
+- `bs_wall_clearance_m: 0.25`
+- `corridor_room_id: "__corridor__"`
+- `corridor_clearance_m: 0.05`
 - `overlay_enabled: true`
+
+`sampling_domain: global_floor` 是当前 front3d 推荐策略：先在全建筑 floor 上采样，再按 room floor mesh 分类，未归属点进入 corridor group。需要严格旧行为时切换为 `room_floor`。单基站定位实验可用 `bs_strategy: geometry_center`，它会在建筑几何中心附近搜索一个满足自由空间和 BS 离墙约束的 `BS0`。
 
 ## 常用命令
 

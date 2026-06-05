@@ -18,7 +18,10 @@ from scenegen.labels import (
     LabelConfig,
     LabelObstacle,
     RoomLabelContext,
+    assign_global_free_points,
     bs_count_for_room,
+    choose_geometry_center_bs,
+    corridor_context_from_global,
     generate_bs_points_for_room,
     generate_ue_points_for_room,
 )
@@ -304,6 +307,41 @@ def test_label_area_adaptive_bs_generation_uses_computed_count() -> None:
     bs_points = generate_bs_points_for_room(context, free_points, config)
 
     assert len(bs_points) == 7
+
+
+def test_global_floor_assignment_keeps_corridor_points() -> None:
+    config = LabelConfig.from_mapping(DEFAULT_CONFIG["label"])
+    room_context = make_square_room_context(1.0)
+    global_context = make_square_room_context(3.0)
+    corridor_context = corridor_context_from_global(global_context, config)
+
+    grouped = assign_global_free_points([(0.5, 0.5), (2.0, 2.0)], [room_context], corridor_context)
+    by_room = {context.room_id: points for context, points in grouped}
+
+    assert by_room["room"] == [(0.5, 0.5)]
+    assert by_room["__corridor__"] == [(2.0, 2.0)]
+
+
+def test_geometry_center_bs_selects_near_center_free_point() -> None:
+    config = LabelConfig.from_mapping(
+        {
+            **DEFAULT_CONFIG["label"],
+            "bs_strategy": "geometry_center",
+            "bs_wall_clearance_m": 0.2,
+            "bs_center_initial_radius_m": 0.2,
+            "bs_center_radius_step_m": 0.1,
+            "bs_center_max_radius_m": 1.0,
+        }
+    )
+    global_context = make_square_room_context(4.0)
+    free_points = [(0.5, 0.5), (2.0, 2.0), (3.5, 3.5)]
+
+    selected_context, bs_xyz, stats = choose_geometry_center_bs(global_context, [(global_context, free_points)], config)
+
+    assert selected_context == global_context
+    assert bs_xyz == (2.0, 2.0, 2.4)
+    assert stats["ok"] is True
+    assert stats["distance_to_center_m"] == 0.0
 
 
 def legacy_table_fixture() -> dict[str, object]:
