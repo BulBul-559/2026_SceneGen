@@ -7,8 +7,15 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from PIL import Image, ImageDraw, ImageOps
 
+from .floorplan import (
+    dilate_binary_image,
+    draw_front3d_mesh_projection,
+    front3d_mesh_type_is_wall,
+    front3d_opening_kind,
+)
 from .front3d import apply_world_offset, read_json, scenegen_transform_for_child
 from .geometry import point_in_triangle_2d, transform_point_with_matrix, triangle_area_and_up_normal
 from .models import BistroBaseScene, Front3DBaseScene, PlacedAsset, Rect2D, Room, SupportTriangle, Vec3
@@ -633,6 +640,15 @@ def point_in_obstacle_xy(x: float, y: float, obstacle: LabelObstacle) -> bool:
     return obstacle.min_x <= x <= obstacle.max_x and obstacle.min_y <= y <= obstacle.max_y
 
 
+def clamp_coordinate_for_label_output(value: float, min_value: float, max_value: float) -> float:
+    rounded = round(value, 3)
+    if rounded < min_value:
+        return math.ceil(min_value * 1000.0) / 1000.0
+    if rounded > max_value:
+        return math.floor(max_value * 1000.0) / 1000.0
+    return round(value, 6)
+
+
 def point_in_obstacles(
     x: float,
     y: float,
@@ -1139,6 +1155,159 @@ def room_sampling_result_from_assigned_points(
     return UeSamplingResult(points=points, stats=stats)
 
 
+def generate_front3d_opening_free_space_points(
+    base_scene: Front3DBaseScene,
+    placements: list[PlacedAsset],
+    context: RoomLabelContext,
+    config: LabelConfig,
+) -> UeSamplingResult:
+    scene_data = read_json(base_scene.source_scene_json)
+    metadata = read_json(base_scene.metadata_json)
+    variant = str(metadata.get("variant") or "normalized")
+    resolution = config.grid_resolution_m
+    min_x = base_scene.bbox_min[0]
+    min_y = base_scene.bbox_min[1]
+    max_x = max(base_scene.bbox_max[0], min_x + resolution)
+    max_y = max(base_scene.bbox_max[1], min_y + resolution)
+    width_px = max(1, int(math.ceil((max_x - min_x) / resolution)) + 1)
+    height_px = max(1, int(math.ceil((max_y - min_y) / resolution)) + 1)
+    image_size = (width_px, height_px)
+
+    floor_image = Image.new("L", image_size, 0)
+    wall_image = Image.new("L", image_size, 0)
+    opening_image = Image.new("L", image_size, 0)
+    floor_draw = ImageDraw.Draw(floor_image)
+    wall_draw = ImageDraw.Draw(wall_image)
+    opening_draw = ImageDraw.Draw(opening_image)
+    floor_mesh_count = 0
+    wall_mesh_count = 0
+    opening_mesh_count = 0
+    opening_type_counts: dict[str, int] = {}
+
+    for mesh in scene_data.get("mesh") or []:
+        if not isinstance(mesh, dict):
+            continue
+        mesh_type = str(mesh.get("type") or "Unknown")
+        opening_kind = front3d_opening_kind(
+            mesh,
+            mesh_type,
+            variant=variant,
+            base_scene=base_scene,
+            opening_mode="doors",
+            floor_tolerance_m=0.25,
+            min_height_m=max(1.0, config.ue_height_m - 0.1),
+        )
+        if opening_kind is not None:
+            opening_mesh_count += 1
+            opening_type_counts[opening_kind] = opening_type_counts.get(opening_kind, 0) + 1
+            draw_front3d_mesh_projection(
+                opening_draw,
+                mesh,
+                variant=variant,
+                base_scene=base_scene,
+                min_x=min_x,
+                max_y=max_y,
+                resolution=resolution,
+            )
+        target_draw: ImageDraw.ImageDraw | None
+        if "floor" in mesh_type.lower():
+            target_draw = floor_draw
+            floor_mesh_count += 1
+        elif front3d_mesh_type_is_wall(mesh_type, include_doors_as_wall=True, include_windows_as_wall=True):
+            target_draw = wall_draw
+            wall_mesh_count += 1
+        else:
+            target_draw = None
+        if target_draw is None:
+            continue
+        draw_front3d_mesh_projection(
+            target_draw,
+            mesh,
+            variant=variant,
+            base_scene=base_scene,
+            min_x=min_x,
+            max_y=max_y,
+            resolution=resolution,
+        )
+
+    if config.corridor_clearance_m > 0:
+        wall_image = dilate_binary_image(wall_image, config.corridor_clearance_m, resolution)
+
+    floor_layer = np.asarray(floor_image, dtype=np.uint8) > 0
+    wall_layer = np.asarray(wall_image, dtype=np.uint8) > 0
+    opening_layer = np.asarray(opening_image, dtype=np.uint8) > 0
+    opening_free_layer = opening_layer & wall_layer
+    free_layer = (floor_layer & ~wall_layer) | opening_free_layer
+
+    walk_blockers = walk_blocking_obstacles(context.obstacles, config)
+    ignored_low_obstacle_count = sum(
+        1
+        for obstacle in context.obstacles
+        if obstacle.placement_class in set(config.walk_blocking_classes)
+        and obstacle.max_z - obstacle.min_z < config.walk_ignore_low_obstacles_below_m
+    )
+    ignored_class_obstacle_count = sum(
+        1 for obstacle in context.obstacles if obstacle.placement_class not in set(config.walk_blocking_classes)
+    )
+    free_points: list[tuple[float, float]] = []
+    floor_candidate_count = int(free_layer.sum())
+    bounds_rejected_count = 0
+    output_bounds_clamped_count = 0
+    obstacle_rejected_count = 0
+    for row, col in np.argwhere(free_layer):
+        x = min_x + int(col) * resolution
+        y = max_y - int(row) * resolution
+        if not (
+            base_scene.bbox_min[0] - 1e-6 <= x <= base_scene.bbox_max[0] + 1e-6
+            and base_scene.bbox_min[1] - 1e-6 <= y <= base_scene.bbox_max[1] + 1e-6
+        ):
+            bounds_rejected_count += 1
+            continue
+        if any(point_in_obstacle_xy(x, y, obstacle) for obstacle in walk_blockers):
+            obstacle_rejected_count += 1
+            continue
+        safe_x = clamp_coordinate_for_label_output(x, base_scene.bbox_min[0], base_scene.bbox_max[0])
+        safe_y = clamp_coordinate_for_label_output(y, base_scene.bbox_min[1], base_scene.bbox_max[1])
+        if safe_x != round(x, 6) or safe_y != round(y, 6):
+            output_bounds_clamped_count += 1
+        free_points.append((safe_x, safe_y))
+
+    free_points, component_stats = filter_small_components(
+        free_points,
+        config.grid_resolution_m,
+        config.walk_min_component_area_m2,
+    )
+    stats: dict[str, object] = {
+        "ue_strategy": config.ue_strategy,
+        "sampling_domain": config.sampling_domain,
+        "sampling_source": "front3d_opening_aware_class_mask",
+        "grid_resolution_m": config.grid_resolution_m,
+        "boundary_clearance_m": config.corridor_clearance_m,
+        "floor_candidate_count": floor_candidate_count,
+        "wall_clearance_rejected_count": 0,
+        "bounds_rejected_count": bounds_rejected_count,
+        "output_bounds_clamped_count": output_bounds_clamped_count,
+        "obstacle_rejected_count": obstacle_rejected_count,
+        "kept_count": len(free_points),
+        "walk_obstacle_mode": "footprint_column",
+        "walk_blocking_classes": list(config.walk_blocking_classes),
+        "walk_ignore_low_obstacles_below_m": config.walk_ignore_low_obstacles_below_m,
+        "walk_min_component_area_m2": config.walk_min_component_area_m2,
+        "walk_blocking_obstacle_count": len(walk_blockers),
+        "ignored_low_obstacle_count": ignored_low_obstacle_count,
+        "ignored_class_obstacle_count": ignored_class_obstacle_count,
+        "class_mask_opening_mode": "doors",
+        "class_mask_windows_used_as_openings": False,
+        "class_mask_floor_mesh_count": floor_mesh_count,
+        "class_mask_wall_mesh_count": wall_mesh_count,
+        "class_mask_opening_mesh_count": opening_mesh_count,
+        "class_mask_opening_type_counts": opening_type_counts,
+        "class_mask_grid_shape": [height_px, width_px],
+    }
+    stats.update(component_stats)
+    return UeSamplingResult(points=free_points, stats=stats)
+
+
 def validate_front3d_room_points(
     context: RoomLabelContext,
     ue_points: list[dict[str, object]],
@@ -1156,7 +1325,9 @@ def validate_front3d_room_points(
             errors.append(f"{point['label']}: outside architecture bbox")
         if not (min_z - 1e-6 <= z <= max_z + 1e-6):
             errors.append(f"{point['label']}: invalid height")
-        if not point_in_triangles(x, y, context.floor_triangles):
+        if context.is_corridor and config.sampling_domain == "global_floor":
+            pass
+        elif not point_in_triangles(x, y, context.floor_triangles):
             errors.append(f"{point['label']}: outside room floor mesh")
         elif config.sampling_domain != "global_floor" and not point_has_wall_clearance(
             x, y, context.floor_triangles, context.boundary_clearance_m
@@ -1172,7 +1343,9 @@ def validate_front3d_room_points(
         x, y, z = point_position(point)
         if not (min_x - 1e-6 <= x <= max_x + 1e-6 and min_y - 1e-6 <= y <= max_y + 1e-6):
             errors.append(f"{point['label']}: outside architecture bbox")
-        if not point_in_triangles(x, y, context.floor_triangles):
+        if context.is_corridor and config.sampling_domain == "global_floor":
+            pass
+        elif not point_in_triangles(x, y, context.floor_triangles):
             errors.append(f"{point['label']}: outside room floor mesh")
         elif config.sampling_domain != "global_floor" and not point_has_wall_clearance(
             x, y, context.floor_triangles, min(context.boundary_clearance_m, config.bs_wall_clearance_m)
@@ -1202,7 +1375,10 @@ def generate_front3d_label(
         if global_context is None:
             skipped.append({"room_id": "__global__", "room_type": "GlobalFloor", "reason": "missing_global_floor_mesh"})
         else:
-            global_result = generate_ue_points_for_room(global_context, config)
+            if config.ue_strategy == "free_space_grid":
+                global_result = generate_front3d_opening_free_space_points(base_scene, placements, global_context, config)
+            else:
+                global_result = generate_ue_points_for_room(global_context, config)
             room_contexts = [
                 replace(context, obstacles=global_context.obstacles, boundary_clearance_m=config.corridor_clearance_m)
                 for context in contexts
@@ -1270,7 +1446,7 @@ def generate_front3d_label(
         error_count += len(validation["errors"])
         warning_count += len(validation["warnings"])
         floor_area_m2 = len(free_xy) * config.grid_resolution_m * config.grid_resolution_m if context.is_corridor else room_floor_area_m2(context)
-        group_name = "front3d_corridor" if context.is_corridor else f"front3d_room_{group_index}_{context.room_type}"
+        group_name = "front3d_connected_area" if context.is_corridor else f"front3d_room_{group_index}_{context.room_type}"
         group = group_with_positions(
             {
                 "name": group_name,
@@ -1508,7 +1684,7 @@ def draw_bs_marker(
     outline_r = r + 0.9 * scale
     outline = [(sx, sy - outline_r), (sx + outline_r, sy), (sx, sy + outline_r), (sx - outline_r, sy)]
     draw.polygon(outline, fill=(255, 255, 255, 230))
-    draw.polygon(points, fill=(210, 24, 39, 235), outline=(70, 22, 30, 230))
+    draw.polygon(points, fill=(26, 103, 190, 235), outline=(9, 55, 122, 230))
 
 
 def write_label_overlay(

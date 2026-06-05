@@ -83,7 +83,7 @@ label:
   bs_center_max_radius_m: 2.0
   wall_clearance_m: 0.25
   corridor_room_id: "__corridor__"
-  corridor_room_type: Corridor
+  corridor_room_type: ConnectedArea
   corridor_clearance_m: 0.05
   overlay_enabled: true
   fail_on_error: true

@@ -335,13 +335,13 @@ label:
   bs_center_max_radius_m: 2.0
   wall_clearance_m: 0.25
   corridor_room_id: "__corridor__"
-  corridor_room_type: Corridor
+  corridor_room_type: ConnectedArea
   corridor_clearance_m: 0.05
   overlay_enabled: true
   fail_on_error: true
 ```
 
-3D-FRONT 的 UE 默认使用 `sampling_domain: global_floor`：先合并整个建筑的 floor mesh 得到全局采样区域，再把点按 room floor mesh 归属到各个 room；归属不到任何 room 但仍在 global floor 上的点会进入 `corridor_room_id: "__corridor__"` 的通道 group。这样门洞、走廊和房间之间的联通区域不会因为单 room 边界被提前裁掉。旧的逐 room 采样可切回 `sampling_domain: room_floor`。
+3D-FRONT 的 UE 默认使用 `sampling_domain: global_floor`：`free_space_grid` 会先基于 opening-aware class mask 在整个建筑自由空间采样，再把点按 room floor mesh 归属到各个 room；归属不到任何 room 但仍在 free space 上的点会进入 `corridor_room_id: "__corridor__"` 的 connected area group。这个采样会使用 3D-FRONT 原始 `Door/Hole/Pocket` 扣出门洞，但不会把窗户当成 UE 采样开口。旧的逐 room 采样可切回 `sampling_domain: room_floor`。
 
 `plane_grid` 表示指定高度上的采样平面，默认使用 `obstacle_strategy: height_aware` 做高度感知过滤，UE 高于桌面等低矮物体时不再被占地投影清理；如需旧的整列占用行为，可切换为 `footprint_column`。
 

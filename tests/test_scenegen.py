@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import yaml
+from PIL import Image
 
 from scenegen import __version__
 from scenegen.assets import AssetSpec, group_assets_by_class, legacy_item_to_spec, load_assets, resolve_obj_file
@@ -718,9 +719,18 @@ def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
     assert report["bs_count"] == len(label["bs_points"])
     assert report["ue_count"] == len(label["ue_points"])
     assert report["group_count"] == len(label["groups"])
+    room_sampling = report["rooms"][0]["ue_sampling"]
+    assert room_sampling["sampling_source"] == "front3d_opening_aware_class_mask"
+    assert room_sampling["class_mask_opening_mode"] == "doors"
+    assert room_sampling["class_mask_windows_used_as_openings"] is False
+    assert room_sampling["class_mask_opening_type_counts"]["door"] == 1
     assert not (scene_dir / "label" / "label_walk_0p1_report.json").exists()
     assert not (scene_dir / "floorplan" / "label_overlay.png").exists()
-    assert (scene_dir / "label_floorplan" / "label_walk_0p1.png").is_file()
+    overlay_path = scene_dir / "label_floorplan" / "label_walk_0p1.png"
+    assert overlay_path.is_file()
+    overlay_rgb = np.asarray(Image.open(overlay_path).convert("RGB"))
+    red_marker_pixels = (overlay_rgb[:, :, 0] > 180) & (overlay_rgb[:, :, 1] < 80) & (overlay_rgb[:, :, 2] < 80)
+    assert not red_marker_pixels.any()
 
     manifest = json.loads((output_dir / "smoke_front3d" / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["mode"] == "front3d"
@@ -797,6 +807,8 @@ def test_front3d_batch_label_outputs(tmp_path: Path) -> None:
     assert walk_report["bs_count"] == len(walk_label["bs_points"])
     assert walk_report["ue_count"] == len(walk_label["ue_points"])
     assert walk_report["group_count"] == len(walk_label["groups"])
+    assert walk_sampling["sampling_source"] == "front3d_opening_aware_class_mask"
+    assert walk_sampling["class_mask_windows_used_as_openings"] is False
     assert walk_sampling["walk_obstacle_mode"] == "footprint_column"
     assert walk_sampling["walk_blocking_obstacle_count"] == 1
     assert walk_sampling["obstacle_rejected_count"] > 0

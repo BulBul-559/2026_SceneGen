@@ -91,7 +91,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "bs_center_max_radius_m": 2.0,
         "wall_clearance_m": 0.25,
         "corridor_room_id": "__corridor__",
-        "corridor_room_type": "Corridor",
+        "corridor_room_type": "ConnectedArea",
         "corridor_clearance_m": 0.05,
         "overlay_enabled": True,
         "fail_on_error": True,
