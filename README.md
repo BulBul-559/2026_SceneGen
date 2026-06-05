@@ -343,7 +343,7 @@ label:
   fail_on_error: true
 ```
 
-3D-FRONT 的 UE 默认使用 `sampling_domain: global_floor` 与 `connected_area_enabled: true`：`plane_grid` 和 `free_space_grid` 都会先在建筑 XY bbox 的全局矩形网格上采样，再扣除 outdoor 和按 `corridor_clearance_m` 膨胀后的 wall，最后把点按 room floor mesh 归属到各个 room；归属不到任何 room 但仍在 free space 上的点会进入 `corridor_room_id: "__corridor__"` 的 connected area group。这个采样会把 3D-FRONT 原始 `Door/Hole/Pocket` 先标为 free space，但不会把窗户当成 UE 采样开口，也不会在墙体膨胀后额外恢复门洞；门洞足够宽就自然保留采样点，否则会被墙体间隔吃掉。旧的逐 room 采样可切回 `sampling_domain: room_floor`，或设置 `connected_area_enabled: false` 只保留 room 内点。
+3D-FRONT 的 UE 默认使用 `sampling_domain: global_floor` 与 `connected_area_enabled: true`：`plane_grid` 和 `free_space_grid` 都会先在建筑 XY bbox 的全局矩形网格上采样，再扣除 outdoor 和按 `corridor_clearance_m` 膨胀后的 wall，最后把点按 room floor mesh 归属到各个 room；归属不到任何 room 但仍在 free space 上的点会进入 `corridor_room_id: "__corridor__"` 的 connected area group。这个采样会把 3D-FRONT 原始 `Door/Hole/Pocket` 先标为 free space，但不会把窗户当成 UE 采样开口，也不会在墙体膨胀后额外恢复门洞；label 的门洞候选区会再按 `corridor_clearance_m` 做安全区收缩，所以门洞足够宽才会自然保留采样点，否则会被间隔规则吃掉。旧的逐 room 采样可切回 `sampling_domain: room_floor`，或设置 `connected_area_enabled: false` 只保留 room 内点。
 
 `plane_grid` 表示室内平面采样：只扣除 outdoor 和墙体间隔，不扣家具。
 

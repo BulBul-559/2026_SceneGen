@@ -749,6 +749,9 @@ def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
     assert room_sampling["door_opening_mode"] == "doors"
     assert room_sampling["windows_used_as_openings"] is False
     assert room_sampling["door_type_counts"]["door"] == 1
+    assert room_sampling["door_safe_candidate_count"] <= room_sampling["door_candidate_count"]
+    assert room_sampling["door_clearance_eroded_count"] >= 0
+    assert room_sampling["door_unsafe_rejected_count"] >= 0
     assert room_sampling["door_after_wall_clearance_count"] > 0
     assert not (scene_dir / "label" / "label_walk_0p1_report.json").exists()
     assert not (scene_dir / "floorplan" / "label_overlay.png").exists()
@@ -786,6 +789,24 @@ def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
     for json_file in json_files:
         payload = json.loads(json_file.read_text(encoding="utf-8"))
         assert not [value for value in iter_json_strings(payload) if value.startswith("/")]
+
+
+def test_front3d_label_erodes_narrow_door_openings_by_corridor_clearance(tmp_path: Path) -> None:
+    pytest.importorskip("trimesh")
+    config_path = make_front3d_runtime_fixture(tmp_path)
+    output_dir = tmp_path / "out"
+
+    exit_code = main(["--config", str(config_path), "--label-corridor-clearance", "0.1"])
+
+    scene_dir = output_dir / "smoke_front3d" / "front3d_0000"
+    assert exit_code == 0
+    report = json.loads((scene_dir / "label" / "report" / "label_walk_0p1_report.json").read_text(encoding="utf-8"))
+    room_sampling = report["rooms"][0]["ue_sampling"]
+    assert room_sampling["door_candidate_count"] > 0
+    assert room_sampling["door_safe_candidate_count"] == 0
+    assert room_sampling["door_clearance_eroded_count"] == room_sampling["door_candidate_count"]
+    assert room_sampling["door_unsafe_rejected_count"] > 0
+    assert room_sampling["door_after_wall_clearance_count"] == 0
 
 
 def test_front3d_batch_label_outputs(tmp_path: Path) -> None:
