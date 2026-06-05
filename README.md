@@ -221,6 +221,11 @@ results/<run_name>/
       meta.json
       semantic.png        # 仅 semantic_enabled: true 时生成
       semantic.json       # 仅 semantic_enabled: true 时生成
+      class_mask.png      # 仅 class_mask_enabled: true 时生成，uint8 类别图
+      class_mask_preview.png
+      class_mask.npy
+      class_mask.npz
+      class_mask_meta.json
   bistro_0001/
   ...
 ```
@@ -248,6 +253,10 @@ results/<run_name>/
 - `floorplan/stack.npz`: 二值投影栈和高度层数据。
 - `floorplan/semantic.png`: 可选输出，基于资产 placements 绘制的语义平面图。
 - `floorplan/semantic.json`: 可选输出，每个资产的类别、旋转矩形、多边形坐标、颜色和父子关系。
+- `floorplan/class_mask.png`: 可选 front3d 四分类掩码，单通道 `uint8`，类别固定为 `0 outdoor`、`1 wall`、`2 free_space`、`3 furniture`。
+- `floorplan/class_mask_preview.png`: 四分类掩码彩色预览图。
+- `floorplan/class_mask.npy` / `floorplan/class_mask.npz`: 训练读取用的数组格式，`npz` 额外带分辨率、origin 和类别名。
+- `floorplan/class_mask_meta.json`: 四分类掩码的类别 legend、像素统计、建筑 mesh 统计和生成参数。
 
 ## Bistro 禁区
 

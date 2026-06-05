@@ -59,6 +59,7 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 - `sample_density_scale: 128.0`
 - `semantic_enabled: false`
 - `geometry_clean_enabled: false`
+- `class_mask_enabled: false`: 需要训练用四分类掩码时在 `front3d` 模式打开。输出 `floorplan/class_mask.png`、`class_mask_preview.png`、`class_mask.npy`、`class_mask.npz` 和 `class_mask_meta.json`，类别固定为 `0 outdoor`、`1 wall`、`2 free_space`、`3 furniture`。
 
 `front3d` 默认策略：
 

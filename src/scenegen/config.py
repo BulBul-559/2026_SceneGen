@@ -107,6 +107,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "geometry_clean_opening_px": 0,
         "geometry_clean_closing_px": 1,
         "semantic_enabled": False,
+        "class_mask_enabled": False,
+        "class_mask_wall_dilation_m": 0.0,
+        "class_mask_furniture_dilation_m": 0.0,
+        "class_mask_include_doors_as_wall": True,
+        "class_mask_include_windows_as_wall": True,
         "resolution_m_per_pixel": 0.05,
         "height_mode": "heights",
         "heights_m": [1.6],
@@ -204,6 +209,11 @@ CLI_OVERRIDE_MAP: dict[str, tuple[str, ...]] = {
     "floorplan_geometry_clean_opening_px": ("floorplan", "geometry_clean_opening_px"),
     "floorplan_geometry_clean_closing_px": ("floorplan", "geometry_clean_closing_px"),
     "floorplan_semantic_enabled": ("floorplan", "semantic_enabled"),
+    "floorplan_class_mask_enabled": ("floorplan", "class_mask_enabled"),
+    "floorplan_class_mask_wall_dilation": ("floorplan", "class_mask_wall_dilation_m"),
+    "floorplan_class_mask_furniture_dilation": ("floorplan", "class_mask_furniture_dilation_m"),
+    "floorplan_class_mask_include_doors_as_wall": ("floorplan", "class_mask_include_doors_as_wall"),
+    "floorplan_class_mask_include_windows_as_wall": ("floorplan", "class_mask_include_windows_as_wall"),
     "floorplan_resolution": ("floorplan", "resolution_m_per_pixel"),
     "floorplan_height_mode": ("floorplan", "height_mode"),
     "floorplan_heights": ("floorplan", "heights_m"),
@@ -454,6 +464,15 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     floorplan["geometry_clean_opening_px"] = int(floorplan["geometry_clean_opening_px"])
     floorplan["geometry_clean_closing_px"] = int(floorplan["geometry_clean_closing_px"])
     floorplan["semantic_enabled"] = as_bool(floorplan["semantic_enabled"], "floorplan.semantic_enabled")
+    floorplan["class_mask_enabled"] = as_bool(floorplan["class_mask_enabled"], "floorplan.class_mask_enabled")
+    floorplan["class_mask_wall_dilation_m"] = float(floorplan["class_mask_wall_dilation_m"])
+    floorplan["class_mask_furniture_dilation_m"] = float(floorplan["class_mask_furniture_dilation_m"])
+    floorplan["class_mask_include_doors_as_wall"] = as_bool(
+        floorplan["class_mask_include_doors_as_wall"], "floorplan.class_mask_include_doors_as_wall"
+    )
+    floorplan["class_mask_include_windows_as_wall"] = as_bool(
+        floorplan["class_mask_include_windows_as_wall"], "floorplan.class_mask_include_windows_as_wall"
+    )
     floorplan["resolution_m_per_pixel"] = float(floorplan["resolution_m_per_pixel"])
     floorplan["height_mode"] = str(floorplan["height_mode"])
     floorplan["heights_m"] = parse_float_sequence(floorplan["heights_m"], "floorplan.heights_m")
@@ -605,8 +624,13 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("floorplan.min_sample_points must be positive")
     if floorplan["max_sample_points"] < floorplan["min_sample_points"]:
         raise ValueError("floorplan.max_sample_points must be greater than or equal to floorplan.min_sample_points")
-    if floorplan["enabled"] and not (floorplan["geometry_enabled"] or floorplan["semantic_enabled"]):
-        raise ValueError("At least one of floorplan.geometry_enabled or floorplan.semantic_enabled must be true")
+    if floorplan["enabled"] and not (
+        floorplan["geometry_enabled"] or floorplan["semantic_enabled"] or floorplan["class_mask_enabled"]
+    ):
+        raise ValueError(
+            "At least one of floorplan.geometry_enabled, floorplan.semantic_enabled, "
+            "or floorplan.class_mask_enabled must be true"
+        )
     if floorplan["geometry_clean_enabled"] and not floorplan["geometry_enabled"]:
         raise ValueError("floorplan.geometry_clean_enabled requires floorplan.geometry_enabled")
     if floorplan["geometry_clean_min_density"] < 0:
@@ -625,6 +649,12 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("floorplan.preview_tile_size_px must be positive")
     if floorplan["semantic_padding_m"] < 0:
         raise ValueError("floorplan.semantic_padding_m must be non-negative")
+    if floorplan["class_mask_enabled"] and mode != "front3d":
+        raise ValueError("floorplan.class_mask_enabled currently supports only front3d mode")
+    if floorplan["class_mask_wall_dilation_m"] < 0:
+        raise ValueError("floorplan.class_mask_wall_dilation_m must be non-negative")
+    if floorplan["class_mask_furniture_dilation_m"] < 0:
+        raise ValueError("floorplan.class_mask_furniture_dilation_m must be non-negative")
 
     front3d = config["front3d"]
     if front3d["variant"] not in {"raw", "normalized"}:
@@ -741,6 +771,11 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         floorplan_geometry_clean_opening_px=floorplan["geometry_clean_opening_px"],
         floorplan_geometry_clean_closing_px=floorplan["geometry_clean_closing_px"],
         floorplan_semantic_enabled=floorplan["semantic_enabled"],
+        floorplan_class_mask_enabled=floorplan["class_mask_enabled"],
+        floorplan_class_mask_wall_dilation=floorplan["class_mask_wall_dilation_m"],
+        floorplan_class_mask_furniture_dilation=floorplan["class_mask_furniture_dilation_m"],
+        floorplan_class_mask_include_doors_as_wall=floorplan["class_mask_include_doors_as_wall"],
+        floorplan_class_mask_include_windows_as_wall=floorplan["class_mask_include_windows_as_wall"],
         floorplan_resolution=floorplan["resolution_m_per_pixel"],
         floorplan_height_mode=floorplan["height_mode"],
         floorplan_heights=floorplan["heights_m"],

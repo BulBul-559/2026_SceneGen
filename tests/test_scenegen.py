@@ -4,6 +4,7 @@ import json
 import random
 from pathlib import Path
 
+import numpy as np
 import pytest
 import yaml
 
@@ -534,6 +535,13 @@ def make_front3d_runtime_fixture(tmp_path: Path) -> Path:
                         "material": "floor_mat",
                         "xyz": [0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 3.0, 0.0, -3.0, 0.0, 0.0, -3.0],
                         "faces": [0, 1, 2, 0, 2, 3],
+                    },
+                    {
+                        "uid": "wall/0",
+                        "type": "Wall",
+                        "material": "wall_mat",
+                        "xyz": [0.0, 0.0, 0.0, 0.0, 0.0, -3.0, 0.0, 2.5, -3.0, 0.0, 2.5, 0.0],
+                        "faces": [0, 1, 2, 0, 2, 3],
                     }
                 ],
             },
@@ -551,7 +559,7 @@ def make_front3d_runtime_fixture(tmp_path: Path) -> Path:
             {
                 "id": scene_id,
                 "files": {"obj": str(arch_obj), "source_scene": str(source_scene_dir / f"{scene_id}.json")},
-                "geometry": {"bbox": {"min": [0.0, 0.0, 0.0], "max": [3.0, 3.0, 2.5]}},
+                "geometry": {"bbox": {"min": [0.0, 0.0, 0.0], "max": [4.0, 3.0, 2.5]}},
                 "materials": {
                     "sionna": ["itu-concrete"],
                     "source_to_sionna": [{"source": "WallInner", "sionna": "itu-concrete"}],
@@ -624,6 +632,7 @@ def make_front3d_runtime_fixture(tmp_path: Path) -> Path:
                     "skip_missing_objects": True,
                 },
                 "floorplan": {
+                    "class_mask_enabled": True,
                     "sample_density_scale": 0.01,
                     "min_sample_points": 1000,
                     "max_sample_points": 2000,
@@ -649,6 +658,19 @@ def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
         assert (scene_dir / filename).is_file()
     for filename in ("floorplan_1p60.png", "geometry_raw.png", "preview.png", "side_view.png", "meta.json", "stack.npz"):
         assert (scene_dir / "floorplan" / filename).is_file()
+    for filename in ("class_mask.png", "class_mask_preview.png", "class_mask.npy", "class_mask.npz", "class_mask_meta.json"):
+        assert (scene_dir / "floorplan" / filename).is_file()
+    class_mask = np.load(scene_dir / "floorplan" / "class_mask.npy")
+    assert class_mask.dtype == np.uint8
+    assert {0, 1, 2, 3}.issubset(set(np.unique(class_mask).tolist()))
+    class_meta = json.loads((scene_dir / "floorplan" / "class_mask_meta.json").read_text(encoding="utf-8"))
+    assert class_meta["classes"]["0"]["name"] == "outdoor"
+    assert class_meta["classes"]["1"]["name"] == "wall"
+    assert class_meta["classes"]["2"]["name"] == "free_space"
+    assert class_meta["classes"]["3"]["name"] == "furniture"
+    assert class_meta["class_id_counts"]["1"] > 0
+    assert class_meta["class_id_counts"]["2"] > 0
+    assert class_meta["class_id_counts"]["3"] > 0
     assert (output_dir / "smoke_front3d" / "manifest_front3d.json").is_file()
     assert (output_dir / "smoke_front3d" / "summary_obj" / "front3d_0000.obj").is_file()
     assert (output_dir / "smoke_front3d" / "summary_floorplan_raw" / "front3d_0000_geometry_raw.png").is_file()
@@ -709,6 +731,7 @@ def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
         scene_dir / "label" / "label_walk_0p1.json",
         scene_dir / "label" / "report" / "label_walk_0p1_report.json",
         scene_dir / "floorplan" / "meta.json",
+        scene_dir / "floorplan" / "class_mask_meta.json",
         scene_dir / "quality_report.json",
         scene_dir / "statistics.json",
     ]

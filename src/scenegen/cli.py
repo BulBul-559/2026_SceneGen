@@ -157,6 +157,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--floorplan-geometry-clean-closing-px", type=int, default=None)
     parser.add_argument("--semantic-floorplan", dest="floorplan_semantic_enabled", action="store_true", default=None)
     parser.add_argument("--no-semantic-floorplan", dest="floorplan_semantic_enabled", action="store_false")
+    parser.add_argument("--floorplan-class-mask", dest="floorplan_class_mask_enabled", action="store_true", default=None)
+    parser.add_argument("--no-floorplan-class-mask", dest="floorplan_class_mask_enabled", action="store_false")
+    parser.add_argument("--floorplan-class-mask-wall-dilation", type=float, default=None)
+    parser.add_argument("--floorplan-class-mask-furniture-dilation", type=float, default=None)
+    parser.add_argument(
+        "--floorplan-class-mask-include-doors-as-wall",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+    )
+    parser.add_argument(
+        "--floorplan-class-mask-include-windows-as-wall",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+    )
     parser.add_argument("--floorplan-resolution", type=float, default=None)
     parser.add_argument("--floorplan-height-mode", choices=("layers", "heights"), default=None)
     parser.add_argument(
@@ -415,6 +429,7 @@ def main(argv: list[str] | None = None) -> int:
                         placements=placements,
                         bounds_xy=build.bounds_xy,
                         forbidden_xy_rects=source.forbidden_xy_rects,
+                        front3d_base_scene=build.front3d_base_scene,
                     )
                     label_value = record.get("label", {})
                     if label_config.enabled and label_config.overlay_enabled and isinstance(label_value, dict) and bool(
@@ -524,6 +539,7 @@ def main(argv: list[str] | None = None) -> int:
         "floorplan_geometry_clean_requested": bool(
             floorplan_config.enabled and floorplan_config.geometry_enabled and floorplan_config.geometry_clean_enabled
         ),
+        "floorplan_class_mask_requested": bool(floorplan_config.enabled and floorplan_config.class_mask_enabled),
         "floorplan_height_mode": floorplan_config.height_mode if floorplan_config.enabled else None,
         "floorplan_heights_m": floorplan_config.heights_m if floorplan_config.enabled else None,
         "floorplan_semantic_requested": bool(floorplan_config.enabled and floorplan_config.semantic_enabled),

@@ -99,6 +99,11 @@ floorplan:
   geometry_clean_opening_px: 0
   geometry_clean_closing_px: 1
   semantic_enabled: false
+  class_mask_enabled: false
+  class_mask_wall_dilation_m: 0.0
+  class_mask_furniture_dilation_m: 0.0
+  class_mask_include_doors_as_wall: true
+  class_mask_include_windows_as_wall: true
   resolution_m_per_pixel: 0.05
   height_mode: heights
   heights_m: [1.6]

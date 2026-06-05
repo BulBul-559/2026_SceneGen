@@ -8,9 +8,9 @@ from typing import Any
 
 import numpy as np
 import trimesh
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
-from .models import PlacedAsset, Rect2D
+from .models import Front3DBaseScene, PlacedAsset, Rect2D
 from .paths import portable_path
 
 
@@ -27,6 +27,18 @@ SEMANTIC_COLORS: dict[str, tuple[int, int, int]] = {
 SEMANTIC_BACKGROUND = (252, 252, 248)
 SEMANTIC_SCENE_OUTLINE = (40, 40, 40)
 SEMANTIC_FORBIDDEN = (210, 64, 64)
+CLASS_MASK_LABELS: dict[int, str] = {
+    0: "outdoor",
+    1: "wall",
+    2: "free_space",
+    3: "furniture",
+}
+CLASS_MASK_COLORS: dict[int, tuple[int, int, int]] = {
+    0: (245, 245, 245),
+    1: (50, 50, 50),
+    2: (104, 179, 232),
+    3: (220, 139, 55),
+}
 
 
 def floorplan_layer_filename(level_m: float) -> str:
@@ -46,6 +58,11 @@ class FloorplanConfig:
     geometry_clean_opening_px: int
     geometry_clean_closing_px: int
     semantic_enabled: bool
+    class_mask_enabled: bool
+    class_mask_wall_dilation_m: float
+    class_mask_furniture_dilation_m: float
+    class_mask_include_doors_as_wall: bool
+    class_mask_include_windows_as_wall: bool
     resolution_m_per_pixel: float
     height_mode: str
     heights_m: list[float]
@@ -73,6 +90,11 @@ class FloorplanConfig:
             geometry_clean_opening_px=int(payload["geometry_clean_opening_px"]),
             geometry_clean_closing_px=int(payload["geometry_clean_closing_px"]),
             semantic_enabled=bool(payload["semantic_enabled"]),
+            class_mask_enabled=bool(payload["class_mask_enabled"]),
+            class_mask_wall_dilation_m=float(payload["class_mask_wall_dilation_m"]),
+            class_mask_furniture_dilation_m=float(payload["class_mask_furniture_dilation_m"]),
+            class_mask_include_doors_as_wall=bool(payload["class_mask_include_doors_as_wall"]),
+            class_mask_include_windows_as_wall=bool(payload["class_mask_include_windows_as_wall"]),
             resolution_m_per_pixel=float(payload["resolution_m_per_pixel"]),
             height_mode=str(payload["height_mode"]),
             heights_m=[float(height) for height in payload["heights_m"]],
@@ -96,6 +118,7 @@ def generate_floorplan_for_scene(
     placements: list[PlacedAsset] | None = None,
     bounds_xy: tuple[float, float, float, float] | None = None,
     forbidden_xy_rects: tuple[Rect2D, ...] = (),
+    front3d_base_scene: Front3DBaseScene | None = None,
 ) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
     path_root = scene_obj.parent
@@ -171,7 +194,260 @@ def generate_floorplan_for_scene(
         )
         record["semantic"] = semantic
         record["semantic_preview"] = semantic["image"]
+
+    if config.class_mask_enabled:
+        if front3d_base_scene is None:
+            raise ValueError("Front3D class mask requires a front3d base scene.")
+        if placements is None:
+            raise ValueError("Front3D class mask requires placements.")
+        class_mask = generate_front3d_class_mask(
+            output_dir=output_dir,
+            base_scene=front3d_base_scene,
+            placements=placements,
+            resolution=config.resolution_m_per_pixel,
+            wall_dilation_m=config.class_mask_wall_dilation_m,
+            furniture_dilation_m=config.class_mask_furniture_dilation_m,
+            include_doors_as_wall=config.class_mask_include_doors_as_wall,
+            include_windows_as_wall=config.class_mask_include_windows_as_wall,
+            path_root=path_root,
+        )
+        record["class_mask"] = class_mask
+        record["class_mask_preview"] = class_mask["preview"]
     return record
+
+
+def generate_front3d_class_mask(
+    output_dir: Path,
+    base_scene: Front3DBaseScene,
+    placements: list[PlacedAsset],
+    resolution: float,
+    wall_dilation_m: float,
+    furniture_dilation_m: float,
+    include_doors_as_wall: bool,
+    include_windows_as_wall: bool,
+    path_root: Path | None = None,
+) -> dict[str, object]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    root = path_root or output_dir
+    scene_data = json.loads(base_scene.source_scene_json.read_text(encoding="utf-8"))
+    metadata = json.loads(base_scene.metadata_json.read_text(encoding="utf-8"))
+    variant = str(metadata.get("variant") or "normalized")
+
+    min_x = 0.0
+    min_y = 0.0
+    max_x = max(base_scene.bbox_max[0], *(placement.max_x for placement in placements), resolution)
+    max_y = max(base_scene.bbox_max[1], *(placement.max_y for placement in placements), resolution)
+    width_px = max(1, int(math.ceil((max_x - min_x) / resolution)) + 1)
+    height_px = max(1, int(math.ceil((max_y - min_y) / resolution)) + 1)
+    image_size = (width_px, height_px)
+
+    floor_image = Image.new("L", image_size, 0)
+    wall_image = Image.new("L", image_size, 0)
+    floor_draw = ImageDraw.Draw(floor_image)
+    wall_draw = ImageDraw.Draw(wall_image)
+    mesh_type_counts: dict[str, int] = {}
+    floor_mesh_count = 0
+    wall_mesh_count = 0
+
+    for mesh in scene_data.get("mesh") or []:
+        if not isinstance(mesh, dict):
+            continue
+        mesh_type = str(mesh.get("type") or "Unknown")
+        mesh_type_counts[mesh_type] = mesh_type_counts.get(mesh_type, 0) + 1
+        target_draw: ImageDraw.ImageDraw | None
+        if "floor" in mesh_type.lower():
+            target_draw = floor_draw
+            floor_mesh_count += 1
+        elif front3d_mesh_type_is_wall(
+            mesh_type,
+            include_doors_as_wall=include_doors_as_wall,
+            include_windows_as_wall=include_windows_as_wall,
+        ):
+            target_draw = wall_draw
+            wall_mesh_count += 1
+        else:
+            target_draw = None
+        if target_draw is None:
+            continue
+        draw_front3d_mesh_projection(
+            target_draw,
+            mesh,
+            variant=variant,
+            base_scene=base_scene,
+            min_x=min_x,
+            max_y=max_y,
+            resolution=resolution,
+        )
+
+    if wall_dilation_m > 0:
+        wall_image = dilate_binary_image(wall_image, wall_dilation_m, resolution)
+
+    furniture_image = Image.new("L", image_size, 0)
+    furniture_draw = ImageDraw.Draw(furniture_image)
+    for placement in placements:
+        polygon = [
+            world_to_pixel((placement.min_x, placement.min_y), min_x, max_y, resolution),
+            world_to_pixel((placement.max_x, placement.min_y), min_x, max_y, resolution),
+            world_to_pixel((placement.max_x, placement.max_y), min_x, max_y, resolution),
+            world_to_pixel((placement.min_x, placement.max_y), min_x, max_y, resolution),
+        ]
+        furniture_draw.polygon(polygon, fill=255)
+    if furniture_dilation_m > 0:
+        furniture_image = dilate_binary_image(furniture_image, furniture_dilation_m, resolution)
+
+    floor_layer = np.asarray(floor_image, dtype=np.uint8) > 0
+    wall_layer = np.asarray(wall_image, dtype=np.uint8) > 0
+    furniture_layer = np.asarray(furniture_image, dtype=np.uint8) > 0
+    class_mask = np.zeros((height_px, width_px), dtype=np.uint8)
+    class_mask[floor_layer] = 2
+    class_mask[furniture_layer] = 3
+    class_mask[wall_layer] = 1
+
+    mask_path = output_dir / "class_mask.png"
+    preview_path = output_dir / "class_mask_preview.png"
+    npy_path = output_dir / "class_mask.npy"
+    npz_path = output_dir / "class_mask.npz"
+    meta_path = output_dir / "class_mask_meta.json"
+    Image.fromarray(class_mask, mode="L").save(mask_path)
+    np.save(npy_path, class_mask)
+    np.savez_compressed(
+        npz_path,
+        mask=class_mask,
+        resolution_m_per_pixel=np.asarray([resolution], dtype=np.float32),
+        origin_xy_m=np.asarray([min_x, min_y], dtype=np.float32),
+        class_ids=np.asarray(sorted(CLASS_MASK_LABELS), dtype=np.uint8),
+        class_names=np.asarray([CLASS_MASK_LABELS[index] for index in sorted(CLASS_MASK_LABELS)]),
+    )
+    preview = render_class_mask_preview(class_mask)
+    preview.save(preview_path)
+
+    class_counts = {CLASS_MASK_LABELS[index]: int((class_mask == index).sum()) for index in sorted(CLASS_MASK_LABELS)}
+    class_id_counts = {str(index): int((class_mask == index).sum()) for index in sorted(CLASS_MASK_LABELS)}
+    meta = {
+        "type": "front3d_class_mask",
+        "scene_id": base_scene.scene_id,
+        "mask": portable_path(mask_path, root),
+        "preview": portable_path(preview_path, root),
+        "npy": portable_path(npy_path, root),
+        "npz": portable_path(npz_path, root),
+        "resolution_m_per_pixel": float(resolution),
+        "origin_xy_m": [float(min_x), float(min_y)],
+        "extent_xy_m": [float(max_x - min_x), float(max_y - min_y)],
+        "grid_shape": [int(height_px), int(width_px)],
+        "classes": {
+            str(index): {"name": CLASS_MASK_LABELS[index], "color_rgb": list(CLASS_MASK_COLORS[index])}
+            for index in sorted(CLASS_MASK_LABELS)
+        },
+        "class_counts": class_counts,
+        "class_id_counts": class_id_counts,
+        "priority": ["outdoor", "free_space", "furniture", "wall"],
+        "source_scene": portable_path(base_scene.source_scene_json, root),
+        "source_metadata": portable_path(base_scene.metadata_json, root),
+        "architecture_variant": variant,
+        "world_offset": [float(value) for value in base_scene.world_offset],
+        "floor_mesh_count": int(floor_mesh_count),
+        "wall_mesh_count": int(wall_mesh_count),
+        "furniture_count": len(placements),
+        "mesh_type_counts": mesh_type_counts,
+        "wall_dilation_m": float(wall_dilation_m),
+        "furniture_dilation_m": float(furniture_dilation_m),
+        "include_doors_as_wall": bool(include_doors_as_wall),
+        "include_windows_as_wall": bool(include_windows_as_wall),
+    }
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {
+        "ok": True,
+        "mask": portable_path(mask_path, root),
+        "preview": portable_path(preview_path, root),
+        "npy": portable_path(npy_path, root),
+        "npz": portable_path(npz_path, root),
+        "meta": portable_path(meta_path, root),
+        "resolution_m_per_pixel": float(resolution),
+        "grid_shape": [int(height_px), int(width_px)],
+        "class_counts": class_counts,
+        "class_id_counts": class_id_counts,
+    }
+
+
+def front3d_mesh_type_is_wall(
+    mesh_type: str,
+    *,
+    include_doors_as_wall: bool,
+    include_windows_as_wall: bool,
+) -> bool:
+    text = mesh_type.lower()
+    if any(token in text for token in ("wall", "column", "pillar")):
+        return True
+    if include_doors_as_wall and "door" in text:
+        return True
+    if include_windows_as_wall and "window" in text:
+        return True
+    return False
+
+
+def draw_front3d_mesh_projection(
+    draw: ImageDraw.ImageDraw,
+    mesh: dict[str, Any],
+    *,
+    variant: str,
+    base_scene: Front3DBaseScene,
+    min_x: float,
+    max_y: float,
+    resolution: float,
+) -> None:
+    vertices = front3d_architecture_vertices(mesh, variant, base_scene)
+    faces = [int(value) for value in mesh.get("faces") or []]
+    for index in range(0, len(faces), 3):
+        if index + 2 >= len(faces):
+            break
+        a_i, b_i, c_i = faces[index], faces[index + 1], faces[index + 2]
+        if min(a_i, b_i, c_i) < 0 or max(a_i, b_i, c_i) >= len(vertices):
+            continue
+        polygon = [
+            world_to_pixel((vertices[a_i][0], vertices[a_i][1]), min_x, max_y, resolution),
+            world_to_pixel((vertices[b_i][0], vertices[b_i][1]), min_x, max_y, resolution),
+            world_to_pixel((vertices[c_i][0], vertices[c_i][1]), min_x, max_y, resolution),
+        ]
+        draw.polygon(polygon, fill=255)
+
+
+def front3d_architecture_vertices(
+    mesh: dict[str, Any],
+    variant: str,
+    base_scene: Front3DBaseScene,
+) -> list[tuple[float, float, float]]:
+    xyz = mesh.get("xyz") or []
+    vertices: list[tuple[float, float, float]] = []
+    for index in range(0, len(xyz), 3):
+        if index + 2 >= len(xyz):
+            break
+        x, y, z = float(xyz[index]), float(xyz[index + 1]), float(xyz[index + 2])
+        if variant == "normalized":
+            point = (x, -z, y)
+        else:
+            point = (x, y, z)
+        vertices.append(
+            (
+                point[0] + base_scene.world_offset[0],
+                point[1] + base_scene.world_offset[1],
+                point[2] + base_scene.world_offset[2],
+            )
+        )
+    return vertices
+
+
+def dilate_binary_image(image: Image.Image, dilation_m: float, resolution: float) -> Image.Image:
+    radius_px = int(round(dilation_m / resolution))
+    if radius_px <= 0:
+        return image
+    return image.filter(ImageFilter.MaxFilter(radius_px * 2 + 1))
+
+
+def render_class_mask_preview(class_mask: np.ndarray) -> Image.Image:
+    rgb = np.zeros((*class_mask.shape, 3), dtype=np.uint8)
+    for class_id, color in CLASS_MASK_COLORS.items():
+        rgb[class_mask == class_id] = color
+    return Image.fromarray(rgb, mode="RGB")
 
 
 def generate_semantic_floorplan(
