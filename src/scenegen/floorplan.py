@@ -61,6 +61,10 @@ class FloorplanConfig:
     class_mask_enabled: bool
     class_mask_wall_dilation_m: float
     class_mask_furniture_dilation_m: float
+    class_mask_opening_mode: str
+    class_mask_opening_dilation_m: float
+    class_mask_opening_floor_tolerance_m: float
+    class_mask_opening_min_height_m: float
     class_mask_include_doors_as_wall: bool
     class_mask_include_windows_as_wall: bool
     resolution_m_per_pixel: float
@@ -93,6 +97,10 @@ class FloorplanConfig:
             class_mask_enabled=bool(payload["class_mask_enabled"]),
             class_mask_wall_dilation_m=float(payload["class_mask_wall_dilation_m"]),
             class_mask_furniture_dilation_m=float(payload["class_mask_furniture_dilation_m"]),
+            class_mask_opening_mode=str(payload["class_mask_opening_mode"]),
+            class_mask_opening_dilation_m=float(payload["class_mask_opening_dilation_m"]),
+            class_mask_opening_floor_tolerance_m=float(payload["class_mask_opening_floor_tolerance_m"]),
+            class_mask_opening_min_height_m=float(payload["class_mask_opening_min_height_m"]),
             class_mask_include_doors_as_wall=bool(payload["class_mask_include_doors_as_wall"]),
             class_mask_include_windows_as_wall=bool(payload["class_mask_include_windows_as_wall"]),
             resolution_m_per_pixel=float(payload["resolution_m_per_pixel"]),
@@ -207,6 +215,10 @@ def generate_floorplan_for_scene(
             resolution=config.resolution_m_per_pixel,
             wall_dilation_m=config.class_mask_wall_dilation_m,
             furniture_dilation_m=config.class_mask_furniture_dilation_m,
+            opening_mode=config.class_mask_opening_mode,
+            opening_dilation_m=config.class_mask_opening_dilation_m,
+            opening_floor_tolerance_m=config.class_mask_opening_floor_tolerance_m,
+            opening_min_height_m=config.class_mask_opening_min_height_m,
             include_doors_as_wall=config.class_mask_include_doors_as_wall,
             include_windows_as_wall=config.class_mask_include_windows_as_wall,
             path_root=path_root,
@@ -223,6 +235,10 @@ def generate_front3d_class_mask(
     resolution: float,
     wall_dilation_m: float,
     furniture_dilation_m: float,
+    opening_mode: str,
+    opening_dilation_m: float,
+    opening_floor_tolerance_m: float,
+    opening_min_height_m: float,
     include_doors_as_wall: bool,
     include_windows_as_wall: bool,
     path_root: Path | None = None,
@@ -243,11 +259,15 @@ def generate_front3d_class_mask(
 
     floor_image = Image.new("L", image_size, 0)
     wall_image = Image.new("L", image_size, 0)
+    opening_image = Image.new("L", image_size, 0)
     floor_draw = ImageDraw.Draw(floor_image)
     wall_draw = ImageDraw.Draw(wall_image)
+    opening_draw = ImageDraw.Draw(opening_image)
     mesh_type_counts: dict[str, int] = {}
     floor_mesh_count = 0
     wall_mesh_count = 0
+    opening_mesh_count = 0
+    opening_type_counts: dict[str, int] = {}
 
     for mesh in scene_data.get("mesh") or []:
         if not isinstance(mesh, dict):
@@ -255,6 +275,28 @@ def generate_front3d_class_mask(
         mesh_type = str(mesh.get("type") or "Unknown")
         mesh_type_counts[mesh_type] = mesh_type_counts.get(mesh_type, 0) + 1
         target_draw: ImageDraw.ImageDraw | None
+        opening_kind = front3d_opening_kind(
+            mesh,
+            mesh_type,
+            variant=variant,
+            base_scene=base_scene,
+            opening_mode=opening_mode,
+            floor_tolerance_m=opening_floor_tolerance_m,
+            min_height_m=opening_min_height_m,
+        )
+        if opening_kind is not None:
+            opening_mesh_count += 1
+            opening_type_counts[opening_kind] = opening_type_counts.get(opening_kind, 0) + 1
+            draw_front3d_mesh_projection(
+                opening_draw,
+                mesh,
+                variant=variant,
+                base_scene=base_scene,
+                min_x=min_x,
+                max_y=max_y,
+                resolution=resolution,
+            )
+
         if "floor" in mesh_type.lower():
             target_draw = floor_draw
             floor_mesh_count += 1
@@ -281,6 +323,8 @@ def generate_front3d_class_mask(
 
     if wall_dilation_m > 0:
         wall_image = dilate_binary_image(wall_image, wall_dilation_m, resolution)
+    if opening_dilation_m > 0:
+        opening_image = dilate_binary_image(opening_image, opening_dilation_m, resolution)
 
     furniture_image = Image.new("L", image_size, 0)
     furniture_draw = ImageDraw.Draw(furniture_image)
@@ -297,11 +341,15 @@ def generate_front3d_class_mask(
 
     floor_layer = np.asarray(floor_image, dtype=np.uint8) > 0
     wall_layer = np.asarray(wall_image, dtype=np.uint8) > 0
+    opening_layer = np.asarray(opening_image, dtype=np.uint8) > 0
     furniture_layer = np.asarray(furniture_image, dtype=np.uint8) > 0
     class_mask = np.zeros((height_px, width_px), dtype=np.uint8)
     class_mask[floor_layer] = 2
-    class_mask[furniture_layer] = 3
     class_mask[wall_layer] = 1
+    opening_free_layer = opening_layer & wall_layer
+    class_mask[opening_free_layer] = 2
+    class_mask[furniture_layer & ~wall_layer] = 3
+    class_mask[furniture_layer & opening_free_layer] = 3
 
     mask_path = output_dir / "class_mask.png"
     preview_path = output_dir / "class_mask_preview.png"
@@ -341,16 +389,23 @@ def generate_front3d_class_mask(
         "class_counts": class_counts,
         "class_id_counts": class_id_counts,
         "priority": ["outdoor", "free_space", "furniture", "wall"],
+        "opening_priority": "wall pixels overlapped by selected openings are reassigned to free_space before furniture",
         "source_scene": portable_path(base_scene.source_scene_json, root),
         "source_metadata": portable_path(base_scene.metadata_json, root),
         "architecture_variant": variant,
         "world_offset": [float(value) for value in base_scene.world_offset],
         "floor_mesh_count": int(floor_mesh_count),
         "wall_mesh_count": int(wall_mesh_count),
+        "opening_mesh_count": int(opening_mesh_count),
+        "opening_type_counts": opening_type_counts,
         "furniture_count": len(placements),
         "mesh_type_counts": mesh_type_counts,
         "wall_dilation_m": float(wall_dilation_m),
         "furniture_dilation_m": float(furniture_dilation_m),
+        "opening_mode": opening_mode,
+        "opening_dilation_m": float(opening_dilation_m),
+        "opening_floor_tolerance_m": float(opening_floor_tolerance_m),
+        "opening_min_height_m": float(opening_min_height_m),
         "include_doors_as_wall": bool(include_doors_as_wall),
         "include_windows_as_wall": bool(include_windows_as_wall),
     }
@@ -383,6 +438,46 @@ def front3d_mesh_type_is_wall(
     if include_windows_as_wall and "window" in text:
         return True
     return False
+
+
+def front3d_opening_kind(
+    mesh: dict[str, Any],
+    mesh_type: str,
+    *,
+    variant: str,
+    base_scene: Front3DBaseScene,
+    opening_mode: str,
+    floor_tolerance_m: float,
+    min_height_m: float,
+) -> str | None:
+    if opening_mode == "none":
+        return None
+    text = mesh_type.lower()
+    allow_doors = opening_mode in {"doors", "doors_and_windows"}
+    allow_windows = opening_mode in {"windows", "doors_and_windows"}
+    z_min, z_max = front3d_mesh_z_bounds(mesh, variant, base_scene)
+    height = z_max - z_min
+
+    if allow_doors and "door" in text:
+        return "door"
+    if allow_windows and ("window" in text or "baywindow" in text):
+        return "window"
+    if "hole" in text or "pocket" in text:
+        starts_at_floor = z_min <= floor_tolerance_m
+        tall_enough = height >= min_height_m or z_max >= min_height_m
+        if allow_doors and starts_at_floor and tall_enough:
+            return "door_auxiliary"
+        if allow_windows and not starts_at_floor and tall_enough:
+            return "window_auxiliary"
+    return None
+
+
+def front3d_mesh_z_bounds(mesh: dict[str, Any], variant: str, base_scene: Front3DBaseScene) -> tuple[float, float]:
+    vertices = front3d_architecture_vertices(mesh, variant, base_scene)
+    if not vertices:
+        return 0.0, 0.0
+    z_values = [vertex[2] for vertex in vertices]
+    return min(z_values), max(z_values)
 
 
 def draw_front3d_mesh_projection(

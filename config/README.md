@@ -181,8 +181,12 @@ CLI 覆盖：`--label/--no-label`、`--label-version`、`--label-ue-height`、`-
 | `class_mask_enabled` | boolean | `false` | 是否为 `front3d` 生成训练用四分类掩码。当前只支持 `front3d`。 |
 | `class_mask_wall_dilation_m` | float, `>=0` | `0.0` | 生成四分类掩码时对 wall 类的额外膨胀距离。 |
 | `class_mask_furniture_dilation_m` | float, `>=0` | `0.0` | 生成四分类掩码时对 furniture 类的额外膨胀距离。 |
-| `class_mask_include_doors_as_wall` | boolean | `true` | 是否把 door mesh 归入 wall/建筑阻挡类。 |
-| `class_mask_include_windows_as_wall` | boolean | `true` | 是否把 window mesh 归入 wall/建筑阻挡类。 |
+| `class_mask_opening_mode` | `none` / `doors` / `windows` / `doors_and_windows` | `doors` | 哪些 3D-FRONT 开口会从 wall 中扣除并标为 `free_space`。`doors` 会使用 `Door` 以及落地的 `Hole/Pocket`；`windows` 会使用 `Window/BayWindow` 以及非落地的 `Hole/Pocket`。 |
+| `class_mask_opening_dilation_m` | float, `>=0` | `0.0` | 对开口 cutter 的额外膨胀距离，可用于弥合墙体栅格化误差。 |
+| `class_mask_opening_floor_tolerance_m` | float, `>=0` | `0.25` | 判定 `Hole/Pocket` 是否落地的高度容差。 |
+| `class_mask_opening_min_height_m` | float, `>=0` | `1.6` | `Hole/Pocket` 被当成可通行门洞/窗洞时所需的最小高度。 |
+| `class_mask_include_doors_as_wall` | boolean | `true` | 是否先把 door mesh 归入 wall/建筑阻挡类；若 `class_mask_opening_mode` 包含 doors，随后会被开口逻辑扣回 free。 |
+| `class_mask_include_windows_as_wall` | boolean | `true` | 是否先把 window mesh 归入 wall/建筑阻挡类；若 `class_mask_opening_mode` 包含 windows，随后会被开口逻辑扣回 free。 |
 | `resolution_m_per_pixel` | float, `>0` | `0.05` | 平面图栅格分辨率。 |
 | `height_mode` | `heights` / `layers` | `heights` | `heights` 渲染指定高度；`layers` 使用逐层扫描。 |
 | `heights_m` | list of float | `[1.6]` | `height_mode: heights` 时的投影高度序列。 |
@@ -205,9 +209,9 @@ CLI 覆盖：`--label/--no-label`、`--label-version`、`--label-ue-height`、`-
 - `floorplan/class_mask.npz`: 压缩包，包含 mask、分辨率、origin 和类别名。
 - `floorplan/class_mask_meta.json`: 类别 legend、像素计数、建筑 mesh 统计和参数记录。
 
-类别固定为：`0 outdoor`、`1 wall`、`2 free_space`、`3 furniture`。生成优先级为 `outdoor -> free_space -> furniture -> wall`，也就是 floor 区域先成为自由空间，家具覆盖自由空间，墙体/建筑阻挡最后覆盖。
+类别固定为：`0 outdoor`、`1 wall`、`2 free_space`、`3 furniture`。生成流程为：floor 区域先成为自由空间，墙体覆盖自由空间，`Door/Hole/Pocket/Window` 等开口按 `class_mask_opening_mode` 从墙中扣回 `free_space`，最后家具在非墙区域覆盖为 `furniture`。
 
-CLI 覆盖：`--floorplan/--no-floorplan`、`--floorplan-geometry/--no-floorplan-geometry`、`--floorplan-geometry-clean/--no-floorplan-geometry-clean`、`--floorplan-geometry-clean-min-density`、`--floorplan-geometry-clean-min-neighbors`、`--floorplan-geometry-clean-min-z`、`--floorplan-geometry-clean-max-abs-normal-z`、`--floorplan-geometry-clean-opening-px`、`--floorplan-geometry-clean-closing-px`、`--semantic-floorplan/--no-semantic-floorplan`、`--floorplan-class-mask/--no-floorplan-class-mask`、`--floorplan-class-mask-wall-dilation`、`--floorplan-class-mask-furniture-dilation`、`--floorplan-class-mask-include-doors-as-wall/--no-floorplan-class-mask-include-doors-as-wall`、`--floorplan-class-mask-include-windows-as-wall/--no-floorplan-class-mask-include-windows-as-wall`、`--floorplan-resolution`、`--floorplan-height-mode`、`--floorplan-heights`、`--floorplan-step`、`--floorplan-top-z`、`--floorplan-bottom-z`、`--floorplan-sample-density-scale`、`--floorplan-min-sample-points`、`--floorplan-max-sample-points`、`--floorplan-preview-tile-size`、`--floorplan-semantic-padding`、`--floorplan-semantic-draw-labels/--no-floorplan-semantic-draw-labels`、`--floorplan-fail-on-error/--no-floorplan-fail-on-error`。
+CLI 覆盖：`--floorplan/--no-floorplan`、`--floorplan-geometry/--no-floorplan-geometry`、`--floorplan-geometry-clean/--no-floorplan-geometry-clean`、`--floorplan-geometry-clean-min-density`、`--floorplan-geometry-clean-min-neighbors`、`--floorplan-geometry-clean-min-z`、`--floorplan-geometry-clean-max-abs-normal-z`、`--floorplan-geometry-clean-opening-px`、`--floorplan-geometry-clean-closing-px`、`--semantic-floorplan/--no-semantic-floorplan`、`--floorplan-class-mask/--no-floorplan-class-mask`、`--floorplan-class-mask-wall-dilation`、`--floorplan-class-mask-furniture-dilation`、`--floorplan-class-mask-opening-mode`、`--floorplan-class-mask-opening-dilation`、`--floorplan-class-mask-opening-floor-tolerance`、`--floorplan-class-mask-opening-min-height`、`--floorplan-class-mask-include-doors-as-wall/--no-floorplan-class-mask-include-doors-as-wall`、`--floorplan-class-mask-include-windows-as-wall/--no-floorplan-class-mask-include-windows-as-wall`、`--floorplan-resolution`、`--floorplan-height-mode`、`--floorplan-heights`、`--floorplan-step`、`--floorplan-top-z`、`--floorplan-bottom-z`、`--floorplan-sample-density-scale`、`--floorplan-min-sample-points`、`--floorplan-max-sample-points`、`--floorplan-preview-tile-size`、`--floorplan-semantic-padding`、`--floorplan-semantic-draw-labels/--no-floorplan-semantic-draw-labels`、`--floorplan-fail-on-error/--no-floorplan-fail-on-error`。
 
 ## 常用片段
 

@@ -102,6 +102,10 @@ floorplan:
   class_mask_enabled: false
   class_mask_wall_dilation_m: 0.0
   class_mask_furniture_dilation_m: 0.0
+  class_mask_opening_mode: doors
+  class_mask_opening_dilation_m: 0.0
+  class_mask_opening_floor_tolerance_m: 0.25
+  class_mask_opening_min_height_m: 1.6
   class_mask_include_doors_as_wall: true
   class_mask_include_windows_as_wall: true
   resolution_m_per_pixel: 0.05

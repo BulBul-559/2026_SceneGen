@@ -110,6 +110,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "class_mask_enabled": False,
         "class_mask_wall_dilation_m": 0.0,
         "class_mask_furniture_dilation_m": 0.0,
+        "class_mask_opening_mode": "doors",
+        "class_mask_opening_dilation_m": 0.0,
+        "class_mask_opening_floor_tolerance_m": 0.25,
+        "class_mask_opening_min_height_m": 1.6,
         "class_mask_include_doors_as_wall": True,
         "class_mask_include_windows_as_wall": True,
         "resolution_m_per_pixel": 0.05,
@@ -212,6 +216,10 @@ CLI_OVERRIDE_MAP: dict[str, tuple[str, ...]] = {
     "floorplan_class_mask_enabled": ("floorplan", "class_mask_enabled"),
     "floorplan_class_mask_wall_dilation": ("floorplan", "class_mask_wall_dilation_m"),
     "floorplan_class_mask_furniture_dilation": ("floorplan", "class_mask_furniture_dilation_m"),
+    "floorplan_class_mask_opening_mode": ("floorplan", "class_mask_opening_mode"),
+    "floorplan_class_mask_opening_dilation": ("floorplan", "class_mask_opening_dilation_m"),
+    "floorplan_class_mask_opening_floor_tolerance": ("floorplan", "class_mask_opening_floor_tolerance_m"),
+    "floorplan_class_mask_opening_min_height": ("floorplan", "class_mask_opening_min_height_m"),
     "floorplan_class_mask_include_doors_as_wall": ("floorplan", "class_mask_include_doors_as_wall"),
     "floorplan_class_mask_include_windows_as_wall": ("floorplan", "class_mask_include_windows_as_wall"),
     "floorplan_resolution": ("floorplan", "resolution_m_per_pixel"),
@@ -467,6 +475,10 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     floorplan["class_mask_enabled"] = as_bool(floorplan["class_mask_enabled"], "floorplan.class_mask_enabled")
     floorplan["class_mask_wall_dilation_m"] = float(floorplan["class_mask_wall_dilation_m"])
     floorplan["class_mask_furniture_dilation_m"] = float(floorplan["class_mask_furniture_dilation_m"])
+    floorplan["class_mask_opening_mode"] = str(floorplan["class_mask_opening_mode"])
+    floorplan["class_mask_opening_dilation_m"] = float(floorplan["class_mask_opening_dilation_m"])
+    floorplan["class_mask_opening_floor_tolerance_m"] = float(floorplan["class_mask_opening_floor_tolerance_m"])
+    floorplan["class_mask_opening_min_height_m"] = float(floorplan["class_mask_opening_min_height_m"])
     floorplan["class_mask_include_doors_as_wall"] = as_bool(
         floorplan["class_mask_include_doors_as_wall"], "floorplan.class_mask_include_doors_as_wall"
     )
@@ -655,6 +667,16 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("floorplan.class_mask_wall_dilation_m must be non-negative")
     if floorplan["class_mask_furniture_dilation_m"] < 0:
         raise ValueError("floorplan.class_mask_furniture_dilation_m must be non-negative")
+    if floorplan["class_mask_opening_mode"] not in {"none", "doors", "windows", "doors_and_windows"}:
+        raise ValueError(
+            "floorplan.class_mask_opening_mode must be 'none', 'doors', 'windows', or 'doors_and_windows'"
+        )
+    if floorplan["class_mask_opening_dilation_m"] < 0:
+        raise ValueError("floorplan.class_mask_opening_dilation_m must be non-negative")
+    if floorplan["class_mask_opening_floor_tolerance_m"] < 0:
+        raise ValueError("floorplan.class_mask_opening_floor_tolerance_m must be non-negative")
+    if floorplan["class_mask_opening_min_height_m"] < 0:
+        raise ValueError("floorplan.class_mask_opening_min_height_m must be non-negative")
 
     front3d = config["front3d"]
     if front3d["variant"] not in {"raw", "normalized"}:
@@ -774,6 +796,10 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         floorplan_class_mask_enabled=floorplan["class_mask_enabled"],
         floorplan_class_mask_wall_dilation=floorplan["class_mask_wall_dilation_m"],
         floorplan_class_mask_furniture_dilation=floorplan["class_mask_furniture_dilation_m"],
+        floorplan_class_mask_opening_mode=floorplan["class_mask_opening_mode"],
+        floorplan_class_mask_opening_dilation=floorplan["class_mask_opening_dilation_m"],
+        floorplan_class_mask_opening_floor_tolerance=floorplan["class_mask_opening_floor_tolerance_m"],
+        floorplan_class_mask_opening_min_height=floorplan["class_mask_opening_min_height_m"],
         floorplan_class_mask_include_doors_as_wall=floorplan["class_mask_include_doors_as_wall"],
         floorplan_class_mask_include_windows_as_wall=floorplan["class_mask_include_windows_as_wall"],
         floorplan_resolution=floorplan["resolution_m_per_pixel"],

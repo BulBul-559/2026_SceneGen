@@ -162,6 +162,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--floorplan-class-mask-wall-dilation", type=float, default=None)
     parser.add_argument("--floorplan-class-mask-furniture-dilation", type=float, default=None)
     parser.add_argument(
+        "--floorplan-class-mask-opening-mode",
+        choices=("none", "doors", "windows", "doors_and_windows"),
+        default=None,
+        help="Which 3D-FRONT openings should be cut from wall pixels and reassigned to free_space.",
+    )
+    parser.add_argument("--floorplan-class-mask-opening-dilation", type=float, default=None)
+    parser.add_argument("--floorplan-class-mask-opening-floor-tolerance", type=float, default=None)
+    parser.add_argument("--floorplan-class-mask-opening-min-height", type=float, default=None)
+    parser.add_argument(
         "--floorplan-class-mask-include-doors-as-wall",
         action=argparse.BooleanOptionalAction,
         default=None,

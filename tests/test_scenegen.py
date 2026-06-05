@@ -542,6 +542,13 @@ def make_front3d_runtime_fixture(tmp_path: Path) -> Path:
                         "material": "wall_mat",
                         "xyz": [0.0, 0.0, 0.0, 0.0, 0.0, -3.0, 0.0, 2.5, -3.0, 0.0, 2.5, 0.0],
                         "faces": [0, 1, 2, 0, 2, 3],
+                    },
+                    {
+                        "uid": "door/0",
+                        "type": "Door",
+                        "material": "door_mat",
+                        "xyz": [0.0, 0.0, -1.7, 0.0, 0.0, -1.3, 0.0, 2.1, -1.3, 0.0, 2.1, -1.7],
+                        "faces": [0, 1, 2, 0, 2, 3],
                     }
                 ],
             },
@@ -664,10 +671,15 @@ def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
     assert class_mask.dtype == np.uint8
     assert {0, 1, 2, 3}.issubset(set(np.unique(class_mask).tolist()))
     class_meta = json.loads((scene_dir / "floorplan" / "class_mask_meta.json").read_text(encoding="utf-8"))
+    opening_col = int(round((0.0 - class_meta["origin_xy_m"][0]) / class_meta["resolution_m_per_pixel"]))
+    opening_row = int(round(((class_meta["origin_xy_m"][1] + class_meta["extent_xy_m"][1]) - 1.5) / class_meta["resolution_m_per_pixel"]))
+    assert class_mask[opening_row, opening_col] == 2
     assert class_meta["classes"]["0"]["name"] == "outdoor"
     assert class_meta["classes"]["1"]["name"] == "wall"
     assert class_meta["classes"]["2"]["name"] == "free_space"
     assert class_meta["classes"]["3"]["name"] == "furniture"
+    assert class_meta["opening_mode"] == "doors"
+    assert class_meta["opening_type_counts"]["door"] == 1
     assert class_meta["class_id_counts"]["1"] > 0
     assert class_meta["class_id_counts"]["2"] > 0
     assert class_meta["class_id_counts"]["3"] > 0
