@@ -305,8 +305,11 @@ def generate_front3d_class_mask(
             include_doors_as_wall=include_doors_as_wall,
             include_windows_as_wall=include_windows_as_wall,
         ):
-            target_draw = wall_draw
-            wall_mesh_count += 1
+            if opening_kind is not None:
+                target_draw = None
+            else:
+                target_draw = wall_draw
+                wall_mesh_count += 1
         else:
             target_draw = None
         if target_draw is None:
@@ -321,10 +324,13 @@ def generate_front3d_class_mask(
             resolution=resolution,
         )
 
-    if wall_dilation_m > 0:
-        wall_image = dilate_binary_image(wall_image, wall_dilation_m, resolution)
     if opening_dilation_m > 0:
         opening_image = dilate_binary_image(opening_image, opening_dilation_m, resolution)
+    opening_layer = np.asarray(opening_image, dtype=np.uint8) > 0
+    wall_without_openings_layer = (np.asarray(wall_image, dtype=np.uint8) > 0) & ~opening_layer
+    wall_image = Image.fromarray((wall_without_openings_layer.astype(np.uint8) * 255), mode="L")
+    if wall_dilation_m > 0:
+        wall_image = dilate_binary_image(wall_image, wall_dilation_m, resolution)
 
     furniture_image = Image.new("L", image_size, 0)
     furniture_draw = ImageDraw.Draw(furniture_image)
@@ -341,15 +347,12 @@ def generate_front3d_class_mask(
 
     floor_layer = np.asarray(floor_image, dtype=np.uint8) > 0
     wall_layer = np.asarray(wall_image, dtype=np.uint8) > 0
-    opening_layer = np.asarray(opening_image, dtype=np.uint8) > 0
     furniture_layer = np.asarray(furniture_image, dtype=np.uint8) > 0
+    indoor_layer = floor_layer | opening_layer
     class_mask = np.zeros((height_px, width_px), dtype=np.uint8)
-    class_mask[floor_layer] = 2
+    class_mask[indoor_layer] = 2
     class_mask[wall_layer] = 1
-    opening_free_layer = opening_layer & wall_layer
-    class_mask[opening_free_layer] = 2
-    class_mask[furniture_layer & ~wall_layer] = 3
-    class_mask[furniture_layer & opening_free_layer] = 3
+    class_mask[furniture_layer & indoor_layer & ~wall_layer] = 3
 
     mask_path = output_dir / "class_mask.png"
     preview_path = output_dir / "class_mask_preview.png"
@@ -389,7 +392,7 @@ def generate_front3d_class_mask(
         "class_counts": class_counts,
         "class_id_counts": class_id_counts,
         "priority": ["outdoor", "free_space", "furniture", "wall"],
-        "opening_priority": "wall pixels overlapped by selected openings are reassigned to free_space before furniture",
+        "opening_priority": "selected openings are marked as free_space before wall dilation; wall dilation may narrow or close them and no post-dilation restore is applied",
         "source_scene": portable_path(base_scene.source_scene_json, root),
         "source_metadata": portable_path(base_scene.metadata_json, root),
         "architecture_variant": variant,

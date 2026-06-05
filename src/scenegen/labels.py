@@ -697,8 +697,11 @@ def walk_blocking_obstacles(
     return tuple(blockers)
 
 
-def point_in_walk_obstacles(x: float, y: float, obstacles: tuple[LabelObstacle, ...], config: LabelConfig) -> bool:
-    return any(point_in_obstacle_xy(x, y, obstacle) for obstacle in walk_blocking_obstacles(obstacles, config))
+def point_in_walk_obstacles(x: float, y: float, z: float, obstacles: tuple[LabelObstacle, ...], config: LabelConfig) -> bool:
+    return any(
+        point_in_obstacles(x, y, z, (obstacle,), config.obstacle_strategy)
+        for obstacle in walk_blocking_obstacles(obstacles, config)
+    )
 
 
 def point_has_wall_clearance(x: float, y: float, triangles: tuple[SupportTriangle, ...], clearance: float) -> bool:
@@ -795,9 +798,12 @@ def generate_ue_points_for_room(
                 wall_clearance_rejected_count += 1
                 continue
             if config.ue_strategy == "free_space_grid":
-                blocked = any(point_in_obstacle_xy(x, y, obstacle) for obstacle in walk_blockers)
+                blocked = any(
+                    point_in_obstacles(x, y, point_z, (obstacle,), config.obstacle_strategy)
+                    for obstacle in walk_blockers
+                )
             else:
-                blocked = point_in_obstacles(x, y, point_z, context.obstacles, config.obstacle_strategy)
+                blocked = False
             if blocked:
                 obstacle_rejected_count += 1
                 continue
@@ -833,7 +839,8 @@ def generate_ue_points_for_room(
         )
         stats.update(component_stats)
     else:
-        stats["panel_obstacle_mode"] = config.obstacle_strategy
+        stats["panel_obstacle_mode"] = "none"
+        stats["panel_furniture_filter_enabled"] = False
     return UeSamplingResult(points=free_points, stats=stats)
 
 
@@ -1150,11 +1157,18 @@ def room_sampling_result_from_assigned_points(
         "grid_resolution_m": config.grid_resolution_m,
         "boundary_clearance_m": context.boundary_clearance_m,
         "assigned_count": len(points),
-        "floor_candidate_count": global_result.stats.get("floor_candidate_count", 0),
+        "floor_candidate_count": global_result.stats.get(
+            "panel_candidate_count", global_result.stats.get("floor_candidate_count", 0)
+        ),
         "wall_clearance_rejected_count": global_result.stats.get("wall_clearance_rejected_count", 0),
         "obstacle_rejected_count": global_result.stats.get("obstacle_rejected_count", 0),
         "kept_count": len(points),
-        "global_floor_candidate_count": global_result.stats.get("floor_candidate_count", 0),
+        "global_rectangular_candidate_count": global_result.stats.get("rectangular_candidate_count", 0),
+        "global_indoor_candidate_count": global_result.stats.get("indoor_candidate_count", 0),
+        "global_panel_candidate_count": global_result.stats.get("panel_candidate_count", 0),
+        "global_floor_candidate_count": global_result.stats.get(
+            "panel_candidate_count", global_result.stats.get("floor_candidate_count", 0)
+        ),
         "global_wall_clearance_rejected_count": global_result.stats.get("wall_clearance_rejected_count", 0),
         "global_obstacle_rejected_count": global_result.stats.get("obstacle_rejected_count", 0),
         "global_kept_count": global_result.stats.get("kept_count", 0),
@@ -1176,7 +1190,7 @@ def room_sampling_result_from_assigned_points(
     return UeSamplingResult(points=points, stats=stats)
 
 
-def generate_front3d_opening_free_space_points(
+def generate_front3d_global_subtractive_points(
     base_scene: Front3DBaseScene,
     placements: list[PlacedAsset],
     context: RoomLabelContext,
@@ -1194,22 +1208,24 @@ def generate_front3d_opening_free_space_points(
     height_px = max(1, int(math.ceil((max_y - min_y) / resolution)) + 1)
     image_size = (width_px, height_px)
 
-    floor_image = Image.new("L", image_size, 0)
+    indoor_image = Image.new("L", image_size, 0)
     wall_image = Image.new("L", image_size, 0)
-    opening_image = Image.new("L", image_size, 0)
-    floor_draw = ImageDraw.Draw(floor_image)
+    door_image = Image.new("L", image_size, 0)
+    indoor_draw = ImageDraw.Draw(indoor_image)
     wall_draw = ImageDraw.Draw(wall_image)
-    opening_draw = ImageDraw.Draw(opening_image)
+    door_draw = ImageDraw.Draw(door_image)
+    mesh_type_counts: dict[str, int] = {}
     floor_mesh_count = 0
     wall_mesh_count = 0
-    opening_mesh_count = 0
-    opening_type_counts: dict[str, int] = {}
+    door_mesh_count = 0
+    door_type_counts: dict[str, int] = {}
 
     for mesh in scene_data.get("mesh") or []:
         if not isinstance(mesh, dict):
             continue
         mesh_type = str(mesh.get("type") or "Unknown")
-        opening_kind = front3d_opening_kind(
+        mesh_type_counts[mesh_type] = mesh_type_counts.get(mesh_type, 0) + 1
+        door_kind = front3d_opening_kind(
             mesh,
             mesh_type,
             variant=variant,
@@ -1218,11 +1234,11 @@ def generate_front3d_opening_free_space_points(
             floor_tolerance_m=0.25,
             min_height_m=max(1.0, config.ue_height_m - 0.1),
         )
-        if opening_kind is not None:
-            opening_mesh_count += 1
-            opening_type_counts[opening_kind] = opening_type_counts.get(opening_kind, 0) + 1
+        if door_kind is not None:
+            door_mesh_count += 1
+            door_type_counts[door_kind] = door_type_counts.get(door_kind, 0) + 1
             draw_front3d_mesh_projection(
-                opening_draw,
+                door_draw,
                 mesh,
                 variant=variant,
                 base_scene=base_scene,
@@ -1232,9 +1248,9 @@ def generate_front3d_opening_free_space_points(
             )
         target_draw: ImageDraw.ImageDraw | None
         if "floor" in mesh_type.lower():
-            target_draw = floor_draw
+            target_draw = indoor_draw
             floor_mesh_count += 1
-        elif front3d_mesh_type_is_wall(mesh_type, include_doors_as_wall=True, include_windows_as_wall=True):
+        elif front3d_mesh_type_is_wall(mesh_type, include_doors_as_wall=False, include_windows_as_wall=True):
             target_draw = wall_draw
             wall_mesh_count += 1
         else:
@@ -1251,14 +1267,15 @@ def generate_front3d_opening_free_space_points(
             resolution=resolution,
         )
 
+    indoor_layer = np.asarray(indoor_image, dtype=np.uint8) > 0
+    door_layer = np.asarray(door_image, dtype=np.uint8) > 0
+    wall_without_doors_layer = (np.asarray(wall_image, dtype=np.uint8) > 0) & ~door_layer
+    wall_image = Image.fromarray((wall_without_doors_layer.astype(np.uint8) * 255), mode="L")
     if config.corridor_clearance_m > 0:
         wall_image = dilate_binary_image(wall_image, config.corridor_clearance_m, resolution)
-
-    floor_layer = np.asarray(floor_image, dtype=np.uint8) > 0
     wall_layer = np.asarray(wall_image, dtype=np.uint8) > 0
-    opening_layer = np.asarray(opening_image, dtype=np.uint8) > 0
-    opening_free_layer = opening_layer & wall_layer
-    free_layer = (floor_layer & ~wall_layer) | opening_free_layer
+    indoor_with_doors_layer = indoor_layer | door_layer
+    panel_layer = indoor_with_doors_layer & ~wall_layer
 
     walk_blockers = walk_blocking_obstacles(context.obstacles, config)
     ignored_low_obstacle_count = sum(
@@ -1271,12 +1288,18 @@ def generate_front3d_opening_free_space_points(
         1 for obstacle in context.obstacles if obstacle.placement_class not in set(config.walk_blocking_classes)
     )
     free_points: list[tuple[float, float]] = []
-    floor_candidate_count = int(free_layer.sum())
+    rectangular_candidate_count = int(width_px * height_px)
+    indoor_candidate_count = int(indoor_with_doors_layer.sum())
+    outdoor_rejected_count = rectangular_candidate_count - indoor_candidate_count
+    wall_rejected_count = int((indoor_with_doors_layer & wall_layer).sum())
+    panel_candidate_count = int(panel_layer.sum())
+    door_candidate_count = int(door_layer.sum())
+    door_after_wall_clearance_count = int((door_layer & panel_layer).sum())
     bounds_rejected_count = 0
     output_bounds_clamped_count = 0
     obstacle_rejected_count = 0
     point_z = context.floor_z + config.ue_height_m
-    for row, col in np.argwhere(free_layer):
+    for row, col in np.argwhere(panel_layer):
         x = min_x + int(col) * resolution
         y = max_y - int(row) * resolution
         if not (
@@ -1286,9 +1309,9 @@ def generate_front3d_opening_free_space_points(
             bounds_rejected_count += 1
             continue
         if config.ue_strategy == "free_space_grid":
-            blocked = any(point_in_obstacle_xy(x, y, obstacle) for obstacle in walk_blockers)
+            blocked = any(point_in_obstacles(x, y, point_z, (obstacle,), config.obstacle_strategy) for obstacle in walk_blockers)
         else:
-            blocked = point_in_obstacles(x, y, point_z, context.obstacles, config.obstacle_strategy)
+            blocked = False
         if blocked:
             obstacle_rejected_count += 1
             continue
@@ -1309,27 +1332,35 @@ def generate_front3d_opening_free_space_points(
         "ue_strategy": config.ue_strategy,
         "sampling_domain": config.sampling_domain,
         "connected_area_enabled": config.connected_area_enabled,
-        "sampling_source": "front3d_opening_aware_class_mask",
+        "sampling_source": "front3d_global_rect_subtractive_mask",
+        "sampling_pipeline_version": "2.0.0",
         "grid_resolution_m": config.grid_resolution_m,
         "boundary_clearance_m": config.corridor_clearance_m,
-        "floor_candidate_count": floor_candidate_count,
-        "wall_clearance_rejected_count": 0,
+        "rectangular_candidate_count": rectangular_candidate_count,
+        "indoor_candidate_count": indoor_candidate_count,
+        "outdoor_rejected_count": outdoor_rejected_count,
+        "wall_clearance_rejected_count": wall_rejected_count,
+        "panel_candidate_count": panel_candidate_count,
+        "door_candidate_count": door_candidate_count,
+        "door_after_wall_clearance_count": door_after_wall_clearance_count,
         "bounds_rejected_count": bounds_rejected_count,
         "output_bounds_clamped_count": output_bounds_clamped_count,
         "obstacle_rejected_count": obstacle_rejected_count,
         "kept_count": len(free_points),
-        "class_mask_opening_mode": "doors",
-        "class_mask_windows_used_as_openings": False,
-        "class_mask_floor_mesh_count": floor_mesh_count,
-        "class_mask_wall_mesh_count": wall_mesh_count,
-        "class_mask_opening_mesh_count": opening_mesh_count,
-        "class_mask_opening_type_counts": opening_type_counts,
-        "class_mask_grid_shape": [height_px, width_px],
+        "door_opening_mode": "doors",
+        "door_marking_policy": "door_free_before_wall_dilation_no_restore",
+        "windows_used_as_openings": False,
+        "floor_mesh_count": floor_mesh_count,
+        "wall_mesh_count": wall_mesh_count,
+        "door_mesh_count": door_mesh_count,
+        "door_type_counts": door_type_counts,
+        "mesh_type_counts": mesh_type_counts,
+        "grid_shape": [height_px, width_px],
     }
     if config.ue_strategy == "free_space_grid":
         stats.update(
             {
-                "walk_obstacle_mode": "footprint_column",
+                "walk_obstacle_mode": config.obstacle_strategy,
                 "walk_blocking_classes": list(config.walk_blocking_classes),
                 "walk_ignore_low_obstacles_below_m": config.walk_ignore_low_obstacles_below_m,
                 "walk_min_component_area_m2": config.walk_min_component_area_m2,
@@ -1340,7 +1371,8 @@ def generate_front3d_opening_free_space_points(
         )
         stats.update(component_stats)
     else:
-        stats["panel_obstacle_mode"] = config.obstacle_strategy
+        stats["panel_obstacle_mode"] = "none"
+        stats["panel_furniture_filter_enabled"] = False
     return UeSamplingResult(points=free_points, stats=stats)
 
 
@@ -1370,9 +1402,9 @@ def validate_front3d_room_points(
         ):
             errors.append(f"{point['label']}: violates wall clearance")
         if config.ue_strategy == "free_space_grid":
-            blocked = point_in_walk_obstacles(x, y, context.obstacles, config)
+            blocked = point_in_walk_obstacles(x, y, z, context.obstacles, config)
         else:
-            blocked = point_in_obstacles(x, y, z, context.obstacles, config.obstacle_strategy)
+            blocked = False
         if blocked:
             errors.append(f"{point['label']}: inside expanded furniture obstacle")
     for point in bs_points:
@@ -1411,10 +1443,7 @@ def generate_front3d_label(
         if global_context is None:
             skipped.append({"room_id": "__global__", "room_type": "GlobalFloor", "reason": "missing_global_floor_mesh"})
         else:
-            if config.connected_area_enabled:
-                global_result = generate_front3d_opening_free_space_points(base_scene, placements, global_context, config)
-            else:
-                global_result = generate_ue_points_for_room(global_context, config)
+            global_result = generate_front3d_global_subtractive_points(base_scene, placements, global_context, config)
             room_contexts = [
                 replace(context, obstacles=global_context.obstacles, boundary_clearance_m=config.corridor_clearance_m)
                 for context in contexts

@@ -2,7 +2,7 @@
 
 SceneGen 是一个面向 Linux 环境的轻量级室内场景生成项目。它基于空场景和归一化资产，随机生成带家具、桌椅、小物件的 3D 场景，并同步导出 Sionna/Mitsuba 可加载的场景文件和平面图。
 
-当前项目版本：`1.0.0`。
+当前项目版本：`2.0.0`。
 
 当前主工作流包括 Bistro 场景生成和 3D-FRONT 已组合场景合成：Bistro 以 `data/scene/scene.obj` 作为空场景，以 `data/catalogs/bistro.v1.json` 管理资产契约；3D-FRONT 以第一阶段整理出的 `data/3D-Front/scenegen_manifest.json` 为索引，合并建筑结构和已有家具实例。`data/assets/manifest.json` 仍保留为兼容位置，但内容已经与 catalog 使用同一份清洗后的契约。
 
@@ -253,7 +253,7 @@ results/<run_name>/
 - `floorplan/stack.npz`: 二值投影栈和高度层数据。
 - `floorplan/semantic.png`: 可选输出，基于资产 placements 绘制的语义平面图。
 - `floorplan/semantic.json`: 可选输出，每个资产的类别、旋转矩形、多边形坐标、颜色和父子关系。
-- `floorplan/class_mask.png`: 可选 front3d 四分类掩码，单通道 `uint8`，类别固定为 `0 outdoor`、`1 wall`、`2 free_space`、`3 furniture`；默认会用 3D-FRONT 原始 `Door/Hole/Pocket` 从 wall 中扣除门洞并标为 free space。
+- `floorplan/class_mask.png`: 可选 front3d 四分类掩码，单通道 `uint8`，类别固定为 `0 outdoor`、`1 wall`、`2 free_space`、`3 furniture`；2.0.0 起会先把 3D-FRONT 原始 `Door/Hole/Pocket` 标为 free space，再执行墙体膨胀，门洞不会在膨胀后被额外恢复。
 - `floorplan/class_mask_preview.png`: 四分类掩码彩色预览图。
 - `floorplan/class_mask.npy` / `floorplan/class_mask.npz`: 训练读取用的数组格式，`npz` 额外带分辨率、origin 和类别名。
 - `floorplan/class_mask_meta.json`: 四分类掩码的类别 legend、像素统计、建筑 mesh 统计和生成参数。
@@ -343,11 +343,11 @@ label:
   fail_on_error: true
 ```
 
-3D-FRONT 的 UE 默认使用 `sampling_domain: global_floor` 与 `connected_area_enabled: true`：`plane_grid` 和 `free_space_grid` 都会先基于 opening-aware class mask 在整个建筑自由空间采样，再把点按 room floor mesh 归属到各个 room；归属不到任何 room 但仍在 free space 上的点会进入 `corridor_room_id: "__corridor__"` 的 connected area group。这个采样会使用 3D-FRONT 原始 `Door/Hole/Pocket` 扣出门洞，但不会把窗户当成 UE 采样开口。旧的逐 room 采样可切回 `sampling_domain: room_floor`，或设置 `connected_area_enabled: false` 只保留 room 内点。
+3D-FRONT 的 UE 默认使用 `sampling_domain: global_floor` 与 `connected_area_enabled: true`：`plane_grid` 和 `free_space_grid` 都会先在建筑 XY bbox 的全局矩形网格上采样，再扣除 outdoor 和按 `corridor_clearance_m` 膨胀后的 wall，最后把点按 room floor mesh 归属到各个 room；归属不到任何 room 但仍在 free space 上的点会进入 `corridor_room_id: "__corridor__"` 的 connected area group。这个采样会把 3D-FRONT 原始 `Door/Hole/Pocket` 先标为 free space，但不会把窗户当成 UE 采样开口，也不会在墙体膨胀后额外恢复门洞；门洞足够宽就自然保留采样点，否则会被墙体间隔吃掉。旧的逐 room 采样可切回 `sampling_domain: room_floor`，或设置 `connected_area_enabled: false` 只保留 room 内点。
 
-`plane_grid` 表示指定高度上的采样平面，默认使用 `obstacle_strategy: height_aware` 做高度感知过滤，UE 高于桌面等低矮物体时不再被占地投影清理；如需旧的整列占用行为，可切换为 `footprint_column`。
+`plane_grid` 表示室内平面采样：只扣除 outdoor 和墙体间隔，不扣家具。
 
-`free_space_grid` 表示更保守的可行走区域：它在 floor mask 基础上按家具 footprint 扣除障碍，不受 UE 高度影响；同时会忽略高度低于 `walk_ignore_low_obstacles_below_m` 的薄物体，并删除小于 `walk_min_component_area_m2` 的孤立小区域。默认参与 walk 扣除的 placement class 是 `table`、`seat` 和 `floor`。
+`free_space_grid` 表示可行走区域：它在 `plane_grid` 的基础上继续扣除家具障碍，默认使用 `obstacle_strategy: height_aware` 做高度感知过滤；如需保守的整列占用行为，可切换为 `footprint_column`。同时会忽略高度低于 `walk_ignore_low_obstacles_below_m` 的薄物体，并删除小于 `walk_min_component_area_m2` 的孤立小区域。默认参与 walk 扣除的 placement class 是 `table`、`seat` 和 `floor`。
 
 label 支持批量生成：`batch_strategies`、`batch_grid_resolutions_m` 和 `batch_connected_area_enabled` 会做笛卡尔组合。例如：
 

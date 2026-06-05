@@ -111,15 +111,15 @@ CLI 覆盖：`--quality/--no-quality`、`--quality-fail-on-error/--no-quality-fa
 | `enabled` | boolean | `true` | 是否生成 `label/*.json` 和 `label/report/*_report.json`。 |
 | `version` | `"1.1"` | `"1.1"` | 当前固定版本。 |
 | `ue_height_m` | float, `>0` | `1.6` | UE 相对 floor 的高度。 |
-| `sampling_domain` | `global_floor` / `room_floor` | `global_floor` | UE 采样域。`front3d + global_floor + connected_area_enabled: true` 会先在 opening-aware 全局 free-space mask 上采样，再按 room floor mesh 归属；剩余点进入 connected area group。`room_floor` 为旧逻辑，每个 room 单独采样。 |
+| `sampling_domain` | `global_floor` / `room_floor` | `global_floor` | UE 采样域。`front3d + global_floor` 使用 2.0.0 全局矩形减法采样：先在建筑 XY bbox 网格上采样，再扣 outdoor 和膨胀后的 wall，最后按 room 归属。`room_floor` 为旧逻辑，每个 room 单独采样。 |
 | `ue_strategy` | `free_space_grid` / `plane_grid` | `free_space_grid` | 单 label 兼容字段。若未显式设置 `batch_strategies`，CLI/YAML 设置该字段会同步到批量生成策略。 |
 | `grid_resolution_m` | float, `>0` | `0.1` | 单 label 兼容字段。若未显式设置 `batch_grid_resolutions_m`，CLI/YAML 设置该字段会同步到批量采样间隔。 |
 | `batch_strategies` | list: `free_space_grid` / `plane_grid` | `[free_space_grid]` | 批量 UE 采样策略。`free_space_grid` 使用可行走区域网格，输出名为 `label_walk_*`；`plane_grid` 在 room floor mesh 平面域内采样，输出名为 `label_panel_*`。 |
 | `batch_grid_resolutions_m` | list of float, `>0` | `[0.1]` | 批量 UE 网格间隔。会与 `batch_strategies` 做笛卡尔组合，例如 `[0.1, 0.2]` 与两种策略会生成 4 份 label。 |
-| `connected_area_enabled` | boolean | `true` | 单 label 兼容字段。是否启用 3D-FRONT connected area 采样；开启时 panel/walk 都使用 Door/Hole/Pocket 扣出门洞，剩余未归属点进入 connected area group；关闭时只保留 room 内点。 |
+| `connected_area_enabled` | boolean | `true` | 单 label 兼容字段。是否保留 3D-FRONT connected area；开启时未归属 room 但仍在全局 free space 上的点进入 connected area group；关闭时只保留 room 内点。 |
 | `batch_connected_area_enabled` | list of boolean | `[true]` | 批量 connected area 维度。会与 `batch_strategies`、`batch_grid_resolutions_m` 做笛卡尔组合，例如 `[true, false]` 可同时生成 connected 和 room-only 两套 label。 |
-| `ue_clearance_m` | float, `>=0` | `0.35` | UE 与家具 bbox 的避让距离。 |
-| `obstacle_strategy` | `height_aware` / `footprint_column` | `height_aware` | 家具障碍物过滤方式。`height_aware` 只过滤与 UE 高度相交的物体；`footprint_column` 按家具 XY 占地整列过滤。 |
+| `ue_clearance_m` | float, `>=0` | `0.35` | walk 家具过滤时对家具 bbox 的额外避让距离。 |
+| `obstacle_strategy` | `height_aware` / `footprint_column` | `height_aware` | walk 家具障碍物过滤方式。`height_aware` 只过滤与 UE 高度相交的物体；`footprint_column` 按家具 XY 占地整列过滤。 |
 | `walk_ignore_low_obstacles_below_m` | float, `>=0` | `0.10` | `free_space_grid` 专用。高度低于该阈值的低矮物体不作为可行走区域障碍，减少地毯、薄垫等误判。 |
 | `walk_blocking_classes` | list: `table` / `seat` / `tabletop` / `floor` / `skip` | `[table, seat, floor]` | `free_space_grid` 专用。只有这些 placement class 会从 walk 区域扣除。 |
 | `walk_min_component_area_m2` | float, `>=0` | `0.25` | `free_space_grid` 专用。删除面积小于该值的孤立小连通区域。 |
@@ -156,12 +156,12 @@ CLI 覆盖：`--quality/--no-quality`、`--quality-fail-on-error/--no-quality-fa
 
 `plane_grid` 和 `free_space_grid` 的区别：
 
-- `plane_grid` 表示指定高度上的采样平面，默认使用 `obstacle_strategy` 做高度感知过滤。
-- `free_space_grid` 表示可行走区域，会在 floor mask 上按家具 footprint 扣除障碍，不受 UE 高度影响；同时会忽略低于 `walk_ignore_low_obstacles_below_m` 的薄物体，并删除小于 `walk_min_component_area_m2` 的孤立区域。
+- `plane_grid` 表示室内平面采样，只扣除 outdoor 和墙体间隔，不扣家具。
+- `free_space_grid` 表示可行走区域，会在 `plane_grid` 基础上按 `obstacle_strategy` 扣除家具障碍；同时会忽略低于 `walk_ignore_low_obstacles_below_m` 的薄物体，并删除小于 `walk_min_component_area_m2` 的孤立区域。
 
 采样域补充：
 
-- `global_floor` 更适合 3D-FRONT。`connected_area_enabled: true` 时，`plane_grid` 和 `free_space_grid` 都会先用 3D-FRONT 原始 `Door/Hole/Pocket` 扣出门洞，得到全局 free-space 采样区域，再把点归属到具体 room；归属不到 room 的点进入 connected area group。窗户不会作为 UE 采样开口。
+- `global_floor` 更适合 3D-FRONT。`plane_grid` 和 `free_space_grid` 都使用同一个全局矩形减法域：`Door/Hole/Pocket` 会先被标为 free space，随后墙体按 `corridor_clearance_m` 膨胀并自然收窄门洞；不做膨胀后的门洞恢复。窗户不会作为 UE 采样开口。`connected_area_enabled: true` 时，归属不到 room 的点进入 connected area group。
 - `room_floor` 更保守，适合需要严格房间内采样的实验，但门洞/联通处可能缺点。
 
 四种组合示例：
@@ -194,12 +194,12 @@ CLI 覆盖：`--label/--no-label`、`--label-version`、`--label-ue-height`、`-
 | `class_mask_enabled` | boolean | `false` | 是否为 `front3d` 生成训练用四分类掩码。当前只支持 `front3d`。 |
 | `class_mask_wall_dilation_m` | float, `>=0` | `0.0` | 生成四分类掩码时对 wall 类的额外膨胀距离。 |
 | `class_mask_furniture_dilation_m` | float, `>=0` | `0.0` | 生成四分类掩码时对 furniture 类的额外膨胀距离。 |
-| `class_mask_opening_mode` | `none` / `doors` / `windows` / `doors_and_windows` | `doors` | 哪些 3D-FRONT 开口会从 wall 中扣除并标为 `free_space`。`doors` 会使用 `Door` 以及落地的 `Hole/Pocket`；`windows` 会使用 `Window/BayWindow` 以及非落地的 `Hole/Pocket`。 |
+| `class_mask_opening_mode` | `none` / `doors` / `windows` / `doors_and_windows` | `doors` | 哪些 3D-FRONT 开口会在墙体膨胀前标为 `free_space`。`doors` 会使用 `Door` 以及落地的 `Hole/Pocket`；`windows` 会使用 `Window/BayWindow` 以及非落地的 `Hole/Pocket`。 |
 | `class_mask_opening_dilation_m` | float, `>=0` | `0.0` | 对开口 cutter 的额外膨胀距离，可用于弥合墙体栅格化误差。 |
 | `class_mask_opening_floor_tolerance_m` | float, `>=0` | `0.25` | 判定 `Hole/Pocket` 是否落地的高度容差。 |
 | `class_mask_opening_min_height_m` | float, `>=0` | `1.6` | `Hole/Pocket` 被当成可通行门洞/窗洞时所需的最小高度。 |
-| `class_mask_include_doors_as_wall` | boolean | `true` | 是否先把 door mesh 归入 wall/建筑阻挡类；若 `class_mask_opening_mode` 包含 doors，随后会被开口逻辑扣回 free。 |
-| `class_mask_include_windows_as_wall` | boolean | `true` | 是否先把 window mesh 归入 wall/建筑阻挡类；若 `class_mask_opening_mode` 包含 windows，随后会被开口逻辑扣回 free。 |
+| `class_mask_include_doors_as_wall` | boolean | `true` | 是否把未被 `class_mask_opening_mode` 选中的 door mesh 归入 wall/建筑阻挡类；被选中的 opening 会在墙体膨胀前从 wall 中移除。 |
+| `class_mask_include_windows_as_wall` | boolean | `true` | 是否把未被 `class_mask_opening_mode` 选中的 window mesh 归入 wall/建筑阻挡类；被选中的 opening 会在墙体膨胀前从 wall 中移除。 |
 | `resolution_m_per_pixel` | float, `>0` | `0.05` | 平面图栅格分辨率。 |
 | `height_mode` | `heights` / `layers` | `heights` | `heights` 渲染指定高度；`layers` 使用逐层扫描。 |
 | `heights_m` | list of float | `[1.6]` | `height_mode: heights` 时的投影高度序列。 |
@@ -222,7 +222,7 @@ CLI 覆盖：`--label/--no-label`、`--label-version`、`--label-ue-height`、`-
 - `floorplan/class_mask.npz`: 压缩包，包含 mask、分辨率、origin 和类别名。
 - `floorplan/class_mask_meta.json`: 类别 legend、像素计数、建筑 mesh 统计和参数记录。
 
-类别固定为：`0 outdoor`、`1 wall`、`2 free_space`、`3 furniture`。生成流程为：floor 区域先成为自由空间，墙体覆盖自由空间，`Door/Hole/Pocket/Window` 等开口按 `class_mask_opening_mode` 从墙中扣回 `free_space`，最后家具在非墙区域覆盖为 `furniture`。
+类别固定为：`0 outdoor`、`1 wall`、`2 free_space`、`3 furniture`。生成流程为：floor 区域和选中的 opening 先成为自由空间，选中的 opening 在墙体膨胀前从 wall 中移除，墙体按配置膨胀后覆盖自由空间；不做膨胀后的 opening 恢复。最后家具在非墙的室内区域覆盖为 `furniture`。
 
 CLI 覆盖：`--floorplan/--no-floorplan`、`--floorplan-geometry/--no-floorplan-geometry`、`--floorplan-geometry-clean/--no-floorplan-geometry-clean`、`--floorplan-geometry-clean-min-density`、`--floorplan-geometry-clean-min-neighbors`、`--floorplan-geometry-clean-min-z`、`--floorplan-geometry-clean-max-abs-normal-z`、`--floorplan-geometry-clean-opening-px`、`--floorplan-geometry-clean-closing-px`、`--semantic-floorplan/--no-semantic-floorplan`、`--floorplan-class-mask/--no-floorplan-class-mask`、`--floorplan-class-mask-wall-dilation`、`--floorplan-class-mask-furniture-dilation`、`--floorplan-class-mask-opening-mode`、`--floorplan-class-mask-opening-dilation`、`--floorplan-class-mask-opening-floor-tolerance`、`--floorplan-class-mask-opening-min-height`、`--floorplan-class-mask-include-doors-as-wall/--no-floorplan-class-mask-include-doors-as-wall`、`--floorplan-class-mask-include-windows-as-wall/--no-floorplan-class-mask-include-windows-as-wall`、`--floorplan-resolution`、`--floorplan-height-mode`、`--floorplan-heights`、`--floorplan-step`、`--floorplan-top-z`、`--floorplan-bottom-z`、`--floorplan-sample-density-scale`、`--floorplan-min-sample-points`、`--floorplan-max-sample-points`、`--floorplan-preview-tile-size`、`--floorplan-semantic-padding`、`--floorplan-semantic-draw-labels/--no-floorplan-semantic-draw-labels`、`--floorplan-fail-on-error/--no-floorplan-fail-on-error`。
 

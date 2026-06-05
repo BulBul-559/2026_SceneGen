@@ -59,7 +59,7 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 - `sample_density_scale: 128.0`
 - `semantic_enabled: false`
 - `geometry_clean_enabled: false`
-- `class_mask_enabled: false`: 需要训练用四分类掩码时在 `front3d` 模式打开。输出 `floorplan/class_mask.png`、`class_mask_preview.png`、`class_mask.npy`、`class_mask.npz` 和 `class_mask_meta.json`，类别固定为 `0 outdoor`、`1 wall`、`2 free_space`、`3 furniture`。默认 `class_mask_opening_mode: doors`，会用 3D-FRONT 原始 `Door/Hole/Pocket` 从 wall 中扣除门洞；可切到 `windows` 或 `doors_and_windows`。
+- `class_mask_enabled: false`: 需要训练用四分类掩码时在 `front3d` 模式打开。输出 `floorplan/class_mask.png`、`class_mask_preview.png`、`class_mask.npy`、`class_mask.npz` 和 `class_mask_meta.json`，类别固定为 `0 outdoor`、`1 wall`、`2 free_space`、`3 furniture`。2.0.0 起默认 `class_mask_opening_mode: doors` 会把 3D-FRONT 原始 `Door/Hole/Pocket` 在墙体膨胀前标为 free space，不做膨胀后的门洞恢复；可切到 `windows` 或 `doors_and_windows`。
 
 `front3d` 默认策略：
 
@@ -87,7 +87,7 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 - `corridor_clearance_m: 0.05`
 - `overlay_enabled: true`
 
-`sampling_domain: global_floor` + `connected_area_enabled: true` 是当前 front3d 推荐策略：`plane_grid` 和 `free_space_grid` 先在 opening-aware 全建筑 free-space mask 上采样，再按 room floor mesh 分类，未归属点进入 `ConnectedArea` group。门洞使用原始 `Door/Hole/Pocket` 打开，窗户不作为 UE 采样开口。`batch_connected_area_enabled: [true, false]` 可同时生成 connected 和 room-only 两套 label。需要严格旧行为时切换为 `room_floor`。单基站定位实验可用 `bs_strategy: geometry_center`，它会在建筑几何中心附近搜索一个满足自由空间和 BS 离墙约束的 `BS0`。
+`sampling_domain: global_floor` + `connected_area_enabled: true` 是当前 front3d 推荐策略：`plane_grid` 和 `free_space_grid` 先在建筑 XY bbox 的全局矩形网格上采样，再扣 outdoor 和膨胀后的 wall，随后按 room floor mesh 分类，未归属点进入 `ConnectedArea` group。门洞使用原始 `Door/Hole/Pocket` 在墙体膨胀前标为 free space，不做膨胀后的门洞恢复；窗户不作为 UE 采样开口。`batch_connected_area_enabled: [true, false]` 可同时生成 connected 和 room-only 两套 label。需要严格旧行为时切换为 `room_floor`。单基站定位实验可用 `bs_strategy: geometry_center`，它会在建筑几何中心附近搜索一个满足自由空间和 BS 离墙约束的 `BS0`。
 
 ## 常用命令
 

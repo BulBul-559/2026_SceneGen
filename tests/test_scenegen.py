@@ -73,12 +73,12 @@ def test_floorplan_layer_filename_uses_height_token() -> None:
 
 
 def test_cli_version_matches_package_version(capsys: pytest.CaptureFixture[str]) -> None:
-    assert __version__ == "1.0.0"
+    assert __version__ == "2.0.0"
     with pytest.raises(SystemExit) as exc_info:
         parse_args(["--version"])
 
     assert exc_info.value.code == 0
-    assert capsys.readouterr().out.strip() == "SceneGen 1.0.0"
+    assert capsys.readouterr().out.strip() == "SceneGen 2.0.0"
 
 
 def test_template_config_matches_code_defaults() -> None:
@@ -164,7 +164,7 @@ def test_front3d_precheck_rejects_anomalous_statistics() -> None:
     }
 
 
-def test_label_plane_grid_respects_floor_domain_and_obstacles() -> None:
+def test_label_plane_grid_respects_floor_domain_and_ignores_obstacles() -> None:
     config = LabelConfig.from_mapping(
         {
             **DEFAULT_CONFIG["label"],
@@ -191,7 +191,9 @@ def test_label_plane_grid_respects_floor_domain_and_obstacles() -> None:
 
     assert (3.0, 3.0) not in points
     assert (1.0, 1.0) in points
-    assert (2.0, 2.0) not in points
+    assert (2.0, 2.0) in points
+    assert points.stats["panel_obstacle_mode"] == "none"
+    assert points.stats["panel_furniture_filter_enabled"] is False
 
 
 def test_label_height_aware_obstacles_keep_points_above_low_objects() -> None:
@@ -199,7 +201,7 @@ def test_label_height_aware_obstacles_keep_points_above_low_objects() -> None:
         {
             **DEFAULT_CONFIG["label"],
             "ue_height_m": 1.8,
-            "ue_strategy": "plane_grid",
+            "ue_strategy": "free_space_grid",
             "grid_resolution_m": 1.0,
             "wall_clearance_m": 0.0,
             "ue_clearance_m": 0.0,
@@ -233,7 +235,7 @@ def test_label_footprint_column_obstacles_block_points_above_low_objects() -> No
         {
             **DEFAULT_CONFIG["label"],
             "ue_height_m": 1.8,
-            "ue_strategy": "plane_grid",
+            "ue_strategy": "free_space_grid",
             "grid_resolution_m": 1.0,
             "wall_clearance_m": 0.0,
             "ue_clearance_m": 0.0,
@@ -742,10 +744,12 @@ def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
     assert report["ue_count"] == len(label["ue_points"])
     assert report["group_count"] == len(label["groups"])
     room_sampling = report["rooms"][0]["ue_sampling"]
-    assert room_sampling["sampling_source"] == "front3d_opening_aware_class_mask"
-    assert room_sampling["class_mask_opening_mode"] == "doors"
-    assert room_sampling["class_mask_windows_used_as_openings"] is False
-    assert room_sampling["class_mask_opening_type_counts"]["door"] == 1
+    assert room_sampling["sampling_source"] == "front3d_global_rect_subtractive_mask"
+    assert room_sampling["sampling_pipeline_version"] == "2.0.0"
+    assert room_sampling["door_opening_mode"] == "doors"
+    assert room_sampling["windows_used_as_openings"] is False
+    assert room_sampling["door_type_counts"]["door"] == 1
+    assert room_sampling["door_after_wall_clearance_count"] > 0
     assert not (scene_dir / "label" / "label_walk_0p1_report.json").exists()
     assert not (scene_dir / "floorplan" / "label_overlay.png").exists()
     overlay_path = scene_dir / "label_floorplan" / "label_walk_0p1.png"
@@ -823,17 +827,17 @@ def test_front3d_batch_label_outputs(tmp_path: Path) -> None:
     assert not (scene_dir / "label_report.json").exists()
     panel_label = json.loads((scene_dir / "label" / "label_panel_0p1.json").read_text(encoding="utf-8"))
     walk_label = json.loads((scene_dir / "label" / "label_walk_0p1.json").read_text(encoding="utf-8"))
-    assert len(panel_label["ue_points"]) > len(walk_label["ue_points"])
+    assert len(panel_label["ue_points"]) >= len(walk_label["ue_points"])
     walk_report = json.loads((scene_dir / "label" / "report" / "label_walk_0p1_report.json").read_text(encoding="utf-8"))
     walk_sampling = walk_report["rooms"][0]["ue_sampling"]
     assert walk_report["bs_count"] == len(walk_label["bs_points"])
     assert walk_report["ue_count"] == len(walk_label["ue_points"])
     assert walk_report["group_count"] == len(walk_label["groups"])
-    assert walk_sampling["sampling_source"] == "front3d_opening_aware_class_mask"
-    assert walk_sampling["class_mask_windows_used_as_openings"] is False
-    assert walk_sampling["walk_obstacle_mode"] == "footprint_column"
+    assert walk_sampling["sampling_source"] == "front3d_global_rect_subtractive_mask"
+    assert walk_sampling["windows_used_as_openings"] is False
+    assert walk_sampling["walk_obstacle_mode"] == "height_aware"
     assert walk_sampling["walk_blocking_obstacle_count"] == 1
-    assert walk_sampling["obstacle_rejected_count"] > 0
+    assert walk_sampling["obstacle_rejected_count"] >= 0
 
     manifest = json.loads((output_dir / "smoke_front3d" / "manifest.json").read_text(encoding="utf-8"))
     assert set(manifest["label_variants"]) == expected_names
@@ -881,14 +885,15 @@ def test_front3d_connected_area_batch_outputs_four_modes(tmp_path: Path) -> None
     walk_connected = json.loads((scene_dir / "label" / "report" / "label_walk_connected_0p1_report.json").read_text(encoding="utf-8"))
     walk_room = json.loads((scene_dir / "label" / "report" / "label_walk_room_0p1_report.json").read_text(encoding="utf-8"))
 
-    assert panel_connected["rooms"][0]["ue_sampling"]["sampling_source"] == "front3d_opening_aware_class_mask"
+    assert panel_connected["rooms"][0]["ue_sampling"]["sampling_source"] == "front3d_global_rect_subtractive_mask"
     assert panel_connected["rooms"][0]["ue_sampling"]["connected_area_enabled"] is True
-    assert panel_connected["rooms"][0]["ue_sampling"]["panel_obstacle_mode"] == "height_aware"
-    assert walk_connected["rooms"][0]["ue_sampling"]["sampling_source"] == "front3d_opening_aware_class_mask"
+    assert panel_connected["rooms"][0]["ue_sampling"]["panel_obstacle_mode"] == "none"
+    assert panel_connected["rooms"][0]["ue_sampling"]["panel_furniture_filter_enabled"] is False
+    assert walk_connected["rooms"][0]["ue_sampling"]["sampling_source"] == "front3d_global_rect_subtractive_mask"
     assert walk_connected["rooms"][0]["ue_sampling"]["connected_area_enabled"] is True
-    assert "sampling_source" not in panel_room["rooms"][0]["ue_sampling"]
+    assert panel_room["rooms"][0]["ue_sampling"]["sampling_source"] == "front3d_global_rect_subtractive_mask"
     assert panel_room["rooms"][0]["ue_sampling"]["connected_area_enabled"] is False
-    assert "sampling_source" not in walk_room["rooms"][0]["ue_sampling"]
+    assert walk_room["rooms"][0]["ue_sampling"]["sampling_source"] == "front3d_global_rect_subtractive_mask"
     assert walk_room["rooms"][0]["ue_sampling"]["connected_area_enabled"] is False
 
     manifest = json.loads((output_dir / "smoke_front3d" / "manifest.json").read_text(encoding="utf-8"))
