@@ -66,6 +66,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "enabled": True,
         "version": "1.1",
         "ue_height_m": 1.6,
+        "sampling_domain": "global_floor",
         "ue_strategy": "free_space_grid",
         "grid_resolution_m": 0.1,
         "batch_strategies": ["free_space_grid"],
@@ -84,7 +85,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "bs_area_per_point_m2": 12.0,
         "bs_height_m": 2.4,
         "bs_ceiling_margin_m": 0.3,
+        "bs_wall_clearance_m": 0.25,
+        "bs_center_initial_radius_m": 0.2,
+        "bs_center_radius_step_m": 0.1,
+        "bs_center_max_radius_m": 2.0,
         "wall_clearance_m": 0.25,
+        "corridor_room_id": "__corridor__",
+        "corridor_room_type": "Corridor",
+        "corridor_clearance_m": 0.05,
         "overlay_enabled": True,
         "fail_on_error": True,
     },
@@ -157,6 +165,7 @@ CLI_OVERRIDE_MAP: dict[str, tuple[str, ...]] = {
     "label_enabled": ("label", "enabled"),
     "label_version": ("label", "version"),
     "label_ue_height": ("label", "ue_height_m"),
+    "label_sampling_domain": ("label", "sampling_domain"),
     "label_ue_strategy": ("label", "ue_strategy"),
     "label_grid_resolution": ("label", "grid_resolution_m"),
     "label_batch_strategies": ("label", "batch_strategies"),
@@ -175,7 +184,14 @@ CLI_OVERRIDE_MAP: dict[str, tuple[str, ...]] = {
     "label_bs_area_per_point": ("label", "bs_area_per_point_m2"),
     "label_bs_height": ("label", "bs_height_m"),
     "label_bs_ceiling_margin": ("label", "bs_ceiling_margin_m"),
+    "label_bs_wall_clearance": ("label", "bs_wall_clearance_m"),
+    "label_bs_center_initial_radius": ("label", "bs_center_initial_radius_m"),
+    "label_bs_center_radius_step": ("label", "bs_center_radius_step_m"),
+    "label_bs_center_max_radius": ("label", "bs_center_max_radius_m"),
     "label_wall_clearance": ("label", "wall_clearance_m"),
+    "label_corridor_room_id": ("label", "corridor_room_id"),
+    "label_corridor_room_type": ("label", "corridor_room_type"),
+    "label_corridor_clearance": ("label", "corridor_clearance_m"),
     "label_overlay_enabled": ("label", "overlay_enabled"),
     "label_fail_on_error": ("label", "fail_on_error"),
     "floorplan_enabled": ("floorplan", "enabled"),
@@ -393,6 +409,7 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     label["enabled"] = as_bool(label["enabled"], "label.enabled")
     label["version"] = str(label["version"])
     label["ue_height_m"] = float(label["ue_height_m"])
+    label["sampling_domain"] = str(label["sampling_domain"])
     label["ue_strategy"] = str(label["ue_strategy"])
     label["grid_resolution_m"] = float(label["grid_resolution_m"])
     label["batch_strategies"] = parse_string_sequence(label["batch_strategies"], "label.batch_strategies")
@@ -413,7 +430,14 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     label["bs_area_per_point_m2"] = float(label["bs_area_per_point_m2"])
     label["bs_height_m"] = float(label["bs_height_m"])
     label["bs_ceiling_margin_m"] = float(label["bs_ceiling_margin_m"])
+    label["bs_wall_clearance_m"] = float(label["bs_wall_clearance_m"])
+    label["bs_center_initial_radius_m"] = float(label["bs_center_initial_radius_m"])
+    label["bs_center_radius_step_m"] = float(label["bs_center_radius_step_m"])
+    label["bs_center_max_radius_m"] = float(label["bs_center_max_radius_m"])
     label["wall_clearance_m"] = float(label["wall_clearance_m"])
+    label["corridor_room_id"] = str(label["corridor_room_id"])
+    label["corridor_room_type"] = str(label["corridor_room_type"])
+    label["corridor_clearance_m"] = float(label["corridor_clearance_m"])
     label["overlay_enabled"] = as_bool(label["overlay_enabled"], "label.overlay_enabled")
     label["fail_on_error"] = as_bool(label["fail_on_error"], "label.fail_on_error")
 
@@ -503,6 +527,8 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("label.version must be '1.1'")
     if label["ue_height_m"] <= 0:
         raise ValueError("label.ue_height_m must be positive")
+    if label["sampling_domain"] not in {"room_floor", "global_floor"}:
+        raise ValueError("label.sampling_domain must be 'room_floor' or 'global_floor'")
     if label["ue_strategy"] not in {"free_space_grid", "plane_grid"}:
         raise ValueError("label.ue_strategy must be 'free_space_grid' or 'plane_grid'")
     if label["grid_resolution_m"] <= 0:
@@ -524,8 +550,8 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("label.walk_blocking_classes values must be table, seat, tabletop, floor, or skip")
     if label["walk_min_component_area_m2"] < 0:
         raise ValueError("label.walk_min_component_area_m2 must be non-negative")
-    if label["bs_strategy"] != "wall_or_corner":
-        raise ValueError("label.bs_strategy must be 'wall_or_corner'")
+    if label["bs_strategy"] not in {"wall_or_corner", "geometry_center"}:
+        raise ValueError("label.bs_strategy must be 'wall_or_corner' or 'geometry_center'")
     if label["bs_count_strategy"] not in {"fixed_per_room", "area_adaptive"}:
         raise ValueError("label.bs_count_strategy must be 'fixed_per_room' or 'area_adaptive'")
     if label["bs_per_room"] < 0:
@@ -542,8 +568,22 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("label.bs_height_m must be positive")
     if label["bs_ceiling_margin_m"] < 0:
         raise ValueError("label.bs_ceiling_margin_m must be non-negative")
+    if label["bs_wall_clearance_m"] < 0:
+        raise ValueError("label.bs_wall_clearance_m must be non-negative")
+    if label["bs_center_initial_radius_m"] < 0:
+        raise ValueError("label.bs_center_initial_radius_m must be non-negative")
+    if label["bs_center_radius_step_m"] <= 0:
+        raise ValueError("label.bs_center_radius_step_m must be positive")
+    if label["bs_center_max_radius_m"] < label["bs_center_initial_radius_m"]:
+        raise ValueError("label.bs_center_max_radius_m must be greater than or equal to label.bs_center_initial_radius_m")
     if label["wall_clearance_m"] < 0:
         raise ValueError("label.wall_clearance_m must be non-negative")
+    if not label["corridor_room_id"].strip():
+        raise ValueError("label.corridor_room_id must not be empty")
+    if not label["corridor_room_type"].strip():
+        raise ValueError("label.corridor_room_type must not be empty")
+    if label["corridor_clearance_m"] < 0:
+        raise ValueError("label.corridor_clearance_m must be non-negative")
 
     floorplan = config["floorplan"]
     if floorplan["resolution_m_per_pixel"] <= 0:
@@ -662,6 +702,7 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         label_enabled=label["enabled"],
         label_version=label["version"],
         label_ue_height=label["ue_height_m"],
+        label_sampling_domain=label["sampling_domain"],
         label_ue_strategy=label["ue_strategy"],
         label_grid_resolution=label["grid_resolution_m"],
         label_batch_strategies=label["batch_strategies"],
@@ -680,7 +721,14 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         label_bs_area_per_point=label["bs_area_per_point_m2"],
         label_bs_height=label["bs_height_m"],
         label_bs_ceiling_margin=label["bs_ceiling_margin_m"],
+        label_bs_wall_clearance=label["bs_wall_clearance_m"],
+        label_bs_center_initial_radius=label["bs_center_initial_radius_m"],
+        label_bs_center_radius_step=label["bs_center_radius_step_m"],
+        label_bs_center_max_radius=label["bs_center_max_radius_m"],
         label_wall_clearance=label["wall_clearance_m"],
+        label_corridor_room_id=label["corridor_room_id"],
+        label_corridor_room_type=label["corridor_room_type"],
+        label_corridor_clearance=label["corridor_clearance_m"],
         label_overlay_enabled=label["overlay_enabled"],
         label_fail_on_error=label["fail_on_error"],
         floorplan_enabled=floorplan["enabled"],

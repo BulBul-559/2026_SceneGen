@@ -20,6 +20,7 @@ class LabelConfig:
     enabled: bool
     version: str
     ue_height_m: float
+    sampling_domain: str
     ue_strategy: str
     grid_resolution_m: float
     batch_strategies: tuple[str, ...]
@@ -38,7 +39,14 @@ class LabelConfig:
     bs_area_per_point_m2: float
     bs_height_m: float
     bs_ceiling_margin_m: float
+    bs_wall_clearance_m: float
+    bs_center_initial_radius_m: float
+    bs_center_radius_step_m: float
+    bs_center_max_radius_m: float
     wall_clearance_m: float
+    corridor_room_id: str
+    corridor_room_type: str
+    corridor_clearance_m: float
     overlay_enabled: bool
     fail_on_error: bool
 
@@ -48,6 +56,7 @@ class LabelConfig:
             enabled=bool(payload["enabled"]),
             version=str(payload["version"]),
             ue_height_m=float(payload["ue_height_m"]),
+            sampling_domain=str(payload["sampling_domain"]),
             ue_strategy=str(payload["ue_strategy"]),
             grid_resolution_m=float(payload["grid_resolution_m"]),
             batch_strategies=tuple(str(value) for value in payload["batch_strategies"]),  # type: ignore[union-attr]
@@ -66,7 +75,14 @@ class LabelConfig:
             bs_area_per_point_m2=float(payload["bs_area_per_point_m2"]),
             bs_height_m=float(payload["bs_height_m"]),
             bs_ceiling_margin_m=float(payload["bs_ceiling_margin_m"]),
+            bs_wall_clearance_m=float(payload["bs_wall_clearance_m"]),
+            bs_center_initial_radius_m=float(payload["bs_center_initial_radius_m"]),
+            bs_center_radius_step_m=float(payload["bs_center_radius_step_m"]),
+            bs_center_max_radius_m=float(payload["bs_center_max_radius_m"]),
             wall_clearance_m=float(payload["wall_clearance_m"]),
+            corridor_room_id=str(payload["corridor_room_id"]),
+            corridor_room_type=str(payload["corridor_room_type"]),
+            corridor_clearance_m=float(payload["corridor_clearance_m"]),
             overlay_enabled=bool(payload["overlay_enabled"]),
             fail_on_error=bool(payload["fail_on_error"]),
         )
@@ -83,6 +99,8 @@ class RoomLabelContext:
     ceiling_z: float | None
     bounds_xy: Rect2D
     obstacles: tuple[LabelObstacle, ...]
+    boundary_clearance_m: float = 0.0
+    is_corridor: bool = False
 
 
 @dataclass(frozen=True)
@@ -583,10 +601,14 @@ def point_in_triangles(x: float, y: float, triangles: tuple[SupportTriangle, ...
     return any(point_in_triangle_2d((x, y), tri, tolerance=1e-6) for tri in triangles)
 
 
-def label_obstacles_for_room(placements: list[PlacedAsset], room_id: str, clearance: float) -> tuple[LabelObstacle, ...]:
+def label_obstacles_for_placements(
+    placements: list[PlacedAsset],
+    clearance: float,
+    room_id: str | None = None,
+) -> tuple[LabelObstacle, ...]:
     obstacles: list[LabelObstacle] = []
     for placement in placements:
-        if placement.source_ids.get("room_instanceid") != room_id:
+        if room_id is not None and placement.source_ids.get("room_instanceid") != room_id:
             continue
         obstacles.append(
             LabelObstacle(
@@ -601,6 +623,10 @@ def label_obstacles_for_room(placements: list[PlacedAsset], room_id: str, cleara
             )
         )
     return tuple(obstacles)
+
+
+def label_obstacles_for_room(placements: list[PlacedAsset], room_id: str, clearance: float) -> tuple[LabelObstacle, ...]:
+    return label_obstacles_for_placements(placements, clearance, room_id)
 
 
 def point_in_obstacle_xy(x: float, y: float, obstacle: LabelObstacle) -> bool:
@@ -733,7 +759,7 @@ def generate_ue_points_for_room(
             if not point_in_triangles(x, y, context.floor_triangles):
                 continue
             floor_candidate_count += 1
-            if not point_has_wall_clearance(x, y, context.floor_triangles, config.wall_clearance_m):
+            if not point_has_wall_clearance(x, y, context.floor_triangles, context.boundary_clearance_m):
                 wall_clearance_rejected_count += 1
                 continue
             if config.ue_strategy == "free_space_grid":
@@ -753,7 +779,9 @@ def generate_ue_points_for_room(
         )
     stats: dict[str, object] = {
         "ue_strategy": config.ue_strategy,
+        "sampling_domain": config.sampling_domain,
         "grid_resolution_m": config.grid_resolution_m,
+        "boundary_clearance_m": context.boundary_clearance_m,
         "floor_candidate_count": floor_candidate_count,
         "wall_clearance_rejected_count": wall_clearance_rejected_count,
         "obstacle_rejected_count": obstacle_rejected_count,
@@ -817,11 +845,13 @@ def generate_bs_points_for_room(
     free_points: list[tuple[float, float]],
     config: LabelConfig,
 ) -> list[tuple[float, float, float]]:
+    if config.bs_strategy != "wall_or_corner":
+        return []
     bs_count = bs_count_for_room(context, config)
     if not free_points or bs_count <= 0:
         return []
     min_x, min_y, max_x, max_y = context.bounds_xy
-    inset = max(config.wall_clearance_m, config.grid_resolution_m)
+    inset = max(config.bs_wall_clearance_m, config.grid_resolution_m)
     targets = [
         (min_x + inset, min_y + inset),
         (max_x - inset, min_y + inset),
@@ -837,6 +867,86 @@ def generate_bs_points_for_room(
     bs_z = min(config.bs_height_m, ceiling_z - config.bs_ceiling_margin_m)
     bs_z = max(context.floor_z + 0.3, bs_z)
     return [(x, y, bs_z) for x, y in selected_xy]
+
+
+def bs_height_for_context(context: RoomLabelContext, config: LabelConfig) -> float:
+    ceiling_z = context.ceiling_z if context.ceiling_z is not None else context.floor_z + config.bs_height_m + 1.0
+    bs_z = min(config.bs_height_m, ceiling_z - config.bs_ceiling_margin_m)
+    return max(context.floor_z + 0.3, bs_z)
+
+
+def choose_geometry_center_bs(
+    global_context: RoomLabelContext,
+    grouped_free_points: list[tuple[RoomLabelContext, list[tuple[float, float]]]],
+    config: LabelConfig,
+) -> tuple[RoomLabelContext | None, tuple[float, float, float] | None, dict[str, object]]:
+    min_x, min_y, max_x, max_y = global_context.bounds_xy
+    center = ((min_x + max_x) / 2.0, (min_y + max_y) / 2.0)
+    all_candidates: list[tuple[float, float, RoomLabelContext]] = []
+    seen: set[tuple[float, float]] = set()
+    for context, points in grouped_free_points:
+        for x, y in points:
+            key = (round(x, 6), round(y, 6))
+            if key in seen:
+                continue
+            seen.add(key)
+            point_z = context.floor_z + config.ue_height_m
+            if not point_has_wall_clearance(x, y, global_context.floor_triangles, config.bs_wall_clearance_m):
+                continue
+            if point_in_obstacles(x, y, point_z, global_context.obstacles, "footprint_column"):
+                continue
+            all_candidates.append((x, y, context))
+
+    if not all_candidates:
+        return (
+            None,
+            None,
+            {
+                "ok": False,
+                "strategy": "geometry_center",
+                "reason": "no_candidate_after_clearance",
+                "scene_center_xy": [round(center[0], 3), round(center[1], 3)],
+                "candidate_count": 0,
+            },
+        )
+
+    radius = max(0.0, config.bs_center_initial_radius_m)
+    selected: tuple[float, float, RoomLabelContext] | None = None
+    selected_radius = radius
+    while radius <= config.bs_center_max_radius_m + 1e-9:
+        in_radius = [
+            candidate
+            for candidate in all_candidates
+            if (candidate[0] - center[0]) ** 2 + (candidate[1] - center[1]) ** 2 <= radius * radius + 1e-9
+        ]
+        if in_radius:
+            selected = min(in_radius, key=lambda candidate: (candidate[0] - center[0]) ** 2 + (candidate[1] - center[1]) ** 2)
+            selected_radius = radius
+            break
+        radius += config.bs_center_radius_step_m
+
+    if selected is None:
+        selected = min(all_candidates, key=lambda candidate: (candidate[0] - center[0]) ** 2 + (candidate[1] - center[1]) ** 2)
+        selected_radius = math.sqrt((selected[0] - center[0]) ** 2 + (selected[1] - center[1]) ** 2)
+
+    x, y, context = selected
+    bs_xyz = (x, y, bs_height_for_context(context, config))
+    stats = {
+        "ok": True,
+        "strategy": "geometry_center",
+        "scene_center_xy": [round(center[0], 3), round(center[1], 3)],
+        "selected_xy": [round(x, 3), round(y, 3)],
+        "selected_room_id": context.room_id,
+        "selected_room_type": context.room_type,
+        "candidate_count": len(all_candidates),
+        "selected_radius_m": round(selected_radius, 3),
+        "distance_to_center_m": round(math.sqrt((x - center[0]) ** 2 + (y - center[1]) ** 2), 3),
+        "bs_wall_clearance_m": config.bs_wall_clearance_m,
+        "initial_radius_m": config.bs_center_initial_radius_m,
+        "radius_step_m": config.bs_center_radius_step_m,
+        "max_radius_m": config.bs_center_max_radius_m,
+    }
+    return context, bs_xyz, stats
 
 
 def estimate_floor_z(triangles: tuple[SupportTriangle, ...]) -> float:
@@ -872,7 +982,7 @@ def build_front3d_room_contexts(
     base_scene: Front3DBaseScene,
     placements: list[PlacedAsset],
     config: LabelConfig,
-) -> tuple[list[RoomLabelContext], list[dict[str, object]]]:
+) -> tuple[list[RoomLabelContext], RoomLabelContext | None, list[dict[str, object]]]:
     scene_data = read_json(base_scene.source_scene_json)
     metadata = read_json(base_scene.metadata_json)
     variant = str(metadata.get("variant") or "normalized")
@@ -909,6 +1019,21 @@ def build_front3d_room_contexts(
             global_floor.extend(support_triangles_from_mesh(mesh, child, variant, base_scene))
 
     global_floor_tuple = tuple(global_floor)
+    global_context: RoomLabelContext | None = None
+    if global_floor_tuple:
+        global_context = RoomLabelContext(
+            room_index=-1,
+            room_id="__global__",
+            room_type="GlobalFloor",
+            floor_source="global_floor_mesh",
+            floor_triangles=global_floor_tuple,
+            floor_z=estimate_floor_z(global_floor_tuple),
+            ceiling_z=base_scene.bbox_max[2],
+            bounds_xy=triangles_bounds(global_floor_tuple),
+            obstacles=label_obstacles_for_placements(placements, config.ue_clearance_m),
+            boundary_clearance_m=config.corridor_clearance_m,
+        )
+
     contexts: list[RoomLabelContext] = []
     skipped: list[dict[str, object]] = []
     for room_index, room, room_triangles, ceiling_vertices in room_source_items:
@@ -940,9 +1065,78 @@ def build_front3d_room_contexts(
                 ceiling_z=ceiling_z,
                 bounds_xy=bounds,
                 obstacles=label_obstacles_for_room(placements, room_id, config.ue_clearance_m),
+                boundary_clearance_m=config.wall_clearance_m,
             )
         )
-    return contexts, skipped
+    return contexts, global_context, skipped
+
+
+def corridor_context_from_global(global_context: RoomLabelContext, config: LabelConfig) -> RoomLabelContext:
+    return replace(
+        global_context,
+        room_index=-2,
+        room_id=config.corridor_room_id,
+        room_type=config.corridor_room_type,
+        floor_source="global_floor_residual",
+        boundary_clearance_m=config.corridor_clearance_m,
+        is_corridor=True,
+    )
+
+
+def assign_global_free_points(
+    points: list[tuple[float, float]],
+    room_contexts: list[RoomLabelContext],
+    corridor_context: RoomLabelContext,
+) -> list[tuple[RoomLabelContext, list[tuple[float, float]]]]:
+    assignments: dict[str, list[tuple[float, float]]] = {context.room_id: [] for context in room_contexts}
+    assignments[corridor_context.room_id] = []
+    context_by_id = {context.room_id: context for context in room_contexts}
+    context_by_id[corridor_context.room_id] = corridor_context
+    for x, y in points:
+        owner = next((context for context in room_contexts if point_in_triangles(x, y, context.floor_triangles)), None)
+        room_id = owner.room_id if owner is not None else corridor_context.room_id
+        assignments[room_id].append((x, y))
+    grouped = [(context, assignments[context.room_id]) for context in room_contexts]
+    corridor_points = assignments[corridor_context.room_id]
+    if corridor_points:
+        grouped.append((corridor_context, corridor_points))
+    return grouped
+
+
+def room_sampling_result_from_assigned_points(
+    context: RoomLabelContext,
+    global_result: UeSamplingResult,
+    points: list[tuple[float, float]],
+    config: LabelConfig,
+) -> UeSamplingResult:
+    stats = {
+        "ue_strategy": config.ue_strategy,
+        "sampling_domain": config.sampling_domain,
+        "grid_resolution_m": config.grid_resolution_m,
+        "boundary_clearance_m": context.boundary_clearance_m,
+        "assigned_count": len(points),
+        "floor_candidate_count": global_result.stats.get("floor_candidate_count", 0),
+        "wall_clearance_rejected_count": global_result.stats.get("wall_clearance_rejected_count", 0),
+        "obstacle_rejected_count": global_result.stats.get("obstacle_rejected_count", 0),
+        "kept_count": len(points),
+        "global_floor_candidate_count": global_result.stats.get("floor_candidate_count", 0),
+        "global_wall_clearance_rejected_count": global_result.stats.get("wall_clearance_rejected_count", 0),
+        "global_obstacle_rejected_count": global_result.stats.get("obstacle_rejected_count", 0),
+        "global_kept_count": global_result.stats.get("kept_count", 0),
+    }
+    if context.is_corridor:
+        stats["corridor_room_id"] = context.room_id
+        stats["corridor_clearance_m"] = config.corridor_clearance_m
+    for key, value in global_result.stats.items():
+        if key in stats or key in {
+            "floor_candidate_count",
+            "wall_clearance_rejected_count",
+            "obstacle_rejected_count",
+            "kept_count",
+        }:
+            continue
+        stats[key] = value
+    return UeSamplingResult(points=points, stats=stats)
 
 
 def validate_front3d_room_points(
@@ -964,7 +1158,9 @@ def validate_front3d_room_points(
             errors.append(f"{point['label']}: invalid height")
         if not point_in_triangles(x, y, context.floor_triangles):
             errors.append(f"{point['label']}: outside room floor mesh")
-        elif not point_has_wall_clearance(x, y, context.floor_triangles, config.wall_clearance_m):
+        elif config.sampling_domain != "global_floor" and not point_has_wall_clearance(
+            x, y, context.floor_triangles, context.boundary_clearance_m
+        ):
             errors.append(f"{point['label']}: violates wall clearance")
         if config.ue_strategy == "free_space_grid":
             blocked = point_in_walk_obstacles(x, y, context.obstacles, config)
@@ -973,7 +1169,17 @@ def validate_front3d_room_points(
         if blocked:
             errors.append(f"{point['label']}: inside expanded furniture obstacle")
     for point in bs_points:
-        _x, _y, z = point_position(point)
+        x, y, z = point_position(point)
+        if not (min_x - 1e-6 <= x <= max_x + 1e-6 and min_y - 1e-6 <= y <= max_y + 1e-6):
+            errors.append(f"{point['label']}: outside architecture bbox")
+        if not point_in_triangles(x, y, context.floor_triangles):
+            errors.append(f"{point['label']}: outside room floor mesh")
+        elif config.sampling_domain != "global_floor" and not point_has_wall_clearance(
+            x, y, context.floor_triangles, min(context.boundary_clearance_m, config.bs_wall_clearance_m)
+        ):
+            errors.append(f"{point['label']}: violates BS wall clearance")
+        if point_in_obstacles(x, y, z, context.obstacles, "footprint_column"):
+            errors.append(f"{point['label']}: inside expanded furniture obstacle")
         if not (context.floor_z <= z <= max_z + 1e-6):
             errors.append(f"{point['label']}: invalid BS height")
     if not ue_points:
@@ -990,13 +1196,43 @@ def generate_front3d_label(
     config: LabelConfig,
     path_root: Path,
 ) -> dict[str, object]:
-    contexts, skipped = build_front3d_room_contexts(base_scene, placements, config)
+    contexts, global_context, skipped = build_front3d_room_contexts(base_scene, placements, config)
+    grouped_sampling: list[tuple[RoomLabelContext, UeSamplingResult]] = []
+    if config.sampling_domain == "global_floor":
+        if global_context is None:
+            skipped.append({"room_id": "__global__", "room_type": "GlobalFloor", "reason": "missing_global_floor_mesh"})
+        else:
+            global_result = generate_ue_points_for_room(global_context, config)
+            room_contexts = [
+                replace(context, obstacles=global_context.obstacles, boundary_clearance_m=config.corridor_clearance_m)
+                for context in contexts
+            ]
+            corridor_context = corridor_context_from_global(global_context, config)
+            assigned_groups = assign_global_free_points(global_result.points, room_contexts, corridor_context)
+            grouped_sampling = [
+                (context, room_sampling_result_from_assigned_points(context, global_result, points, config))
+                for context, points in assigned_groups
+            ]
+    else:
+        grouped_sampling = [(context, generate_ue_points_for_room(context, config)) for context in contexts]
+
+    grouped_free_points = [(context, result.points) for context, result in grouped_sampling]
+    center_bs_context: RoomLabelContext | None = None
+    center_bs_xyz: tuple[float, float, float] | None = None
+    bs_selection: dict[str, object] | None = None
+    if config.bs_strategy == "geometry_center":
+        if global_context is None:
+            bs_selection = {"ok": False, "strategy": "geometry_center", "reason": "missing_global_floor_context"}
+        else:
+            center_bs_context, center_bs_xyz, bs_selection = choose_geometry_center_bs(global_context, grouped_free_points, config)
+
     groups: list[dict[str, object]] = []
     room_reports: list[dict[str, object]] = []
     error_count = 0
     warning_count = 0
-    for group_index, context in enumerate(contexts):
-        ue_result = generate_ue_points_for_room(context, config)
+    if bs_selection is not None and not bool(bs_selection.get("ok")):
+        error_count += 1
+    for group_index, (context, ue_result) in enumerate(grouped_sampling):
         free_xy = ue_result.points
         ue_points = [
             point_payload(
@@ -1010,35 +1246,45 @@ def generate_front3d_label(
             )
             for index, (x, y) in enumerate(free_xy)
         ]
-        bs_xyz = generate_bs_points_for_room(context, free_xy, config)
-        bs_points = [
-            bs_point_payload(
-                x=x,
-                y=y,
-                z=z,
-                label=f"BS_{group_index}_{index}",
-                room_id=context.room_id,
-                room_type=context.room_type,
-                strategy=config.bs_strategy,
+        if config.bs_strategy == "geometry_center":
+            bs_xyz = [center_bs_xyz] if center_bs_context is not None and center_bs_context.room_id == context.room_id and center_bs_xyz is not None else []
+        elif context.is_corridor:
+            bs_xyz = []
+        else:
+            bs_xyz = generate_bs_points_for_room(context, free_xy, config)
+        bs_points = []
+        for index, (x, y, z) in enumerate(bs_xyz):
+            label = "BS0" if config.bs_strategy == "geometry_center" else f"BS_{group_index}_{index}"
+            bs_points.append(
+                bs_point_payload(
+                    x=x,
+                    y=y,
+                    z=z,
+                    label=label,
+                    room_id=context.room_id,
+                    room_type=context.room_type,
+                    strategy=config.bs_strategy,
+                )
             )
-            for index, (x, y, z) in enumerate(bs_xyz)
-        ]
         validation = validate_front3d_room_points(context, ue_points, bs_points, base_scene, config)
         error_count += len(validation["errors"])
         warning_count += len(validation["warnings"])
-        floor_area_m2 = room_floor_area_m2(context)
+        floor_area_m2 = len(free_xy) * config.grid_resolution_m * config.grid_resolution_m if context.is_corridor else room_floor_area_m2(context)
+        group_name = "front3d_corridor" if context.is_corridor else f"front3d_room_{group_index}_{context.room_type}"
         group = group_with_positions(
             {
-                "name": f"front3d_room_{group_index}_{context.room_type}",
+                "name": group_name,
                 "room_id": context.room_id,
                 "room_type": context.room_type,
                 "strategy": "front3d_auto",
                 "floor_source": context.floor_source,
                 "floor_area_m2": round(floor_area_m2, 3),
+                "sampling_domain": config.sampling_domain,
                 "ue_strategy": config.ue_strategy,
                 "obstacle_strategy": config.obstacle_strategy,
                 "bs_strategy": config.bs_strategy,
                 "bs_count_strategy": config.bs_count_strategy,
+                "boundary_clearance_m": context.boundary_clearance_m,
                 "ue_sampling": ue_result.stats,
                 "validation": validation,
                 "bs_points": bs_points,
@@ -1052,10 +1298,13 @@ def generate_front3d_label(
                 "room_type": context.room_type,
                 "floor_source": context.floor_source,
                 "floor_area_m2": round(floor_area_m2, 3),
+                "sampling_domain": config.sampling_domain,
                 "ue_strategy": config.ue_strategy,
                 "obstacle_strategy": config.obstacle_strategy,
                 "bs_strategy": config.bs_strategy,
                 "bs_count_strategy": config.bs_count_strategy,
+                "boundary_clearance_m": context.boundary_clearance_m,
+                "is_corridor": context.is_corridor,
                 "bounds_xy": [round(value, 6) for value in context.bounds_xy],
                 "floor_z": round(context.floor_z, 6),
                 "ceiling_z": round(context.ceiling_z, 6) if context.ceiling_z is not None else None,
@@ -1089,6 +1338,8 @@ def generate_front3d_label(
         skipped_room_count=len(skipped),
     )
     report["scene_id"] = base_scene.scene_id
+    if bs_selection is not None:
+        report["bs_selection"] = bs_selection
     return write_label_outputs(scene_dir, payload, report, path_root)
 
 

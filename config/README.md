@@ -111,6 +111,7 @@ CLI 覆盖：`--quality/--no-quality`、`--quality-fail-on-error/--no-quality-fa
 | `enabled` | boolean | `true` | 是否生成 `label/*.json` 和 `label/report/*_report.json`。 |
 | `version` | `"1.1"` | `"1.1"` | 当前固定版本。 |
 | `ue_height_m` | float, `>0` | `1.6` | UE 相对 floor 的高度。 |
+| `sampling_domain` | `global_floor` / `room_floor` | `global_floor` | UE 采样域。`global_floor` 先在整个建筑 floor 上采样再按 room 归属，剩余点归为 corridor；`room_floor` 为旧逻辑，每个 room 单独采样。 |
 | `ue_strategy` | `free_space_grid` / `plane_grid` | `free_space_grid` | 单 label 兼容字段。若未显式设置 `batch_strategies`，CLI/YAML 设置该字段会同步到批量生成策略。 |
 | `grid_resolution_m` | float, `>0` | `0.1` | 单 label 兼容字段。若未显式设置 `batch_grid_resolutions_m`，CLI/YAML 设置该字段会同步到批量采样间隔。 |
 | `batch_strategies` | list: `free_space_grid` / `plane_grid` | `[free_space_grid]` | 批量 UE 采样策略。`free_space_grid` 使用可行走区域网格，输出名为 `label_walk_*`；`plane_grid` 在 room floor mesh 平面域内采样，输出名为 `label_panel_*`。 |
@@ -120,7 +121,7 @@ CLI 覆盖：`--quality/--no-quality`、`--quality-fail-on-error/--no-quality-fa
 | `walk_ignore_low_obstacles_below_m` | float, `>=0` | `0.10` | `free_space_grid` 专用。高度低于该阈值的低矮物体不作为可行走区域障碍，减少地毯、薄垫等误判。 |
 | `walk_blocking_classes` | list: `table` / `seat` / `tabletop` / `floor` / `skip` | `[table, seat, floor]` | `free_space_grid` 专用。只有这些 placement class 会从 walk 区域扣除。 |
 | `walk_min_component_area_m2` | float, `>=0` | `0.25` | `free_space_grid` 专用。删除面积小于该值的孤立小连通区域。 |
-| `bs_strategy` | `wall_or_corner` | `wall_or_corner` | BS 位置策略，当前支持墙边/角落候选点。 |
+| `bs_strategy` | `wall_or_corner` / `geometry_center` | `wall_or_corner` | BS 位置策略。`wall_or_corner` 按房间墙边/角落布点；`geometry_center` 在建筑几何中心附近选择一个满足自由空间约束的 `BS0`。 |
 | `bs_count_strategy` | `fixed_per_room` / `area_adaptive` | `fixed_per_room` | BS 数量策略。 |
 | `bs_per_room` | integer, `>=0` | `4` | `fixed_per_room` 下每个 room 的 BS 数量。 |
 | `bs_min_per_room` | integer, `>=0` | `1` | `area_adaptive` 下每个有效 room 最少 BS 数量。 |
@@ -129,7 +130,14 @@ CLI 覆盖：`--quality/--no-quality`、`--quality-fail-on-error/--no-quality-fa
 | `bs_area_per_point_m2` | float, `>0` | `12.0` | `area_adaptive` 下每多少平方米约增加一个 BS。 |
 | `bs_height_m` | float, `>0` | `2.4` | BS 目标高度。 |
 | `bs_ceiling_margin_m` | float, `>=0` | `0.3` | BS 距离天花的最小距离。 |
-| `wall_clearance_m` | float, `>=0` | `0.25` | UE/BS 与 room floor 边界的避让距离。 |
+| `bs_wall_clearance_m` | float, `>=0` | `0.25` | BS 与建筑 floor 边界的避让距离。`wall_or_corner` 和 `geometry_center` 都会使用。 |
+| `bs_center_initial_radius_m` | float, `>=0` | `0.2` | `geometry_center` 搜索中心 BS 时的初始搜索半径。 |
+| `bs_center_radius_step_m` | float, `>0` | `0.1` | `geometry_center` 搜索中心 BS 时的半径扩张步长。 |
+| `bs_center_max_radius_m` | float, `>= initial` | `2.0` | `geometry_center` 搜索中心 BS 时的最大半径；超过后选择最近合法候选。 |
+| `wall_clearance_m` | float, `>=0` | `0.25` | `room_floor` 采样域下 UE 与 room floor 边界的避让距离。 |
+| `corridor_room_id` | string | `__corridor__` | `global_floor` 采样域下，不属于任何 room 但仍在 global floor 上的点使用的 room id。 |
+| `corridor_room_type` | string | `Corridor` | corridor group 的 room type。 |
+| `corridor_clearance_m` | float, `>=0` | `0.05` | `global_floor` 采样域下 UE 与 global floor 边界的避让距离，默认更小以保留门洞/联通区域。 |
 | `overlay_enabled` | boolean | `true` | 是否生成 label 可视化。批量图写入 `label_floorplan/`。 |
 | `fail_on_error` | boolean | `true` | label 验证失败时命令是否返回非零。 |
 
@@ -149,7 +157,12 @@ CLI 覆盖：`--quality/--no-quality`、`--quality-fail-on-error/--no-quality-fa
 - `plane_grid` 表示指定高度上的采样平面，默认使用 `obstacle_strategy` 做高度感知过滤。
 - `free_space_grid` 表示可行走区域，会在 floor mask 上按家具 footprint 扣除障碍，不受 UE 高度影响；同时会忽略低于 `walk_ignore_low_obstacles_below_m` 的薄物体，并删除小于 `walk_min_component_area_m2` 的孤立区域。
 
-CLI 覆盖：`--label/--no-label`、`--label-version`、`--label-ue-height`、`--label-ue-strategy`、`--label-grid-resolution`、`--label-batch-strategies`、`--label-batch-grid-resolutions`、`--label-ue-clearance`、`--label-obstacle-strategy`、`--label-walk-ignore-low-obstacles-below`、`--label-walk-blocking-classes`、`--label-walk-min-component-area`、`--label-bs-strategy`、`--label-bs-count-strategy`、`--label-bs-per-room`、`--label-bs-min-per-room`、`--label-bs-max-per-room`、`--label-bs-min-room-area`、`--label-bs-area-per-point`、`--label-bs-height`、`--label-bs-ceiling-margin`、`--label-wall-clearance`、`--label-overlay/--no-label-overlay`、`--label-fail-on-error/--no-label-fail-on-error`。
+采样域补充：
+
+- `global_floor` 更适合 3D-FRONT，它会先得到一个联通的全局采样区域，再把点归属到具体 room；归属不到 room 的点进入 corridor group。
+- `room_floor` 更保守，适合需要严格房间内采样的实验，但门洞/联通处可能缺点。
+
+CLI 覆盖：`--label/--no-label`、`--label-version`、`--label-ue-height`、`--label-sampling-domain`、`--label-ue-strategy`、`--label-grid-resolution`、`--label-batch-strategies`、`--label-batch-grid-resolutions`、`--label-ue-clearance`、`--label-obstacle-strategy`、`--label-walk-ignore-low-obstacles-below`、`--label-walk-blocking-classes`、`--label-walk-min-component-area`、`--label-bs-strategy`、`--label-bs-count-strategy`、`--label-bs-per-room`、`--label-bs-min-per-room`、`--label-bs-max-per-room`、`--label-bs-min-room-area`、`--label-bs-area-per-point`、`--label-bs-height`、`--label-bs-ceiling-margin`、`--label-bs-wall-clearance`、`--label-bs-center-initial-radius`、`--label-bs-center-radius-step`、`--label-bs-center-max-radius`、`--label-wall-clearance`、`--label-corridor-room-id`、`--label-corridor-room-type`、`--label-corridor-clearance`、`--label-overlay/--no-label-overlay`、`--label-fail-on-error/--no-label-fail-on-error`。
 
 ## floorplan
 
