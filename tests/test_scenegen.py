@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from scenegen import __version__
 from scenegen.assets import AssetSpec, group_assets_by_class, legacy_item_to_spec, load_assets, resolve_obj_file
 from scenegen.cli import evaluate_front3d_precheck, main, parse_args
 from scenegen.config import DEFAULT_CONFIG, load_effective_config
@@ -63,6 +64,15 @@ def test_default_paths_point_to_packaged_data() -> None:
 def test_floorplan_layer_filename_uses_height_token() -> None:
     assert floorplan_layer_filename(1.6) == "floorplan_1p60.png"
     assert floorplan_layer_filename(2.0) == "floorplan_2p00.png"
+
+
+def test_cli_version_matches_package_version(capsys: pytest.CaptureFixture[str]) -> None:
+    assert __version__ == "1.0.0"
+    with pytest.raises(SystemExit) as exc_info:
+        parse_args(["--version"])
+
+    assert exc_info.value.code == 0
+    assert capsys.readouterr().out.strip() == "SceneGen 1.0.0"
 
 
 def test_template_config_matches_code_defaults() -> None:

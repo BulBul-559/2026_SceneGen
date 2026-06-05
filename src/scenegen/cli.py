@@ -6,6 +6,7 @@ import random
 import shutil
 from pathlib import Path
 
+from . import __version__
 from .assets import group_assets_by_class, load_assets, validate_asset_pool
 from .config import config_to_namespace, load_effective_config, save_effective_config
 from .exporters import (
@@ -31,6 +32,7 @@ from .validation import validate_sionna_scene
 def build_parser() -> argparse.ArgumentParser:
     repo_root = find_project_root()
     parser = argparse.ArgumentParser(description="Generate Sionna-compatible procedural indoor scenes.")
+    parser.add_argument("--version", action="version", version=f"SceneGen {__version__}")
     parser.add_argument("--config", type=Path, default=default_config_path(repo_root), help="Path to SceneGen YAML config.")
     parser.add_argument("--mode", choices=("generated", "bistro", "front3d"), default=None)
     parser.add_argument("--bistro-base-dir", type=Path, default=None)

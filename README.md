@@ -2,6 +2,8 @@
 
 SceneGen 是一个面向 Linux 环境的轻量级室内场景生成项目。它基于空场景和归一化资产，随机生成带家具、桌椅、小物件的 3D 场景，并同步导出 Sionna/Mitsuba 可加载的场景文件和平面图。
 
+当前项目版本：`1.0.0`。
+
 当前主工作流包括 Bistro 场景生成和 3D-FRONT 已组合场景合成：Bistro 以 `data/scene/scene.obj` 作为空场景，以 `data/catalogs/bistro.v1.json` 管理资产契约；3D-FRONT 以第一阶段整理出的 `data/3D-Front/scenegen_manifest.json` 为索引，合并建筑结构和已有家具实例。`data/assets/manifest.json` 仍保留为兼容位置，但内容已经与 catalog 使用同一份清洗后的契约。
 
 ## 主要功能
