@@ -11,6 +11,7 @@ from . import __version__
 from .assets import group_assets_by_class, load_assets, validate_asset_pool
 from .config import config_to_namespace, load_effective_config, save_effective_config
 from .exporters import (
+    collect_label_floorplans,
     base_scene_summary,
     collect_raw_floorplans,
     collect_scene_objs,
@@ -504,6 +505,7 @@ def main(argv: list[str] | None = None) -> int:
     with run_logger.stage(final_timings, "write_manifest"):
         copy_manifest = collect_scene_objs(run_dir, scene_records, scene_prefix)
         raw_floorplan_manifest = collect_raw_floorplans(run_dir, scene_records, scene_prefix)
+        label_floorplan_manifest = collect_label_floorplans(run_dir, scene_records, scene_prefix)
         run_statistics = aggregate_run_statistics(scene_records)
         statistics_file = write_json_report(run_dir / "statistics.json", run_statistics, run_dir)
     class_counts = {name: len(items) for name, items in sorted(assets_by_class.items())}
@@ -535,6 +537,13 @@ def main(argv: list[str] | None = None) -> int:
         "forbidden_z_ignored": args.mode == "bistro",
         "summary_obj": copy_manifest,
         "summary_floorplan_raw": raw_floorplan_manifest,
+        "summary_label_floorplan": label_floorplan_manifest,
+        "summary": {
+            "root": "summary",
+            "obj": copy_manifest,
+            "floorplan": raw_floorplan_manifest,
+            "label_floorplan": label_floorplan_manifest,
+        },
         "sionna_validation_requested": bool(args.validate_sionna),
         "sionna_validation_ok": not validation_failed if args.validate_sionna else None,
         "quality_requested": bool(quality_config.enabled),

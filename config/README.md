@@ -4,7 +4,7 @@
 
 每次运行都会在 run 目录写出 `effective_config.yaml`，它记录最终真正生效的配置。
 
-`config/tasks/front3d_full_simulation.yaml` 是后续大规模 front3d 仿真的任务模板，默认打开 label、geometry sampling floorplan、class mask 和 mesh furniture mask；`label.ue.sampling.grid_m` 使用 `[0.1, 0.2, 0.4, 0.5]` 四档。
+`config/tasks/front3d_full_simulation.yaml` 是后续大规模 front3d 仿真的任务模板，默认打开 label、geometry sampling floorplan、class mask 和 mesh furniture mask；`label.ue.sampling.strategies` 使用 `[panel, walk]`，`label.ue.sampling.grid_m` 使用 `[0.1, 0.2, 0.4, 0.5]` 四档。
 
 ## 合并规则
 

@@ -167,8 +167,12 @@ logs/
   state/run_state.json
   workers/
   scenes/
-summary_obj/
-summary_floorplan_raw/
+summary/
+  obj/
+  floorplan/
+  label_floorplan/
+    0p1/
+    0p5/
 <mode_prefix>_0000/
   scene.obj
   scene.xml

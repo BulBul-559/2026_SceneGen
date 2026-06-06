@@ -18,7 +18,7 @@ from typing import Any
 
 from . import __version__
 from .config import load_effective_config, save_effective_config
-from .exporters import collect_raw_floorplans, collect_scene_objs, make_timestamp
+from .exporters import collect_label_floorplans, collect_raw_floorplans, collect_scene_objs, make_timestamp
 from .front3d import Front3DConfig, Front3DIndex, choose_scene_ids
 from .paths import find_project_root, portable_path
 from .quality import aggregate_run_statistics, write_json_report
@@ -463,6 +463,7 @@ def build_final_manifest(
     records = sorted(records, key=lambda item: int(item.get("batch_task_id", "front3d_999999").split("_")[-1]))
     copy_manifest = collect_scene_objs(paths.run_dir, records, "front3d")
     raw_floorplan_manifest = collect_raw_floorplans(paths.run_dir, records, "front3d")
+    label_floorplan_manifest = collect_label_floorplans(paths.run_dir, records, "front3d")
     run_statistics = aggregate_run_statistics(records)
     statistics_file = write_json_report(paths.run_dir / "statistics.json", run_statistics, paths.run_dir)
     manifest: dict[str, Any] = {
@@ -482,6 +483,13 @@ def build_final_manifest(
         "front3d_manifest": portable_path(Path(effective_config["front3d"]["manifest"]), paths.run_dir),
         "summary_obj": copy_manifest,
         "summary_floorplan_raw": raw_floorplan_manifest,
+        "summary_label_floorplan": label_floorplan_manifest,
+        "summary": {
+            "root": "summary",
+            "obj": copy_manifest,
+            "floorplan": raw_floorplan_manifest,
+            "label_floorplan": label_floorplan_manifest,
+        },
         "statistics": run_statistics,
         "statistics_file": statistics_file,
         "effective_config": "effective_config.yaml",

@@ -51,7 +51,7 @@ label:
       grid_m: [0.1, 0.2, 0.4, 0.5]
       wall_clearance_m: 0.2
       min_component_area_m2: 0.25
-      strategies: [walk]
+      strategies: [panel, walk]
     walk:
       furniture_clearance_m: 0.1
       obstacle_strategy: height_aware

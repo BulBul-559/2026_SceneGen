@@ -192,7 +192,7 @@ uv run scenegen --config config/front3d.yaml --set pipeline.scenes=1 --set pipel
 uv run scenegen --config config/tasks/front3d_full_simulation.yaml --set pipeline.scenes=1 --set pipeline.run_name=front3d_full_sample
 ```
 
-该模板打开 label、geometry sampling floorplan、class mask 和 mesh furniture mask，`label.ue.sampling.grid_m` 默认包含 `[0.1, 0.2, 0.4, 0.5]`。
+该模板打开 label、geometry sampling floorplan、class mask 和 mesh furniture mask，`label.ue.sampling.strategies` 默认包含 `[panel, walk]`，`label.ue.sampling.grid_m` 默认包含 `[0.1, 0.2, 0.4, 0.5]`。
 
 ## 生产运行与日志
 
@@ -260,14 +260,22 @@ results/<run_name>/
   statistics.json
   manifest.json
   manifest_bistro.json、manifest_generated.json 或 manifest_front3d.json
-  summary_obj/
-    copy_manifest.json
-    bistro_0000.obj
-    ...
-  summary_floorplan_raw/
-    copy_manifest.json
-    bistro_0000_floorplan_1p60.png
-    ...
+  summary/
+    obj/
+      copy_manifest.json
+      bistro_0000.obj
+      ...
+    floorplan/
+      copy_manifest.json
+      bistro_0000_floorplan_1p60.png
+      ...
+    label_floorplan/
+      copy_manifest.json
+      0p1/
+        bistro_0000_label_walk_0p1.png
+      0p5/
+        bistro_0000_label_panel_0p5.png
+      ...
   logs/
     events.jsonl
     timings.jsonl
@@ -316,8 +324,9 @@ results/<run_name>/
 - `effective_config.yaml`: 本次 run 实际生效的配置。
 - `statistics.json`: run 级统计报告，包含每个场景的物体数、类别计数、支撑类型和近似占地率。
 - `quality_report.json`: 单场景质量检查报告，包含错误/警告列表。
-- `summary_obj/`: 每个场景 `scene.obj` 的汇总副本。
-- `summary_floorplan_raw/`: 每个场景主高度层 `floorplan/floorplan_*.png` 的汇总副本。
+- `summary/obj/`: 每个场景 `scene.obj` 的汇总副本。
+- `summary/floorplan/`: 每个场景主高度层 `floorplan/floorplan_*.png` 的汇总副本。
+- `summary/label_floorplan/<grid>/`: 每份 label overlay 的汇总副本，按 UE 采样间隔分组，例如 `0p1`、`0p2`、`0p5`。
 - `floorplan/preview.png`: 指定高度或逐层投影总览。
 - `label_floorplan/*.png`: 每份 label 在主高度层 `floorplan_*.png` 上绘制 BS/UE 点位后的检查图。
 - `floorplan/side_view.png`: 侧视投影。

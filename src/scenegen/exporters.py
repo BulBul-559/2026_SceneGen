@@ -575,8 +575,12 @@ def make_timestamp() -> str:
     return dt.datetime.now().strftime("%Y%m%d%H%M%S")
 
 
+def height_token(value: float) -> str:
+    return f"{value:g}".replace("-", "m").replace(".", "p")
+
+
 def collect_scene_objs(run_dir: Path, scene_records: list[dict[str, object]], scene_prefix: str) -> dict[str, object]:
-    summary_dir = run_dir / "summary_obj"
+    summary_dir = run_dir / "summary" / "obj"
     summary_dir.mkdir(parents=True, exist_ok=True)
     copied: list[dict[str, str]] = []
     for record in scene_records:
@@ -606,7 +610,7 @@ def collect_scene_objs(run_dir: Path, scene_records: list[dict[str, object]], sc
 
 
 def collect_raw_floorplans(run_dir: Path, scene_records: list[dict[str, object]], scene_prefix: str) -> dict[str, object]:
-    summary_dir = run_dir / "summary_floorplan_raw"
+    summary_dir = run_dir / "summary" / "floorplan"
     summary_dir.mkdir(parents=True, exist_ok=True)
     copied: list[dict[str, str]] = []
 
@@ -644,6 +648,79 @@ def collect_raw_floorplans(run_dir: Path, scene_records: list[dict[str, object]]
     copy_manifest = {
         "summary_dir": portable_path(summary_dir, run_dir),
         "count": len(copied),
+        "images": copied,
+    }
+    (summary_dir / "copy_manifest.json").write_text(
+        json.dumps(copy_manifest, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return copy_manifest
+
+
+def collect_label_floorplans(run_dir: Path, scene_records: list[dict[str, object]], scene_prefix: str) -> dict[str, object]:
+    summary_dir = run_dir / "summary" / "label_floorplan"
+    summary_dir.mkdir(parents=True, exist_ok=True)
+    copied: list[dict[str, str]] = []
+    groups: dict[str, dict[str, object]] = {}
+
+    for record in scene_records:
+        scene_index = int(record["scene_index"])
+        label = record.get("label")
+        if not isinstance(label, dict) or not label.get("ok", False):
+            continue
+        variants = label.get("variants")
+        if not isinstance(variants, list):
+            continue
+        for variant in variants:
+            if not isinstance(variant, dict):
+                continue
+            overlay = variant.get("overlay")
+            if not isinstance(overlay, dict):
+                continue
+            overlay_path = overlay.get("image")
+            if not isinstance(overlay_path, str) or not overlay_path:
+                continue
+            grid_resolution = variant.get("grid_resolution_m")
+            if not isinstance(grid_resolution, int | float):
+                continue
+            source = Path(overlay_path)
+            if not source.is_absolute():
+                source = run_dir / source
+            if not source.is_file():
+                continue
+
+            grid_name = height_token(float(grid_resolution))
+            grid_dir = summary_dir / grid_name
+            grid_dir.mkdir(parents=True, exist_ok=True)
+            variant_name = str(variant.get("name") or source.stem)
+            destination = grid_dir / f"{scene_prefix}_{scene_index:04d}_{variant_name}.png"
+            shutil.copy2(source, destination)
+            item = {
+                "scene_index": str(scene_index),
+                "variant": variant_name,
+                "grid_resolution_m": f"{float(grid_resolution):g}",
+                "source": portable_path(source, run_dir),
+                "destination": portable_path(destination, run_dir),
+            }
+            copied.append(item)
+            group = groups.setdefault(
+                grid_name,
+                {
+                    "grid_resolution_m": float(grid_resolution),
+                    "directory": portable_path(grid_dir, run_dir),
+                    "count": 0,
+                    "images": [],
+                },
+            )
+            group["count"] = int(group["count"]) + 1
+            group_images = group["images"]
+            if isinstance(group_images, list):
+                group_images.append(item)
+
+    copy_manifest = {
+        "summary_dir": portable_path(summary_dir, run_dir),
+        "count": len(copied),
+        "groups": groups,
         "images": copied,
     }
     (summary_dir / "copy_manifest.json").write_text(

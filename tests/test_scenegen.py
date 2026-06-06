@@ -997,8 +997,8 @@ def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
     assert class_meta["class_id_counts"]["2"] > 0
     assert class_meta["class_id_counts"]["3"] > 0
     assert (output_dir / "smoke_front3d" / "manifest_front3d.json").is_file()
-    assert (output_dir / "smoke_front3d" / "summary_obj" / "front3d_0000.obj").is_file()
-    assert (output_dir / "smoke_front3d" / "summary_floorplan_raw" / "front3d_0000_floorplan_1p60.png").is_file()
+    assert (output_dir / "smoke_front3d" / "summary" / "obj" / "front3d_0000.obj").is_file()
+    assert (output_dir / "smoke_front3d" / "summary" / "floorplan" / "front3d_0000_floorplan_1p60.png").is_file()
     assert (output_dir / "smoke_front3d" / "logs" / "events.jsonl").is_file()
     assert (output_dir / "smoke_front3d" / "logs" / "timings.jsonl").is_file()
     assert (output_dir / "smoke_front3d" / "logs" / "state" / "run_state.json").is_file()
@@ -1057,7 +1057,12 @@ def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
     assert manifest["front3d_skipped_object_count"] == 0
     assert manifest["label_variants"] == ["label_walk_0p1"]
     assert manifest["label_variant_count"] == 1
-    assert manifest["summary_floorplan_raw"]["count"] == 1
+    assert manifest["summary"]["floorplan"]["count"] == 1
+    assert manifest["summary"]["label_floorplan"]["count"] == 1
+    assert manifest["summary"]["label_floorplan"]["groups"]["0p1"]["count"] == 1
+    assert (
+        output_dir / "smoke_front3d" / "summary" / "label_floorplan" / "0p1" / "front3d_0000_label_walk_0p1.png"
+    ).is_file()
     assert manifest["logs"]["events"] == "logs/events.jsonl"
     assert "timing_summary_s" in manifest
     assert "floorplan" in manifest["timing_summary_s"]
@@ -1070,8 +1075,9 @@ def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
         output_dir / "smoke_front3d" / "manifest.json",
         output_dir / "smoke_front3d" / "manifest_front3d.json",
         output_dir / "smoke_front3d" / "statistics.json",
-        output_dir / "smoke_front3d" / "summary_obj" / "copy_manifest.json",
-        output_dir / "smoke_front3d" / "summary_floorplan_raw" / "copy_manifest.json",
+        output_dir / "smoke_front3d" / "summary" / "obj" / "copy_manifest.json",
+        output_dir / "smoke_front3d" / "summary" / "floorplan" / "copy_manifest.json",
+        output_dir / "smoke_front3d" / "summary" / "label_floorplan" / "copy_manifest.json",
         scene_dir / "placements.json",
         scene_dir / "label" / "label_walk_0p1.json",
         scene_dir / "label" / "report" / "label_walk_0p1_report.json",
@@ -1111,8 +1117,10 @@ def test_front3d_batch_runner_writes_plan_state_and_worker_logs(tmp_path: Path) 
     assert (run_dir / "front3d_0001" / "scene.obj").is_file()
     assert (run_dir / "manifest_batch.json").is_file()
     assert (run_dir / "manifest_front3d.json").is_file()
-    assert (run_dir / "summary_obj" / "front3d_0000.obj").is_file()
-    assert (run_dir / "summary_obj" / "front3d_0001.obj").is_file()
+    assert (run_dir / "summary" / "obj" / "front3d_0000.obj").is_file()
+    assert (run_dir / "summary" / "obj" / "front3d_0001.obj").is_file()
+    assert (run_dir / "summary" / "label_floorplan" / "0p1" / "front3d_0000_label_walk_0p1.png").is_file()
+    assert (run_dir / "summary" / "label_floorplan" / "0p1" / "front3d_0001_label_walk_0p1.png").is_file()
     plan_lines = (run_dir / "batch" / "scene_plan.jsonl").read_text(encoding="utf-8").strip().splitlines()
     assert len(plan_lines) == 2
     state = json.loads((run_dir / "batch" / "state.json").read_text(encoding="utf-8"))
@@ -1347,8 +1355,12 @@ def test_generated_scene_outputs_and_sionna_load(tmp_path: Path) -> None:
     assert manifest["floorplan_ok"] is True
     assert manifest["floorplan_height_mode"] == "heights"
     assert manifest["floorplan_heights_m"] == [1.6]
-    assert manifest["summary_floorplan_raw"]["count"] == 1
-    assert (output_dir / "smoke_generated" / "summary_floorplan_raw" / "scene_0000_floorplan_1p60.png").is_file()
+    assert manifest["summary"]["floorplan"]["count"] == 1
+    assert manifest["summary"]["label_floorplan"]["count"] == 1
+    assert (output_dir / "smoke_generated" / "summary" / "floorplan" / "scene_0000_floorplan_1p60.png").is_file()
+    assert (
+        output_dir / "smoke_generated" / "summary" / "label_floorplan" / "0p1" / "scene_0000_label_walk_0p1.png"
+    ).is_file()
     geometry_meta = json.loads((scene_dir / "floorplan" / "meta.json").read_text(encoding="utf-8"))
     assert geometry_meta["height_mode"] == "heights"
     assert geometry_meta["z_levels_m"] == [1.6]
@@ -1387,8 +1399,9 @@ def test_generated_scene_outputs_and_sionna_load(tmp_path: Path) -> None:
         output_dir / "smoke_generated" / "manifest.json",
         output_dir / "smoke_generated" / "manifest_generated.json",
         output_dir / "smoke_generated" / "statistics.json",
-        output_dir / "smoke_generated" / "summary_obj" / "copy_manifest.json",
-        output_dir / "smoke_generated" / "summary_floorplan_raw" / "copy_manifest.json",
+        output_dir / "smoke_generated" / "summary" / "obj" / "copy_manifest.json",
+        output_dir / "smoke_generated" / "summary" / "floorplan" / "copy_manifest.json",
+        output_dir / "smoke_generated" / "summary" / "label_floorplan" / "copy_manifest.json",
         scene_dir / "placements.json",
         scene_dir / "label" / "label_walk_0p1.json",
         scene_dir / "label" / "report" / "label_walk_0p1_report.json",
