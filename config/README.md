@@ -1,6 +1,6 @@
 # SceneGen Config v2 Reference
 
-`config/template.yaml` 是当前唯一保留的完整配置模板，也是 CLI 默认读取的 YAML。配置 v2 是破坏性版本：旧 YAML 字段和旧显式 CLI 参数不再兼容，未知字段会直接报错。
+`config/` 下提供两个完整模板：`bistro.yaml` 和 `front3d.yaml`。CLI 默认读取 `config/bistro.yaml`；需要合成 3D-FRONT 时使用 `--config config/front3d.yaml`。配置 v2 是破坏性版本：旧 YAML 字段和旧显式 CLI 参数不再兼容，未知字段会直接报错。
 
 每次运行都会在 run 目录写出 `effective_config.yaml`，它记录最终真正生效的配置。
 
@@ -9,7 +9,7 @@
 配置优先级从低到高：
 
 1. 代码内置默认值 `DEFAULT_CONFIG`
-2. `--config` 指定的 YAML，默认 `config/template.yaml`
+2. `--config` 指定的 YAML，默认 `config/bistro.yaml`
 3. 一个或多个 CLI `--set key.path=value`
 4. 路径和类型归一化
 5. 字段名和取值校验
@@ -18,7 +18,7 @@
 
 ```bash
 uv run scenegen \
-  --set pipeline.mode=front3d \
+  --config config/front3d.yaml \
   --set pipeline.scenes=5 \
   --set label.ue.height_m=1.8 \
   --set 'label.ue.variants.grid_m=[0.1,0.2,0.5]'
@@ -269,7 +269,7 @@ uv run scenegen \
 
 ```bash
 uv run scenegen \
-  --set pipeline.mode=front3d \
+  --config config/front3d.yaml \
   --set pipeline.scenes=1 \
   --set pipeline.run_name=front3d_smoke
 ```
@@ -278,7 +278,7 @@ uv run scenegen \
 
 ```bash
 uv run scenegen \
-  --set pipeline.mode=front3d \
+  --config config/front3d.yaml \
   --set 'label.ue.variants.strategies=[panel,walk]' \
   --set 'label.ue.variants.grid_m=[0.1,0.2,0.5]'
 ```
@@ -287,7 +287,7 @@ uv run scenegen \
 
 ```bash
 uv run scenegen \
-  --set pipeline.mode=front3d \
+  --config config/front3d.yaml \
   --set floorplan.class_mask.enabled=true \
   --set front3d.openings.mode=doors_and_windows
 ```

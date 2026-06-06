@@ -85,7 +85,7 @@ def test_default_paths_point_to_packaged_data() -> None:
     assert default_bistro_base_dir(root) == root / "data" / "scene"
     assert default_asset_catalog(root) == root / "data" / "catalogs" / "bistro.v1.json"
     assert default_asset_manifest(root) == root / "data" / "assets" / "manifest.json"
-    assert default_config_path(root) == root / "config" / "template.yaml"
+    assert default_config_path(root) == root / "config" / "bistro.yaml"
     assert (default_bistro_base_dir(root) / "scene.obj").is_file()
     assert default_asset_catalog(root).is_file()
     assert default_asset_manifest(root).is_file()
@@ -98,21 +98,29 @@ def test_floorplan_layer_filename_uses_height_token() -> None:
 
 
 def test_cli_version_matches_package_version(capsys: pytest.CaptureFixture[str]) -> None:
-    assert __version__ == "2.0.0"
+    assert __version__ == "2.1.0"
     with pytest.raises(SystemExit) as exc_info:
         parse_args(["--version"])
 
     assert exc_info.value.code == 0
-    assert capsys.readouterr().out.strip() == "SceneGen 2.0.0"
+    assert capsys.readouterr().out.strip() == "SceneGen 2.1.0"
 
 
-def test_template_config_matches_code_defaults() -> None:
+def test_bistro_config_matches_code_defaults() -> None:
     root = find_project_root()
 
-    assert yaml.safe_load((root / "config" / "template.yaml").read_text(encoding="utf-8")) == DEFAULT_CONFIG
+    assert yaml.safe_load((root / "config" / "bistro.yaml").read_text(encoding="utf-8")) == DEFAULT_CONFIG
 
 
-@pytest.mark.parametrize("config_name", ["template.yaml"])
+def test_front3d_config_differs_only_by_mode() -> None:
+    root = find_project_root()
+    expected = deepcopy(DEFAULT_CONFIG)
+    expected["pipeline"]["mode"] = "front3d"
+
+    assert yaml.safe_load((root / "config" / "front3d.yaml").read_text(encoding="utf-8")) == expected
+
+
+@pytest.mark.parametrize("config_name", ["bistro.yaml", "front3d.yaml"])
 def test_project_configs_load_through_config_pipeline(config_name: str) -> None:
     root = find_project_root()
 
@@ -519,7 +527,7 @@ def test_cli_set_unknown_field_is_rejected(override: str, field: str) -> None:
     args = parse_args(["--set", override])
 
     with pytest.raises(ValueError, match=field):
-        load_effective_config(root / "config" / "template.yaml", root, args)
+        load_effective_config(root / "config" / "bistro.yaml", root, args)
 
 
 def write_front3d_fixture_obj(path: Path, *, material: str, height_axis_y: bool = False) -> None:

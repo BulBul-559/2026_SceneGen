@@ -111,5 +111,5 @@ uv run python tools/prepare_front3d_phase1.py \
 整理完成后，可以用当前 `front3d` 模式合成已有组合场景：
 
 ```bash
-uv run scenegen --set pipeline.mode=front3d --set pipeline.scenes=3 --set pipeline.run_name=front3d_preview
+uv run scenegen --config config/front3d.yaml --set pipeline.scenes=3 --set pipeline.run_name=front3d_preview
 ```

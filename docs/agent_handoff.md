@@ -26,7 +26,8 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 - `src/scenegen/quality.py`: 质量检查和统计报告。
 - `src/scenegen/assets/`: Bistro 资产契约、loader、legacy converter、材质映射。
 - `tools/prepare_front3d_phase1.py`: 3D-FRONT 第一阶段离线整理脚本。
-- `config/template.yaml`: 唯一保留的完整配置模板，也是默认 YAML 入口。
+- `config/bistro.yaml`: Bistro 默认完整模板，也是默认 YAML 入口。
+- `config/front3d.yaml`: 3D-FRONT 完整模板。
 - `data/3D-Front/`: 本地 3D-FRONT 原始数据和整理结果，默认 git ignored。
 
 ## 配置链路
@@ -36,7 +37,7 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 合并顺序：
 
 1. `DEFAULT_CONFIG`。
-2. 加载 `--config` 指定 YAML，默认是 `config/template.yaml`。
+2. 加载 `--config` 指定 YAML，默认是 `config/bistro.yaml`。
 3. 应用 CLI `--set key.path=value` 覆盖。
 4. 归一化路径和类型。
 5. 校验未知字段和值范围。
@@ -44,8 +45,9 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 
 维护规则：
 
-- `config/` 目录只保留 `template.yaml`，它应与 `src/scenegen/config.py` 里的 `DEFAULT_CONFIG` 保持一致。
-- 需要实验配置时复制模板到其他位置，或通过 CLI 覆盖。
+- `config/bistro.yaml` 应与 `src/scenegen/config.py` 里的 `DEFAULT_CONFIG` 保持一致。
+- `config/front3d.yaml` 应只在 `pipeline.mode` 上与 Bistro 默认不同。
+- 需要实验配置时复制对应模板到其他位置，或通过 CLI 覆盖。
 - 配置 v2 不兼容旧 YAML 字段和旧显式 CLI 参数。
 - YAML 或 `--set` 写错字段会直接报错，不应静默忽略。
 
@@ -112,7 +114,7 @@ uv run scenegen
 3D-FRONT 合成：
 
 ```bash
-uv run scenegen --set pipeline.mode=front3d --set pipeline.scenes=3 --set pipeline.run_name=front3d_preview
+uv run scenegen --config config/front3d.yaml --set pipeline.scenes=3 --set pipeline.run_name=front3d_preview
 ```
 
 快速 smoke，不生成 floorplan：
