@@ -86,7 +86,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
                 "strategies": ["walk"],
             },
             "walk": {
-                "furniture_clearance_m": 0.35,
+                "furniture_clearance_m": 0.1,
                 "obstacle_strategy": "height_aware",
                 "ignore_low_obstacles_below_m": 0.10,
                 "blocking_classes": ["table", "seat", "floor"],
@@ -126,6 +126,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "resolution_m": 0.05,
         "geometry": {
             "enabled": True,
+            "projection": "sampling",
             "height": {
                 "mode": "heights",
                 "values_m": [1.6],
@@ -137,7 +138,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "class_mask": {
             "enabled": False,
             "wall_dilation_m": 0.0,
-            "furniture_dilation_m": 0.1,
+            "furniture_dilation_m": 0.05,
+            "furniture_mode": "mesh",
+            "furniture_height_m": None,
         },
         "sampling": {
             "density_scale": 128.0,
@@ -413,6 +416,7 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     floorplan["resolution_m"] = float(floorplan["resolution_m"])
     geometry = floorplan["geometry"]
     geometry["enabled"] = as_bool(geometry["enabled"], "floorplan.geometry.enabled")
+    geometry["projection"] = str(geometry["projection"])
     height = geometry["height"]
     height["mode"] = str(height["mode"])
     height["values_m"] = parse_float_sequence(height["values_m"], "floorplan.geometry.height.values_m")
@@ -560,12 +564,18 @@ def validate_effective_config(config: dict[str, Any]) -> None:
     class_mask = floorplan["class_mask"]
     if floorplan["enabled"] and not (geometry["enabled"] or class_mask["enabled"]):
         raise ValueError("At least one of floorplan.geometry.enabled or floorplan.class_mask.enabled must be true")
+    if geometry["projection"] not in {"sampling", "ray_height_filtered"}:
+        raise ValueError("floorplan.geometry.projection must be 'sampling' or 'ray_height_filtered'")
     if class_mask["enabled"] and mode != "front3d":
         raise ValueError("floorplan.class_mask.enabled currently supports only front3d mode")
     if class_mask["wall_dilation_m"] < 0:
         raise ValueError("floorplan.class_mask.wall_dilation_m must be non-negative")
     if class_mask["furniture_dilation_m"] < 0:
         raise ValueError("floorplan.class_mask.furniture_dilation_m must be non-negative")
+    if class_mask["furniture_mode"] not in {"bbox", "mesh"}:
+        raise ValueError("floorplan.class_mask.furniture_mode must be 'bbox' or 'mesh'")
+    if class_mask["furniture_height_m"] is not None and class_mask["furniture_height_m"] < 0:
+        raise ValueError("floorplan.class_mask.furniture_height_m must be non-negative or null")
     height = geometry["height"]
     if height["mode"] not in {"layers", "heights"}:
         raise ValueError("floorplan.geometry.height.mode must be 'layers' or 'heights'")
@@ -699,9 +709,12 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         label_fail_on_error=label["fail_on_error"],
         floorplan_enabled=floorplan["enabled"],
         floorplan_geometry_enabled=geometry["enabled"],
+        floorplan_geometry_projection=geometry["projection"],
         floorplan_class_mask_enabled=class_mask["enabled"],
         floorplan_class_mask_wall_dilation=class_mask["wall_dilation_m"],
         floorplan_class_mask_furniture_dilation=class_mask["furniture_dilation_m"],
+        floorplan_class_mask_furniture_mode=class_mask["furniture_mode"],
+        floorplan_class_mask_furniture_height=class_mask["furniture_height_m"],
         floorplan_class_mask_opening_mode=openings["mode"],
         floorplan_class_mask_opening_dilation=openings["dilation_m"],
         floorplan_class_mask_opening_floor_tolerance=openings["floor_tolerance_m"],

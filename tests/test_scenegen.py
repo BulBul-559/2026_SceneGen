@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import random
 from argparse import Namespace
@@ -15,7 +16,7 @@ from scenegen import __version__
 from scenegen.assets import AssetSpec, group_assets_by_class, legacy_item_to_spec, load_assets, resolve_obj_file
 from scenegen.cli import evaluate_front3d_precheck, main, parse_args
 from scenegen.config import DEFAULT_CONFIG, load_effective_config
-from scenegen.floorplan import floorplan_layer_filename
+from scenegen.floorplan import floorplan_layer_filename, generate_front3d_class_mask, process_scene
 from scenegen.front3d import choose_scene_ids, scenegen_transform_for_child
 from scenegen.geometry import load_bistro_base_scene
 from scenegen.labels import (
@@ -30,7 +31,7 @@ from scenegen.labels import (
     generate_ue_points_for_room,
     label_variants,
 )
-from scenegen.models import SupportTriangle
+from scenegen.models import Asset, Front3DBaseScene, PlacedAsset, SupportTriangle
 from scenegen.paths import (
     default_asset_catalog,
     default_asset_manifest,
@@ -102,6 +103,220 @@ def test_default_paths_point_to_packaged_data() -> None:
 def test_floorplan_layer_filename_uses_height_token() -> None:
     assert floorplan_layer_filename(1.6) == "floorplan_1p60.png"
     assert floorplan_layer_filename(2.0) == "floorplan_2p00.png"
+
+
+def write_height_filtered_fixture_obj(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    vertices: list[tuple[float, float, float]] = []
+    faces: list[tuple[int, int, int]] = []
+
+    def add_quad(points: list[tuple[float, float, float]]) -> None:
+        start = len(vertices) + 1
+        vertices.extend(points)
+        faces.append((start, start + 1, start + 2))
+        faces.append((start, start + 2, start + 3))
+
+    add_quad([(0, 0, 0), (2, 0, 0), (2, 2, 0), (0, 2, 0)])
+    add_quad([(2, 0, 0.4), (3, 0, 0.4), (3, 1, 0.4), (2, 1, 0.4)])
+    add_quad([(3, 0, 2.0), (4, 0, 2.0), (4, 1, 2.0), (3, 1, 2.0)])
+    add_quad([(0, 3, 0), (0, 4, 0), (0, 4, 1.6), (0, 3, 1.6)])
+
+    with path.open("w", encoding="utf-8", newline="\n") as handle:
+        for x, y, z in vertices:
+            handle.write(f"v {x} {y} {z}\n")
+        for face in faces:
+            handle.write("f " + " ".join(str(index) for index in face) + "\n")
+
+
+def run_height_filtered_fixture(input_obj: Path, output_dir: Path) -> dict[str, object]:
+    return process_scene(
+        input_path=input_obj,
+        output_dir=output_dir,
+        resolution=0.5,
+        step=0.5,
+        manual_top_z=None,
+        bottom_z=0.0,
+        sample_density_scale=1.0,
+        min_sample_points=10,
+        max_sample_points=100,
+        preview_output_path=output_dir / "preview.png",
+        side_view_output_path=output_dir / "side_view.png",
+        preview_tile_size=160,
+        height_mode="heights",
+        heights_m=[0.3, 0.5, 1.6],
+        projection_mode="ray_height_filtered",
+    )
+
+
+def test_ray_height_filtered_projection_respects_target_height_and_is_deterministic(tmp_path: Path) -> None:
+    obj_path = tmp_path / "fixture.obj"
+    write_height_filtered_fixture_obj(obj_path)
+
+    first = run_height_filtered_fixture(obj_path, tmp_path / "first")
+    run_height_filtered_fixture(obj_path, tmp_path / "second")
+
+    assert first["raw"] == "first/floorplan_0p30.png"
+    stack = np.load(tmp_path / "first" / "stack.npz")["stack"]
+    assert stack.shape == (3, 9, 9)
+    assert stack[0, 0, 0] == 1
+    assert stack[0, 0, 4] == 0
+    assert stack[1, 0, 4] == 1
+    assert stack[2, 0, 6] == 0
+    assert stack[2, 6, 0] == 1
+
+    meta = json.loads((tmp_path / "first" / "meta.json").read_text(encoding="utf-8"))
+    assert meta["projection_mode"] == "ray_height_filtered"
+    assert meta["deterministic"] is True
+    assert meta["ray_height_filtered"]["method"] == "deterministic_height_filtered_triangle_raster"
+    assert meta["projection_stats"][1]["occupied_pixels"] > meta["projection_stats"][0]["occupied_pixels"]
+    assert meta["projection_stats"][2]["occupied_pixels"] >= meta["projection_stats"][1]["occupied_pixels"]
+
+    first_hash = hashlib.sha256((tmp_path / "first" / "floorplan_1p60.png").read_bytes()).hexdigest()
+    second_hash = hashlib.sha256((tmp_path / "second" / "floorplan_1p60.png").read_bytes()).hexdigest()
+    assert first_hash == second_hash
+
+
+def write_l_shaped_furniture_obj(path: Path) -> None:
+    path.write_text(
+        "\n".join(
+            [
+                "v 0 0 0.5",
+                "v 2 0 0.5",
+                "v 2 1 0.5",
+                "v 1 1 0.5",
+                "v 1 2 0.5",
+                "v 0 2 0.5",
+                "f 1 2 3 4",
+                "f 1 4 5 6",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def make_class_mask_fixture(tmp_path: Path) -> tuple[Front3DBaseScene, list[PlacedAsset]]:
+    source_scene = tmp_path / "scene.json"
+    metadata_json = tmp_path / "metadata.json"
+    furniture_obj = tmp_path / "l_furniture.obj"
+    write_l_shaped_furniture_obj(furniture_obj)
+    source_scene.write_text(
+        json.dumps(
+            {
+                "mesh": [
+                    {
+                        "type": "Floor",
+                        "xyz": [0, 0, 0, 4, 0, 0, 4, 0, -4, 0, 0, -4],
+                        "faces": [0, 1, 2, 0, 2, 3],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    metadata_json.write_text(json.dumps({"variant": "normalized"}), encoding="utf-8")
+    base_scene = Front3DBaseScene(
+        scene_id="fixture-scene",
+        scene_obj=tmp_path / "architecture.obj",
+        source_scene_json=source_scene,
+        metadata_json=metadata_json,
+        bbox_min=(0.0, 0.0, 0.0),
+        bbox_max=(4.0, 4.0, 3.0),
+        source_bbox_min=(0.0, 0.0, 0.0),
+        source_bbox_max=(4.0, 4.0, 3.0),
+        world_offset=(0.0, 0.0, 0.0),
+        source_to_sionna_material={},
+        sionna_material_names=("itu-wood",),
+    )
+    asset = Asset(
+        name="l_furniture",
+        export_name="l_furniture",
+        obj_file=furniture_obj,
+        width=2.0,
+        length=2.0,
+        height=0.5,
+        placement_class="floor",
+        source_to_sionna_material={},
+        sionna_material_names=("itu-wood",),
+    )
+    placement = PlacedAsset(
+        asset=asset,
+        instance_name="l_furniture_0",
+        x=1.0,
+        y=1.0,
+        z=0.0,
+        yaw=0.0,
+        support_type="front3d_scene",
+        parent=None,
+        min_x=1.0,
+        max_x=3.0,
+        min_y=1.0,
+        max_y=3.0,
+        min_z=0.5,
+        max_z=0.5,
+        transform_matrix_4x4_row_major=(
+            1.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            1.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+        ),
+    )
+    return base_scene, [placement]
+
+
+def test_front3d_class_mask_mesh_furniture_mode_uses_mesh_footprint(tmp_path: Path) -> None:
+    base_scene, placements = make_class_mask_fixture(tmp_path)
+    common = {
+        "base_scene": base_scene,
+        "placements": placements,
+        "resolution": 1.0,
+        "wall_dilation_m": 0.0,
+        "furniture_dilation_m": 0.0,
+        "opening_mode": "none",
+        "opening_dilation_m": 0.0,
+        "opening_floor_tolerance_m": 0.25,
+        "opening_min_height_m": 1.6,
+        "include_doors_as_wall": True,
+        "include_windows_as_wall": True,
+        "path_root": tmp_path,
+    }
+
+    generate_front3d_class_mask(
+        output_dir=tmp_path / "bbox",
+        furniture_mode="bbox",
+        furniture_height_m=None,
+        **common,
+    )
+    generate_front3d_class_mask(
+        output_dir=tmp_path / "mesh",
+        furniture_mode="mesh",
+        furniture_height_m=1.6,
+        **common,
+    )
+
+    bbox_mask = np.load(tmp_path / "bbox" / "class_mask.npy")
+    mesh_mask = np.load(tmp_path / "mesh" / "class_mask.npy")
+    bbox_furniture_pixels = int((bbox_mask == 3).sum())
+    mesh_furniture_pixels = int((mesh_mask == 3).sum())
+    assert mesh_furniture_pixels > 0
+    assert mesh_furniture_pixels < bbox_furniture_pixels
+
+    mesh_meta = json.loads((tmp_path / "mesh" / "class_mask_meta.json").read_text(encoding="utf-8"))
+    assert mesh_meta["furniture_mode"] == "mesh"
+    assert mesh_meta["furniture_mask"]["mesh_object_count"] == 1
+    assert mesh_meta["furniture_mask"]["fallback_bbox_count"] == 0
 
 
 def test_cli_version_matches_package_version(capsys: pytest.CaptureFixture[str]) -> None:
@@ -920,6 +1135,34 @@ def test_front3d_batch_label_outputs(tmp_path: Path) -> None:
     assert scene_record["label"]["primary"] == "label_panel_0p1"
     assert scene_record["label"]["report_dir"] == "front3d_0000/label/report"
     assert len(scene_record["label"]["overlays"]) == 4
+
+
+def test_front3d_ray_height_filtered_floorplan_smoke(tmp_path: Path) -> None:
+    pytest.importorskip("trimesh")
+    config_path = make_front3d_runtime_fixture(tmp_path)
+    output_dir = tmp_path / "out"
+
+    exit_code = main(
+        [
+            "--config",
+            str(config_path),
+            "--set",
+            "label.enabled=false",
+            "--set",
+            "floorplan.geometry.projection=ray_height_filtered",
+        ]
+    )
+
+    scene_dir = output_dir / "smoke_front3d" / "front3d_0000"
+    assert exit_code == 0
+    assert (scene_dir / "floorplan" / "floorplan_1p60.png").is_file()
+    assert (scene_dir / "floorplan" / "stack.npz").is_file()
+    meta = json.loads((scene_dir / "floorplan" / "meta.json").read_text(encoding="utf-8"))
+    assert meta["projection_mode"] == "ray_height_filtered"
+    assert meta["deterministic"] is True
+    assert meta["projection_stats"][0]["occupied_pixels"] > 0
+    manifest = json.loads((output_dir / "smoke_front3d" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["floorplan_geometry_projection"] == "ray_height_filtered"
 
 
 def test_front3d_global_sampling_keeps_connected_area_in_each_label(tmp_path: Path) -> None:

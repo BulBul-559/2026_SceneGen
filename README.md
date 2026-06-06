@@ -252,7 +252,7 @@ results/<run_name>/
 - `label_floorplan/*.png`: 每份 label 在主高度层 `floorplan_*.png` 上绘制 BS/UE 点位后的检查图。
 - `floorplan/side_view.png`: 侧视投影。
 - `floorplan/stack.npz`: 二值投影栈和高度层数据。
-- `floorplan/class_mask.png`: 可选 front3d 四分类掩码，单通道 `uint8`，类别固定为 `0 outdoor`、`1 wall`、`2 free_space`、`3 furniture`；当前会先把 3D-FRONT 原始 `Door/Hole/Pocket` 标为 free space，再执行墙体膨胀，门洞不会在膨胀后被额外恢复。
+- `floorplan/class_mask.png`: 可选 front3d 四分类掩码，单通道 `uint8`，类别固定为 `0 outdoor`、`1 wall`、`2 free_space`、`3 furniture`；当前会先把 3D-FRONT 原始 `Door/Hole/Pocket` 标为 free space，再执行墙体膨胀，门洞不会在膨胀后被额外恢复。家具层默认 `floorplan.class_mask.furniture_mode: mesh`，加载每个家具 OBJ 并应用实例 transform 后生成像素级 footprint；也可切到 `bbox` 加速。
 - `floorplan/class_mask_preview.png`: 四分类掩码彩色预览图。
 - `floorplan/class_mask.npy` / `floorplan/class_mask.npz`: 训练读取用的数组格式，`npz` 额外带分辨率、origin 和类别名。
 - `floorplan/class_mask_meta.json`: 四分类掩码的类别 legend、像素统计、建筑 mesh 统计和生成参数。
@@ -317,7 +317,7 @@ label:
       min_component_area_m2: 0.25
       strategies: [walk]
     walk:
-      furniture_clearance_m: 0.35
+      furniture_clearance_m: 0.1
       obstacle_strategy: height_aware
       ignore_low_obstacles_below_m: 0.10
       blocking_classes: [table, seat, floor]
@@ -386,7 +386,7 @@ label:
 
 ## Floorplan 原理
 
-当前 floorplan 默认生成几何占据图；front3d 模式可选生成四分类 `class_mask`，用于训练时区分 outdoor、wall、free_space、furniture。
+当前 floorplan 默认生成几何占据图；front3d 模式可选生成四分类 `class_mask`，用于训练时区分 outdoor、wall、free_space、furniture。`class_mask` 的 furniture 层默认使用 mesh footprint，若需要更快但更粗的输出，可设置 `floorplan.class_mask.furniture_mode: bbox`。
 
 第一版是几何占据图，沿用了原 `2026_FloorplanGen` 的 mesh 投影逻辑：
 
@@ -398,7 +398,9 @@ label:
 6. 按配置生成累计俯视投影：默认只生成 `1.6m` 一个高度；也可以切换回旧版逐层扫描。
 7. 输出分层 PNG、预览图、侧视图、投影栈和元数据。
 
-默认几何平面图使用高密度单高度方案：`floorplan.resolution_m: 0.05`、`floorplan.sampling.density_scale: 128.0`、`floorplan.geometry.height.values_m: [1.6]`。这类输出偏几何占据图，不包含资产类别语义。由于原始投影来自随机表面采样，低密度时可能有点状采样噪声；当前默认通过提高采样密度减轻这类伪纹理。
+默认几何平面图使用高密度单高度方案：`floorplan.geometry.projection: sampling`、`floorplan.resolution_m: 0.05`、`floorplan.sampling.density_scale: 128.0`、`floorplan.geometry.height.values_m: [1.6]`。这类输出偏几何占据图，不包含资产类别语义。由于原始投影来自随机表面采样，低密度时可能有点状采样噪声；当前默认通过提高采样密度减轻这类伪纹理。
+
+也可以切换到确定性的高度过滤投影：`floorplan.geometry.projection: ray_height_filtered`。该模式不使用随机表面采样，而是对 mesh 三角形做 XY column rasterization；每个像素只在 `bottom_m <= z <= target_height` 范围内存在几何时被标为 occupied，因此同一 `scene.obj` 和同一配置会得到稳定的 `floorplan_*.png`。
 
 ## 常用命令
 

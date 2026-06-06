@@ -145,7 +145,7 @@ uv run scenegen \
 
 | 字段 | 可选值 / 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `furniture_clearance_m` | float, `>=0` | `0.35` | walk 策略扣除家具时对 bbox 的额外避让距离。 |
+| `furniture_clearance_m` | float, `>=0` | `0.1` | walk 策略扣除家具时对 bbox 的额外避让距离。 |
 | `obstacle_strategy` | `height_aware` / `footprint_column` | `height_aware` | walk 家具障碍物过滤方式。 |
 | `ignore_low_obstacles_below_m` | float, `>=0` | `0.10` | walk 策略忽略低矮物体的高度阈值。 |
 | `blocking_classes` | list | `[table, seat, floor]` | 哪些 placement class 会阻挡 walk UE。 |
@@ -213,7 +213,8 @@ uv run scenegen \
 
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `enabled` | boolean | `true` | 是否生成基于 `scene.obj` 采样的几何占据图。 |
+| `enabled` | boolean | `true` | 是否生成基于 `scene.obj` 的几何占据图。 |
+| `projection` | `sampling` / `ray_height_filtered` | `sampling` | 几何投影方式。`sampling` 是旧的随机表面采样；`ray_height_filtered` 是确定性的高度过滤 column 投影。 |
 
 ### floorplan.geometry.height
 
@@ -233,11 +234,15 @@ uv run scenegen \
 | --- | --- | --- | --- |
 | `enabled` | boolean | `false` | 是否生成四分类训练掩码。 |
 | `wall_dilation_m` | float, `>=0` | `0.0` | wall 类额外膨胀距离。 |
-| `furniture_dilation_m` | float, `>=0` | `0.1` | furniture 类额外膨胀距离。 |
+| `furniture_dilation_m` | float, `>=0` | `0.05` | furniture 类额外膨胀距离。 |
+| `furniture_mode` | `bbox` / `mesh` | `mesh` | furniture 类生成方式。`mesh` 加载家具 OBJ、应用实例 transform 后做像素级 mesh footprint；`bbox` 使用每个家具的 XY 包围盒，速度更快但更粗。 |
+| `furniture_height_m` | float / `null` | `null` | 仅 `furniture_mode: mesh` 生效。`null` 表示投影家具全高度；数字表示只统计 `0 <= z <= furniture_height_m` 的家具几何。 |
 
 四分类固定为：`0 outdoor`、`1 wall`、`2 free_space`、`3 furniture`。
 
 ### floorplan.sampling
+
+只影响 `floorplan.geometry.projection: sampling`。
 
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
@@ -278,4 +283,12 @@ uv run scenegen \
   --config config/front3d.yaml \
   --set floorplan.class_mask.enabled=true \
   --set front3d.openings.mode=doors_and_windows
+```
+
+使用确定性 height-filtered 几何投影：
+
+```bash
+uv run scenegen \
+  --config config/front3d.yaml \
+  --set floorplan.geometry.projection=ray_height_filtered
 ```

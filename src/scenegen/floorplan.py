@@ -10,6 +10,7 @@ import numpy as np
 import trimesh
 from PIL import Image, ImageDraw, ImageFilter
 
+from .geometry import load_obj_mesh, transform_vertices
 from .models import Front3DBaseScene, Front3DOpeningConfig, PlacedAsset, Rect2D
 from .paths import portable_path
 
@@ -45,9 +46,12 @@ def world_to_pixel(point: tuple[float, float], min_x: float, max_y: float, resol
 class FloorplanConfig:
     enabled: bool
     geometry_enabled: bool
+    geometry_projection: str
     class_mask_enabled: bool
     class_mask_wall_dilation_m: float
     class_mask_furniture_dilation_m: float
+    class_mask_furniture_mode: str
+    class_mask_furniture_height_m: float | None
     openings: Front3DOpeningConfig
     resolution_m_per_pixel: float
     height_mode: str
@@ -71,9 +75,14 @@ class FloorplanConfig:
         return cls(
             enabled=bool(payload["enabled"]),
             geometry_enabled=bool(geometry["enabled"]),
+            geometry_projection=str(geometry["projection"]),
             class_mask_enabled=bool(class_mask["enabled"]),
             class_mask_wall_dilation_m=float(class_mask["wall_dilation_m"]),
             class_mask_furniture_dilation_m=float(class_mask["furniture_dilation_m"]),
+            class_mask_furniture_mode=str(class_mask["furniture_mode"]),
+            class_mask_furniture_height_m=(
+                None if class_mask["furniture_height_m"] is None else float(class_mask["furniture_height_m"])
+            ),
             openings=floorplan_opening_config_from_mapping(openings),
             resolution_m_per_pixel=float(payload["resolution_m"]),
             height_mode=str(height["mode"]),
@@ -142,6 +151,7 @@ def generate_floorplan_for_scene(
             preview_tile_size=config.preview_tile_size_px,
             height_mode=config.height_mode,
             heights_m=config.heights_m,
+            projection_mode=config.geometry_projection,
         )
         record.update(
             {
@@ -177,6 +187,8 @@ def generate_floorplan_for_scene(
             resolution=config.resolution_m_per_pixel,
             wall_dilation_m=config.class_mask_wall_dilation_m,
             furniture_dilation_m=config.class_mask_furniture_dilation_m,
+            furniture_mode=config.class_mask_furniture_mode,
+            furniture_height_m=config.class_mask_furniture_height_m,
             opening_mode=config.openings.mode,
             opening_dilation_m=config.openings.dilation_m,
             opening_floor_tolerance_m=config.openings.floor_tolerance_m,
@@ -197,6 +209,8 @@ def generate_front3d_class_mask(
     resolution: float,
     wall_dilation_m: float,
     furniture_dilation_m: float,
+    furniture_mode: str,
+    furniture_height_m: float | None,
     opening_mode: str,
     opening_dilation_m: float,
     opening_floor_tolerance_m: float,
@@ -294,16 +308,16 @@ def generate_front3d_class_mask(
     if wall_dilation_m > 0:
         wall_image = dilate_binary_image(wall_image, wall_dilation_m, resolution)
 
-    furniture_image = Image.new("L", image_size, 0)
-    furniture_draw = ImageDraw.Draw(furniture_image)
-    for placement in placements:
-        polygon = [
-            world_to_pixel((placement.min_x, placement.min_y), min_x, max_y, resolution),
-            world_to_pixel((placement.max_x, placement.min_y), min_x, max_y, resolution),
-            world_to_pixel((placement.max_x, placement.max_y), min_x, max_y, resolution),
-            world_to_pixel((placement.min_x, placement.max_y), min_x, max_y, resolution),
-        ]
-        furniture_draw.polygon(polygon, fill=255)
+    furniture_image, furniture_meta = build_front3d_furniture_mask_image(
+        placements=placements,
+        image_size=image_size,
+        min_x=min_x,
+        min_y=min_y,
+        max_y=max_y,
+        resolution=resolution,
+        mode=furniture_mode,
+        height_m=furniture_height_m,
+    )
     if furniture_dilation_m > 0:
         furniture_image = dilate_binary_image(furniture_image, furniture_dilation_m, resolution)
 
@@ -364,6 +378,9 @@ def generate_front3d_class_mask(
         "opening_mesh_count": int(opening_mesh_count),
         "opening_type_counts": opening_type_counts,
         "furniture_count": len(placements),
+        "furniture_mode": furniture_mode,
+        "furniture_height_m": None if furniture_height_m is None else float(furniture_height_m),
+        "furniture_mask": furniture_meta,
         "mesh_type_counts": mesh_type_counts,
         "wall_dilation_m": float(wall_dilation_m),
         "furniture_dilation_m": float(furniture_dilation_m),
@@ -510,6 +527,169 @@ def render_class_mask_preview(class_mask: np.ndarray) -> Image.Image:
     return Image.fromarray(rgb, mode="RGB")
 
 
+def build_front3d_furniture_mask_image(
+    placements: list[PlacedAsset],
+    image_size: tuple[int, int],
+    min_x: float,
+    min_y: float,
+    max_y: float,
+    resolution: float,
+    mode: str,
+    height_m: float | None,
+) -> tuple[Image.Image, dict[str, object]]:
+    if mode == "bbox":
+        image = Image.new("L", image_size, 0)
+        draw = ImageDraw.Draw(image)
+        for placement in placements:
+            draw_bbox_furniture_mask(draw, placement, min_x, max_y, resolution)
+        return image, {
+            "mode": mode,
+            "object_count": len(placements),
+            "bbox_object_count": len(placements),
+            "mesh_object_count": 0,
+            "fallback_bbox_count": 0,
+            "height_m": None if height_m is None else float(height_m),
+        }
+    if mode != "mesh":
+        raise ValueError("furniture_mode must be 'bbox' or 'mesh'")
+    return build_front3d_mesh_furniture_mask_image(
+        placements=placements,
+        image_size=image_size,
+        min_x=min_x,
+        min_y=min_y,
+        max_y=max_y,
+        resolution=resolution,
+        height_m=height_m,
+    )
+
+
+def draw_bbox_furniture_mask(
+    draw: ImageDraw.ImageDraw,
+    placement: PlacedAsset,
+    min_x: float,
+    max_y: float,
+    resolution: float,
+) -> None:
+    polygon = [
+        world_to_pixel((placement.min_x, placement.min_y), min_x, max_y, resolution),
+        world_to_pixel((placement.max_x, placement.min_y), min_x, max_y, resolution),
+        world_to_pixel((placement.max_x, placement.max_y), min_x, max_y, resolution),
+        world_to_pixel((placement.min_x, placement.max_y), min_x, max_y, resolution),
+    ]
+    draw.polygon(polygon, fill=255)
+
+
+def build_front3d_mesh_furniture_mask_image(
+    placements: list[PlacedAsset],
+    image_size: tuple[int, int],
+    min_x: float,
+    min_y: float,
+    max_y: float,
+    resolution: float,
+    height_m: float | None,
+) -> tuple[Image.Image, dict[str, object]]:
+    shape = (image_size[1], image_size[0])
+    vertices_chunks: list[np.ndarray] = []
+    triangle_faces: list[tuple[int, int, int]] = []
+    mesh_cache: dict[Path, object] = {}
+    fallback_image = Image.new("L", image_size, 0)
+    fallback_draw = ImageDraw.Draw(fallback_image)
+    failed_objects: list[dict[str, str]] = []
+    vertex_offset = 0
+    mesh_object_count = 0
+    target_height = height_m
+
+    for placement in placements:
+        try:
+            mesh = mesh_cache.get(placement.asset.obj_file)
+            if mesh is None:
+                mesh = load_obj_mesh(placement.asset.obj_file)
+                mesh_cache[placement.asset.obj_file] = mesh
+            transformed = np.asarray(transform_vertices(mesh, placement), dtype=np.float64)
+            faces = triangulate_obj_faces(mesh.faces, vertex_offset)
+        except Exception as exc:
+            draw_bbox_furniture_mask(fallback_draw, placement, min_x, max_y, resolution)
+            failed_objects.append(
+                {
+                    "instance": placement.instance_name,
+                    "asset_obj": str(placement.asset.obj_file),
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                }
+            )
+            continue
+        if transformed.size == 0 or not faces:
+            draw_bbox_furniture_mask(fallback_draw, placement, min_x, max_y, resolution)
+            failed_objects.append(
+                {
+                    "instance": placement.instance_name,
+                    "asset_obj": str(placement.asset.obj_file),
+                    "error_type": "EmptyMesh",
+                    "error": "object mesh has no usable vertices or faces",
+                }
+            )
+            continue
+        if height_m is None:
+            object_max_z = float(np.max(transformed[:, 2]))
+            target_height = object_max_z if target_height is None else max(target_height, object_max_z)
+        vertices_chunks.append(transformed)
+        triangle_faces.extend(faces)
+        vertex_offset += len(transformed)
+        mesh_object_count += 1
+
+    if vertices_chunks and triangle_faces:
+        vertices = np.vstack(vertices_chunks)
+        faces_array = np.asarray(triangle_faces, dtype=np.int64)
+        raster = rasterize_height_filtered_triangles(
+            vertices=vertices,
+            faces=faces_array,
+            origin_xy=np.asarray([min_x, min_y], dtype=np.float64),
+            resolution=resolution,
+            shape=shape,
+            z_levels=[float(target_height if target_height is not None else 0.0)],
+            bottom_z=0.0,
+        )
+        mesh_layer = np.flipud((raster["stack"][0] > 0).astype(np.uint8)) * 255
+        backend_meta = dict(raster["backend_meta"])
+    else:
+        mesh_layer = np.zeros(shape, dtype=np.uint8)
+        backend_meta = {
+            "method": "deterministic_height_filtered_triangle_raster",
+            "triangle_count": 0,
+            "painted_triangle_count": 0,
+            "degenerate_triangle_count": 0,
+            "z_rejected_triangle_count": 0,
+            "bottom_z_m": 0.0,
+            "max_target_height_m": float(target_height if target_height is not None else 0.0),
+        }
+
+    fallback_layer = np.asarray(fallback_image, dtype=np.uint8)
+    combined_layer = np.maximum(mesh_layer, fallback_layer)
+    image = Image.fromarray(combined_layer.astype(np.uint8), mode="L")
+    return image, {
+        "mode": "mesh",
+        "object_count": len(placements),
+        "bbox_object_count": 0,
+        "mesh_object_count": int(mesh_object_count),
+        "fallback_bbox_count": int(len(failed_objects)),
+        "height_m": None if height_m is None else float(height_m),
+        "effective_height_m": float(target_height if target_height is not None else 0.0),
+        "failed_objects": failed_objects[:20],
+        **backend_meta,
+    }
+
+
+def triangulate_obj_faces(faces: list[list[int]], vertex_offset: int = 0) -> list[tuple[int, int, int]]:
+    triangles: list[tuple[int, int, int]] = []
+    for face in faces:
+        if len(face) < 3:
+            continue
+        first = int(face[0]) + vertex_offset
+        for index in range(1, len(face) - 1):
+            triangles.append((first, int(face[index]) + vertex_offset, int(face[index + 1]) + vertex_offset))
+    return triangles
+
+
 def process_scene(
     input_path: Path,
     output_dir: Path,
@@ -525,7 +705,11 @@ def process_scene(
     preview_tile_size: int,
     height_mode: str = "layers",
     heights_m: list[float] | None = None,
+    projection_mode: str = "sampling",
 ) -> dict[str, object]:
+    if projection_mode not in {"sampling", "ray_height_filtered"}:
+        raise ValueError("projection_mode must be 'sampling' or 'ray_height_filtered'")
+    output_dir.mkdir(parents=True, exist_ok=True)
     mesh_path, conversion_meta = prepare_mesh_path(input_path, output_dir)
     path_root = input_path.parent
     mesh = load_as_mesh(mesh_path)
@@ -536,15 +720,20 @@ def process_scene(
     oriented_vertices = vertices[:, reorder]
     oriented_mesh = trimesh.Trimesh(vertices=oriented_vertices, faces=mesh.faces, process=False)
 
-    sampled_points, _sampled_normals, sample_meta = sample_surface_points(
-        oriented_mesh,
-        resolution,
-        sample_density_scale,
-        min_sample_points,
-        max_sample_points,
-        include_normals=False,
-    )
-    all_points = np.vstack([oriented_vertices, sampled_points]).astype(np.float32, copy=False)
+    sampled_points: np.ndarray | None = None
+    sample_meta: dict[str, object] | None = None
+    if projection_mode == "sampling":
+        sampled_points, _sampled_normals, sample_meta = sample_surface_points(
+            oriented_mesh,
+            resolution,
+            sample_density_scale,
+            min_sample_points,
+            max_sample_points,
+            include_normals=False,
+        )
+        all_points = np.vstack([oriented_vertices, sampled_points]).astype(np.float32, copy=False)
+    else:
+        all_points = oriented_vertices.astype(np.float32, copy=True)
 
     effective_bottom, effective_top, hist_meta = detect_effective_height_range(
         z_values=all_points[:, 2],
@@ -586,16 +775,126 @@ def process_scene(
     )
     side_view.save(side_view_output_path)
 
-    rows, cols, z_vals = rasterize_points(
-        points=shifted_points,
-        origin_xy=xy_min,
-        resolution=resolution,
-        shape=shape,
+    if projection_mode == "sampling":
+        assert sample_meta is not None
+        rows, cols, z_vals = rasterize_points(
+            points=shifted_points,
+            origin_xy=xy_min,
+            resolution=resolution,
+            shape=shape,
+        )
+        pixel_min_z = build_pixel_min_height_map_from_raster(rows=rows, cols=cols, z_vals=z_vals, shape=shape)
+        valid_projection = np.isfinite(pixel_min_z)
+        projection_output = build_sampling_projection_output(
+            rows=rows,
+            cols=cols,
+            z_vals=z_vals,
+            z_levels=z_levels,
+            shape=shape,
+            output_dir=output_dir,
+            path_root=path_root,
+        )
+        stack = projection_output["stack"]
+        projection_stats = projection_output["projection_stats"]
+        soft_plain_images_by_index = projection_output["images_by_index"]
+        projection_backend_meta: dict[str, object] = {"sampling": sample_meta}
+    else:
+        projection_output = build_height_filtered_projection_output(
+            mesh=oriented_mesh,
+            vertices=shifted_vertices,
+            origin_xy=xy_min,
+            resolution=resolution,
+            shape=shape,
+            z_levels=z_levels,
+            bottom_z=bottom_z,
+            output_dir=output_dir,
+            path_root=path_root,
+        )
+        stack = projection_output["stack"]
+        pixel_min_z = projection_output["pixel_min_z"]
+        valid_projection = np.isfinite(pixel_min_z)
+        projection_stats = projection_output["projection_stats"]
+        soft_plain_images_by_index = projection_output["images_by_index"]
+        projection_backend_meta = {
+            "ray_height_filtered": projection_output["backend_meta"],
+            "sampling": None,
+        }
+    soft_plain_panels = [(f"z<={level:.2f}", soft_plain_images_by_index[index]) for index, level in enumerate(z_levels)]
+    primary_layer_path = output_dir / floorplan_layer_filename(float(z_levels[0]))
+
+    np.savez_compressed(
+        output_dir / "stack.npz",
+        stack=stack,
+        z_levels_m=np.asarray(z_levels, dtype=np.float32),
+        resolution_m_per_pixel=np.asarray([resolution], dtype=np.float32),
+        origin_xy_m=np.asarray([float(xy_min[0]), float(xy_min[1])], dtype=np.float32),
+        pixel_min_z_m=np.where(valid_projection, pixel_min_z, -1.0).astype(np.float32),
     )
+
+    soft_plain_preview = build_contact_sheet(
+        soft_plain_panels,
+        title=f"scene: {input_path.name}",
+        tile_size=preview_tile_size,
+    )
+    soft_plain_preview.save(preview_output_path)
+
+    meta = {
+        "approach": "height_sweep_projection",
+        "projection_mode": projection_mode,
+        "deterministic": projection_mode == "ray_height_filtered",
+        "source": portable_path(input_path, path_root),
+        "prepared_mesh": portable_path(mesh_path, path_root),
+        "resolution_m_per_pixel": resolution,
+        "patch_size_px_for_1m": int(round(1.0 / resolution)),
+        "vertical_axis_original": axis_name(vertical_axis),
+        "grid_shape": [int(height), int(width)],
+        "origin_xy_m": [float(xy_min[0]), float(xy_min[1])],
+        "extent_xy_m": [float(xy_max[0] - xy_min[0]), float(xy_max[1] - xy_min[1])],
+        "effective_ground_m_original_units": float(effective_bottom),
+        "effective_top_m_original_units": float(effective_top),
+        "detected_top_z_m": float(detected_top_z),
+        "height_mode": height_mode,
+        "requested_heights_m": [float(level) for level in z_levels] if height_mode == "heights" else None,
+        "scan_top_z_m": float(scan_top),
+        "scan_bottom_z_m": float(bottom_z),
+        "step_m": float(step),
+        "num_levels": len(z_levels),
+        "z_levels_m": [float(level) for level in z_levels],
+        "origin_clipping_warning": origin_clipping_warning,
+        "height_histogram": hist_meta,
+        **projection_backend_meta,
+        "primary_layer": portable_path(primary_layer_path, path_root),
+        "conversion": conversion_meta,
+        "projection_stats": projection_stats,
+    }
+    (output_dir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {
+        "scene": input_path.stem,
+        "source": portable_path(input_path, path_root),
+        "output_dir": portable_path(output_dir, path_root),
+        "num_levels": len(z_levels),
+        "top_z_m": float(scan_top),
+        "bottom_z_m": float(bottom_z),
+        "step_m": float(step),
+        "height_mode": height_mode,
+        "projection_mode": projection_mode,
+        "z_levels_m": [float(level) for level in z_levels],
+        "raw": portable_path(primary_layer_path, path_root),
+    }
+
+
+def build_sampling_projection_output(
+    rows: np.ndarray,
+    cols: np.ndarray,
+    z_vals: np.ndarray,
+    z_levels: list[float],
+    shape: tuple[int, int],
+    output_dir: Path,
+    path_root: Path,
+) -> dict[str, object]:
+    stack = np.zeros((len(z_levels), shape[0], shape[1]), dtype=np.uint8)
     pixel_min_z = build_pixel_min_height_map_from_raster(rows=rows, cols=cols, z_vals=z_vals, shape=shape)
     valid_projection = np.isfinite(pixel_min_z)
-
-    stack = np.zeros((len(z_levels), height, width), dtype=np.uint8)
     projection_stats: list[dict[str, object]] = []
     for index, level in enumerate(z_levels):
         mask = valid_projection & (pixel_min_z <= level)
@@ -619,66 +918,320 @@ def process_scene(
         max_alpha=0.90,
         foreground_color=(40, 40, 40),
     )
-    soft_plain_images_by_index = projection_render["raw_images"]
-    soft_plain_panels = [(f"z<={level:.2f}", soft_plain_images_by_index[index]) for index, level in enumerate(z_levels)]
-    primary_layer_path = output_dir / floorplan_layer_filename(float(z_levels[0]))
-
-    np.savez_compressed(
-        output_dir / "stack.npz",
-        stack=stack,
-        z_levels_m=np.asarray(z_levels, dtype=np.float32),
-        resolution_m_per_pixel=np.asarray([resolution], dtype=np.float32),
-        origin_xy_m=np.asarray([float(xy_min[0]), float(xy_min[1])], dtype=np.float32),
-        pixel_min_z_m=np.where(valid_projection, pixel_min_z, -1.0).astype(np.float32),
-    )
-
-    soft_plain_preview = build_contact_sheet(
-        soft_plain_panels,
-        title=f"scene: {input_path.name}",
-        tile_size=preview_tile_size,
-    )
-    soft_plain_preview.save(preview_output_path)
-
-    meta = {
-        "approach": "height_sweep_projection",
-        "source": portable_path(input_path, path_root),
-        "prepared_mesh": portable_path(mesh_path, path_root),
-        "resolution_m_per_pixel": resolution,
-        "patch_size_px_for_1m": int(round(1.0 / resolution)),
-        "vertical_axis_original": axis_name(vertical_axis),
-        "grid_shape": [int(height), int(width)],
-        "origin_xy_m": [float(xy_min[0]), float(xy_min[1])],
-        "extent_xy_m": [float(xy_max[0] - xy_min[0]), float(xy_max[1] - xy_min[1])],
-        "effective_ground_m_original_units": float(effective_bottom),
-        "effective_top_m_original_units": float(effective_top),
-        "detected_top_z_m": float(detected_top_z),
-        "height_mode": height_mode,
-        "requested_heights_m": [float(level) for level in z_levels] if height_mode == "heights" else None,
-        "scan_top_z_m": float(scan_top),
-        "scan_bottom_z_m": float(bottom_z),
-        "step_m": float(step),
-        "num_levels": len(z_levels),
-        "z_levels_m": [float(level) for level in z_levels],
-        "origin_clipping_warning": origin_clipping_warning,
-        "height_histogram": hist_meta,
-        "sampling": sample_meta,
-        "primary_layer": portable_path(primary_layer_path, path_root),
-        "conversion": conversion_meta,
-        "projection_stats": projection_stats,
-    }
-    (output_dir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     return {
-        "scene": input_path.stem,
-        "source": portable_path(input_path, path_root),
-        "output_dir": portable_path(output_dir, path_root),
-        "num_levels": len(z_levels),
-        "top_z_m": float(scan_top),
-        "bottom_z_m": float(bottom_z),
-        "step_m": float(step),
-        "height_mode": height_mode,
-        "z_levels_m": [float(level) for level in z_levels],
-        "raw": portable_path(primary_layer_path, path_root),
+        "stack": stack,
+        "projection_stats": projection_stats,
+        "images_by_index": projection_render["raw_images"],
     }
+
+
+def build_height_filtered_projection_output(
+    mesh: trimesh.Trimesh,
+    vertices: np.ndarray,
+    origin_xy: np.ndarray,
+    resolution: float,
+    shape: tuple[int, int],
+    z_levels: list[float],
+    bottom_z: float,
+    output_dir: Path,
+    path_root: Path,
+) -> dict[str, object]:
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    raster = rasterize_height_filtered_triangles(
+        vertices=vertices,
+        faces=faces,
+        origin_xy=origin_xy,
+        resolution=resolution,
+        shape=shape,
+        z_levels=z_levels,
+        bottom_z=bottom_z,
+    )
+    stack = raster["stack"]
+    densities = raster["densities"]
+    pixel_min_z = raster["pixel_min_z"]
+
+    projection_stats: list[dict[str, object]] = []
+    images_by_index: dict[int, Image.Image] = {}
+    for index, level in enumerate(z_levels):
+        mask = stack[index] > 0
+        image = render_density_projection(densities[index], max_alpha=0.90, foreground_color=(40, 40, 40))
+        image.save(output_dir / floorplan_layer_filename(float(level)))
+        images_by_index[index] = image
+        projection_stats.append(
+            {
+                "index": index,
+                "z_level_m": float(level),
+                "image": portable_path(output_dir / floorplan_layer_filename(float(level)), path_root),
+                "occupied_pixels": int(mask.sum()),
+                "density_sum": float(densities[index].sum()),
+            }
+        )
+
+    return {
+        "stack": stack,
+        "pixel_min_z": pixel_min_z,
+        "projection_stats": projection_stats,
+        "images_by_index": images_by_index,
+        "backend_meta": raster["backend_meta"],
+    }
+
+
+def rasterize_height_filtered_triangles(
+    vertices: np.ndarray,
+    faces: np.ndarray,
+    origin_xy: np.ndarray,
+    resolution: float,
+    shape: tuple[int, int],
+    z_levels: list[float],
+    bottom_z: float,
+) -> dict[str, object]:
+    densities = [np.zeros(shape, dtype=np.float32) for _ in z_levels]
+    pixel_min_z = np.full(shape, np.inf, dtype=np.float32)
+    max_level = max(z_levels)
+    painted_triangle_count = 0
+    degenerate_triangle_count = 0
+    z_rejected_triangle_count = 0
+
+    for face in faces:
+        triangle = vertices[face]
+        tri_z_min = float(np.min(triangle[:, 2]))
+        tri_z_max = float(np.max(triangle[:, 2]))
+        if tri_z_max < bottom_z or tri_z_min > max_level:
+            z_rejected_triangle_count += 1
+            continue
+        painted = paint_height_filtered_triangle(
+            triangle=triangle,
+            origin_xy=origin_xy,
+            resolution=resolution,
+            shape=shape,
+            z_levels=z_levels,
+            bottom_z=bottom_z,
+            max_level=max_level,
+            pixel_min_z=pixel_min_z,
+            densities=densities,
+        )
+        if painted:
+            painted_triangle_count += 1
+        else:
+            degenerate_triangle_count += 1
+
+    stack = np.zeros((len(z_levels), shape[0], shape[1]), dtype=np.uint8)
+    for index, density in enumerate(densities):
+        stack[index] = (density > 0).astype(np.uint8)
+    return {
+        "stack": stack,
+        "densities": densities,
+        "pixel_min_z": pixel_min_z,
+        "backend_meta": {
+            "method": "deterministic_height_filtered_triangle_raster",
+            "triangle_count": int(len(faces)),
+            "painted_triangle_count": int(painted_triangle_count),
+            "degenerate_triangle_count": int(degenerate_triangle_count),
+            "z_rejected_triangle_count": int(z_rejected_triangle_count),
+            "bottom_z_m": float(bottom_z),
+            "max_target_height_m": float(max_level),
+        },
+    }
+
+
+def paint_height_filtered_triangle(
+    triangle: np.ndarray,
+    origin_xy: np.ndarray,
+    resolution: float,
+    shape: tuple[int, int],
+    z_levels: list[float],
+    bottom_z: float,
+    max_level: float,
+    pixel_min_z: np.ndarray,
+    densities: list[np.ndarray],
+) -> bool:
+    xy = triangle[:, :2]
+    area2 = cross_2d(xy[1] - xy[0], xy[2] - xy[0])
+    if abs(area2) <= 1e-10:
+        return paint_degenerate_height_filtered_triangle(
+            triangle=triangle,
+            origin_xy=origin_xy,
+            resolution=resolution,
+            shape=shape,
+            z_levels=z_levels,
+            bottom_z=bottom_z,
+            max_level=max_level,
+            pixel_min_z=pixel_min_z,
+            densities=densities,
+        )
+
+    min_xy = np.min(xy, axis=0)
+    max_xy = np.max(xy, axis=0)
+    row_min, row_max, col_min, col_max = pixel_bbox_for_xy_bounds(min_xy, max_xy, origin_xy, resolution, shape, padding_px=1)
+    if row_min > row_max or col_min > col_max:
+        return False
+
+    rows = np.arange(row_min, row_max + 1, dtype=np.int32)
+    cols = np.arange(col_min, col_max + 1, dtype=np.int32)
+    grid_cols, grid_rows = np.meshgrid(cols, rows)
+    xs = origin_xy[0] + (grid_cols.astype(np.float64) + 0.5) * resolution
+    ys = origin_xy[1] + (grid_rows.astype(np.float64) + 0.5) * resolution
+
+    w0, w1, w2 = barycentric_weights(xs, ys, xy)
+    inside = (w0 >= -1e-9) & (w1 >= -1e-9) & (w2 >= -1e-9)
+    if not np.any(inside):
+        return False
+    z_values = w0[inside] * triangle[0, 2] + w1[inside] * triangle[1, 2] + w2[inside] * triangle[2, 2]
+    hit_rows = grid_rows[inside].astype(np.int32, copy=False)
+    hit_cols = grid_cols[inside].astype(np.int32, copy=False)
+    return paint_height_filtered_samples(
+        rows=hit_rows,
+        cols=hit_cols,
+        z_values=z_values.astype(np.float32, copy=False),
+        z_levels=z_levels,
+        bottom_z=bottom_z,
+        max_level=max_level,
+        pixel_min_z=pixel_min_z,
+        densities=densities,
+    )
+
+
+def paint_degenerate_height_filtered_triangle(
+    triangle: np.ndarray,
+    origin_xy: np.ndarray,
+    resolution: float,
+    shape: tuple[int, int],
+    z_levels: list[float],
+    bottom_z: float,
+    max_level: float,
+    pixel_min_z: np.ndarray,
+    densities: list[np.ndarray],
+) -> bool:
+    xy = triangle[:, :2]
+    distances = np.array(
+        [
+            np.linalg.norm(xy[1] - xy[0]),
+            np.linalg.norm(xy[2] - xy[1]),
+            np.linalg.norm(xy[0] - xy[2]),
+        ],
+        dtype=np.float64,
+    )
+    edge_index = int(np.argmax(distances))
+    edge_pairs = ((0, 1), (1, 2), (2, 0))
+    start_i, end_i = edge_pairs[edge_index]
+    start = xy[start_i]
+    end = xy[end_i]
+    z_min = max(float(np.min(triangle[:, 2])), bottom_z)
+    z_max = float(np.max(triangle[:, 2]))
+    if z_max < bottom_z or z_min > max_level:
+        return False
+
+    if distances[edge_index] <= 1e-10:
+        row = int(math.floor((float(start[1]) - float(origin_xy[1])) / resolution))
+        col = int(math.floor((float(start[0]) - float(origin_xy[0])) / resolution))
+        if row < 0 or row >= shape[0] or col < 0 or col >= shape[1]:
+            return False
+        return paint_height_filtered_samples(
+            rows=np.asarray([row], dtype=np.int32),
+            cols=np.asarray([col], dtype=np.int32),
+            z_values=np.asarray([z_min], dtype=np.float32),
+            z_levels=z_levels,
+            bottom_z=bottom_z,
+            max_level=max_level,
+            pixel_min_z=pixel_min_z,
+            densities=densities,
+        )
+
+    min_xy = np.minimum(start, end) - resolution
+    max_xy = np.maximum(start, end) + resolution
+    row_min, row_max, col_min, col_max = pixel_bbox_for_xy_bounds(min_xy, max_xy, origin_xy, resolution, shape, padding_px=0)
+    if row_min > row_max or col_min > col_max:
+        return False
+    rows = np.arange(row_min, row_max + 1, dtype=np.int32)
+    cols = np.arange(col_min, col_max + 1, dtype=np.int32)
+    grid_cols, grid_rows = np.meshgrid(cols, rows)
+    xs = origin_xy[0] + (grid_cols.astype(np.float64) + 0.5) * resolution
+    ys = origin_xy[1] + (grid_rows.astype(np.float64) + 0.5) * resolution
+    distance = point_segment_distance(xs, ys, start, end)
+    covered = distance <= resolution * 0.75
+    if not np.any(covered):
+        return False
+    return paint_height_filtered_samples(
+        rows=grid_rows[covered].astype(np.int32, copy=False),
+        cols=grid_cols[covered].astype(np.int32, copy=False),
+        z_values=np.full(int(covered.sum()), z_min, dtype=np.float32),
+        z_levels=z_levels,
+        bottom_z=bottom_z,
+        max_level=max_level,
+        pixel_min_z=pixel_min_z,
+        densities=densities,
+    )
+
+
+def paint_height_filtered_samples(
+    rows: np.ndarray,
+    cols: np.ndarray,
+    z_values: np.ndarray,
+    z_levels: list[float],
+    bottom_z: float,
+    max_level: float,
+    pixel_min_z: np.ndarray,
+    densities: list[np.ndarray],
+) -> bool:
+    valid = (z_values >= bottom_z - 1e-7) & (z_values <= max_level + 1e-7)
+    if not np.any(valid):
+        return False
+    rows = rows[valid]
+    cols = cols[valid]
+    z_values = np.maximum(z_values[valid], bottom_z).astype(np.float32, copy=False)
+    np.minimum.at(pixel_min_z, (rows, cols), z_values)
+    for index, level in enumerate(z_levels):
+        level_hits = z_values <= level + 1e-7
+        if np.any(level_hits):
+            np.add.at(densities[index], (rows[level_hits], cols[level_hits]), 1.0)
+    return True
+
+
+def pixel_bbox_for_xy_bounds(
+    min_xy: np.ndarray,
+    max_xy: np.ndarray,
+    origin_xy: np.ndarray,
+    resolution: float,
+    shape: tuple[int, int],
+    padding_px: int,
+) -> tuple[int, int, int, int]:
+    col_min = int(math.floor((float(min_xy[0]) - float(origin_xy[0])) / resolution)) - padding_px
+    col_max = int(math.floor((float(max_xy[0]) - float(origin_xy[0])) / resolution)) + padding_px
+    row_min = int(math.floor((float(min_xy[1]) - float(origin_xy[1])) / resolution)) - padding_px
+    row_max = int(math.floor((float(max_xy[1]) - float(origin_xy[1])) / resolution)) + padding_px
+    col_min = max(0, col_min)
+    row_min = max(0, row_min)
+    col_max = min(shape[1] - 1, col_max)
+    row_max = min(shape[0] - 1, row_max)
+    return row_min, row_max, col_min, col_max
+
+
+def barycentric_weights(x: np.ndarray, y: np.ndarray, triangle_xy: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    x0, y0 = triangle_xy[0]
+    x1, y1 = triangle_xy[1]
+    x2, y2 = triangle_xy[2]
+    denominator = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2)
+    w0 = ((y1 - y2) * (x - x2) + (x2 - x1) * (y - y2)) / denominator
+    w1 = ((y2 - y0) * (x - x2) + (x0 - x2) * (y - y2)) / denominator
+    w2 = 1.0 - w0 - w1
+    return w0, w1, w2
+
+
+def point_segment_distance(x: np.ndarray, y: np.ndarray, start: np.ndarray, end: np.ndarray) -> np.ndarray:
+    seg_x = float(end[0] - start[0])
+    seg_y = float(end[1] - start[1])
+    length_sq = seg_x * seg_x + seg_y * seg_y
+    if length_sq <= 1e-20:
+        return np.hypot(x - float(start[0]), y - float(start[1]))
+    t = ((x - float(start[0])) * seg_x + (y - float(start[1])) * seg_y) / length_sq
+    t = np.clip(t, 0.0, 1.0)
+    closest_x = float(start[0]) + t * seg_x
+    closest_y = float(start[1]) + t * seg_y
+    return np.hypot(x - closest_x, y - closest_y)
+
+
+def cross_2d(a: np.ndarray, b: np.ndarray) -> float:
+    return float(a[0] * b[1] - a[1] * b[0])
 
 
 def prepare_mesh_path(input_path: Path, _output_dir: Path) -> tuple[Path, dict[str, object]]:

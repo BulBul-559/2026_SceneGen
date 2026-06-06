@@ -381,7 +381,13 @@ def main(argv: list[str] | None = None) -> int:
         "floorplan_requested": bool(floorplan_config.enabled),
         "floorplan_ok": not floorplan_failed if floorplan_config.enabled else None,
         "floorplan_geometry_requested": bool(floorplan_config.enabled and floorplan_config.geometry_enabled),
+        "floorplan_geometry_projection": floorplan_config.geometry_projection if floorplan_config.enabled else None,
         "floorplan_class_mask_requested": bool(floorplan_config.enabled and floorplan_config.class_mask_enabled),
+        "floorplan_class_mask_furniture_mode": (
+            floorplan_config.class_mask_furniture_mode
+            if floorplan_config.enabled and floorplan_config.class_mask_enabled
+            else None
+        ),
         "floorplan_height_mode": floorplan_config.height_mode if floorplan_config.enabled else None,
         "floorplan_heights_m": floorplan_config.heights_m if floorplan_config.enabled else None,
         "effective_config": portable_path(run_dir / "effective_config.yaml", run_dir),

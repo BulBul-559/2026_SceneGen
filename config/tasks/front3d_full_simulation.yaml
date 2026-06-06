@@ -1,26 +1,35 @@
 pipeline:
-  mode: bistro
-  scenes: 10
+  mode: front3d
+  scenes: 1
   seed: 20260517
   output_dir: results
   run_name: null
   clean: false
 
-assets:
-  catalog: data/catalogs/bistro.v1.json
-
-bistro:
-  base_dir: data/scene
-  forbidden_xy:
-    - [1.0, 11.0, 4.5, 16.0]
-    - [8.0, 8.0, 14.0, 10.0]
-
-placement:
-  tables: [4, 8]
-  floor_extras: 6
-  tabletop_items: [3, 9]
-  bistro_support_items: 18
-  max_attempts: 300
+front3d:
+  manifest: data/3D-Front/scenegen_manifest.json
+  source_dir: data/3D-Front/3D-FRONT
+  arch_variant: normalized
+  object_variant: raw
+  scene_ids: []
+  select: sequential
+  use_replace_jid: true
+  skip_missing_objects: true
+  positive_xy: true
+  ground: true
+  precheck:
+    enabled: true
+    max_attempts_per_scene: 20
+    min_placements: 1
+    max_z_m: 8.0
+    max_footprint_ratio: 5.0
+  openings:
+    mode: doors
+    dilation_m: 0.0
+    floor_tolerance_m: 0.25
+    min_height_m: 1.6
+    include_doors_as_wall: true
+    include_windows_as_wall: true
 
 validation:
   sionna: false
@@ -84,6 +93,12 @@ floorplan:
       step_m: 0.2
       top_m: null
       bottom_m: 0.0
+  class_mask:
+    enabled: true
+    wall_dilation_m: 0.0
+    furniture_dilation_m: 0.05
+    furniture_mode: mesh
+    furniture_height_m: 1.6
   sampling:
     density_scale: 128.0
     min_points: 100000

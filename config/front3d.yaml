@@ -53,7 +53,7 @@ label:
       min_component_area_m2: 0.25
       strategies: [walk]
     walk:
-      furniture_clearance_m: 0.35
+      furniture_clearance_m: 0.1
       obstacle_strategy: height_aware
       ignore_low_obstacles_below_m: 0.10
       blocking_classes: [table, seat, floor]
@@ -86,6 +86,7 @@ floorplan:
   resolution_m: 0.05
   geometry:
     enabled: true
+    projection: sampling
     height:
       mode: heights
       values_m: [1.6]
@@ -95,7 +96,9 @@ floorplan:
   class_mask:
     enabled: false
     wall_dilation_m: 0.0
-    furniture_dilation_m: 0.1
+    furniture_dilation_m: 0.05
+    furniture_mode: mesh
+    furniture_height_m: null
   sampling:
     density_scale: 128.0
     min_points: 100000
