@@ -397,7 +397,7 @@ label:
       strategies: [walk]
     walk:
       furniture_clearance_m: 0.1
-      obstacle_strategy: height_aware
+      obstacle_strategy: below_ue_column
       ignore_low_obstacles_below_m: 0.10
       blocking_classes: [table, seat, floor]
     connected_area:
@@ -427,7 +427,7 @@ label:
 
 `panel` 表示室内平面采样：只扣除 outdoor 和墙体间隔，不扣家具。
 
-`walk` 表示可行走区域：它在 `panel` 的基础上继续扣除家具障碍，默认使用 `label.ue.walk.obstacle_strategy: height_aware` 做高度感知过滤；如需保守的整列占用行为，可切换为 `footprint_column`。同时会忽略高度低于 `label.ue.walk.ignore_low_obstacles_below_m` 的薄物体，并删除小于 `label.ue.sampling.min_component_area_m2` 的孤立小区域。默认参与 walk 扣除的 placement class 是 `table`、`seat` 和 `floor`。
+`walk` 表示可行走区域：它在 `panel` 的基础上继续扣除家具障碍，默认使用 `label.ue.walk.obstacle_strategy: below_ue_column`，即只要采样点 XY 落入家具 footprint，且家具在 `label.ue.walk.ignore_low_obstacles_below_m` 到 UE 高度之间存在有效高度，就认为该点不可行走。旧的单高度层判断可切换为 `height_aware`；如需最保守的整列占用行为，可切换为 `footprint_column`。同时会忽略高度低于 `label.ue.walk.ignore_low_obstacles_below_m` 的薄物体，并删除小于 `label.ue.sampling.min_component_area_m2` 的孤立小区域。默认参与 walk 扣除的 placement class 是 `table`、`seat` 和 `floor`。
 
 label 支持批量生成：`label.ue.sampling.strategies` 和 `label.ue.sampling.grid_m` 会做笛卡尔组合。例如：
 

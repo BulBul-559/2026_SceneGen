@@ -81,7 +81,7 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 - `ue.sampling.strategies: [walk]`
 - `ue.sampling.grid_m: [0.1]`
 - `ue.sampling.wall_clearance_m: 0.2`
-- `ue.walk.obstacle_strategy: height_aware`
+- `ue.walk.obstacle_strategy: below_ue_column`
 - `ue.connected_area.room_id: "__corridor__"`
 - `bs.strategy: wall_or_corner`
 - `bs.count.strategy: fixed_per_room`

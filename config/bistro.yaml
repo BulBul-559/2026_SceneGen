@@ -45,7 +45,7 @@ label:
       strategies: [walk]
     walk:
       furniture_clearance_m: 0.1
-      obstacle_strategy: height_aware
+      obstacle_strategy: below_ue_column
       ignore_low_obstacles_below_m: 0.10
       blocking_classes: [table, seat, floor]
     connected_area:

@@ -484,6 +484,44 @@ def test_label_height_aware_obstacles_keep_points_above_low_objects() -> None:
     assert (2.0, 2.0) not in points
 
 
+def test_label_below_ue_column_obstacles_block_objects_below_ue() -> None:
+    config = make_label_config(
+        strategy="walk",
+        grid_m=1.0,
+        ue__height_m=1.8,
+        ue__sampling__wall_clearance_m=0.0,
+        ue__walk__furniture_clearance_m=0.0,
+        ue__walk__obstacle_strategy="below_ue_column",
+        ue__walk__ignore_low_obstacles_below_m=0.1,
+    )
+    tri_a = SupportTriangle(vertices=((0.0, 0.0, 0.0), (4.0, 0.0, 0.0), (0.0, 4.0, 0.0)), area=8.0, z=0.0)
+    tri_b = SupportTriangle(vertices=((4.0, 0.0, 0.0), (4.0, 4.0, 0.0), (0.0, 4.0, 0.0)), area=8.0, z=0.0)
+    context = RoomLabelContext(
+        room_index=0,
+        room_id="room",
+        room_type="test",
+        floor_source="test",
+        floor_triangles=(tri_a, tri_b),
+        floor_z=0.0,
+        ceiling_z=3.0,
+        bounds_xy=(0.0, 0.0, 4.0, 4.0),
+        obstacles=(
+            LabelObstacle(0.9, 0.9, 1.1, 1.1, 0.0, 1.5, "table_below_ue"),
+            LabelObstacle(1.9, 1.9, 2.1, 2.1, 1.9, 2.2, "shelf_above_ue"),
+            LabelObstacle(2.9, 2.9, 3.1, 3.1, 0.0, 0.05, "thin_low_object"),
+        ),
+    )
+
+    points = generate_ue_points_for_room(context, config)
+
+    assert (1.0, 1.0) not in points
+    assert (2.0, 2.0) in points
+    assert (3.0, 3.0) in points
+    assert points.stats["walk_obstacle_mode"] == "below_ue_column"
+    assert points.stats["walk_blocking_obstacle_count"] == 2
+    assert points.stats["ignored_low_obstacle_count"] == 1
+
+
 def test_label_footprint_column_obstacles_block_points_above_low_objects() -> None:
     config = make_label_config(
         strategy="walk",
@@ -1185,7 +1223,7 @@ def test_front3d_batch_label_outputs(tmp_path: Path) -> None:
     assert walk_report["group_count"] == len(walk_label["groups"])
     assert walk_sampling["sampling_source"] == "front3d_global_rect_subtractive_mask"
     assert walk_sampling["windows_used_as_openings"] is False
-    assert walk_sampling["walk_obstacle_mode"] == "height_aware"
+    assert walk_sampling["walk_obstacle_mode"] == "below_ue_column"
     assert walk_sampling["walk_blocking_obstacle_count"] == 1
     assert walk_sampling["obstacle_rejected_count"] >= 0
 
@@ -1393,7 +1431,7 @@ def test_generated_scene_outputs_and_sionna_load(tmp_path: Path) -> None:
     assert effective_config["quality"]["enabled"] is True
     assert effective_config["label"]["enabled"] is True
     assert effective_config["label"]["ue"]["sampling"]["strategies"] == ["walk"]
-    assert effective_config["label"]["ue"]["walk"]["obstacle_strategy"] == "height_aware"
+    assert effective_config["label"]["ue"]["walk"]["obstacle_strategy"] == "below_ue_column"
 
     json_files = [
         output_dir / "smoke_generated" / "manifest.json",

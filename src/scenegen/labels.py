@@ -708,12 +708,18 @@ def point_in_obstacles(
     z: float,
     obstacles: tuple[LabelObstacle, ...],
     strategy: str,
+    min_block_height_m: float = 0.0,
 ) -> bool:
     for obstacle in obstacles:
         if not point_in_obstacle_xy(x, y, obstacle):
             continue
         if strategy == "footprint_column":
             return True
+        if strategy == "below_ue_column":
+            lower_z = max(0.0, min_block_height_m)
+            if obstacle.max_z + 1e-6 >= lower_z and obstacle.min_z - 1e-6 <= z:
+                return True
+            continue
         if obstacle.min_z - 1e-6 <= z <= obstacle.max_z + 1e-6:
             return True
     return False
@@ -728,15 +734,27 @@ def walk_blocking_obstacles(
     for obstacle in obstacles:
         if obstacle.placement_class not in blocking_classes:
             continue
-        if obstacle.max_z - obstacle.min_z < config.walk_ignore_low_obstacles_below_m:
+        if is_low_walk_obstacle(obstacle, config):
             continue
         blockers.append(obstacle)
     return tuple(blockers)
 
 
+def is_low_walk_obstacle(obstacle: LabelObstacle, config: LabelConfig) -> bool:
+    threshold = config.walk_ignore_low_obstacles_below_m
+    return obstacle.max_z < threshold or obstacle.max_z - obstacle.min_z < threshold
+
+
 def point_in_walk_obstacles(x: float, y: float, z: float, obstacles: tuple[LabelObstacle, ...], config: LabelConfig) -> bool:
     return any(
-        point_in_obstacles(x, y, z, (obstacle,), config.obstacle_strategy)
+        point_in_obstacles(
+            x,
+            y,
+            z,
+            (obstacle,),
+            config.obstacle_strategy,
+            min_block_height_m=config.walk_ignore_low_obstacles_below_m,
+        )
         for obstacle in walk_blocking_obstacles(obstacles, config)
     )
 
@@ -821,7 +839,7 @@ def generate_ue_points_for_room(
         1
         for obstacle in context.obstacles
         if obstacle.placement_class in set(config.walk_blocking_classes)
-        and obstacle.max_z - obstacle.min_z < config.walk_ignore_low_obstacles_below_m
+        and is_low_walk_obstacle(obstacle, config)
     )
     ignored_class_obstacle_count = sum(
         1 for obstacle in context.obstacles if obstacle.placement_class not in set(config.walk_blocking_classes)
@@ -836,7 +854,14 @@ def generate_ue_points_for_room(
                 continue
             if config.ue_strategy == "free_space_grid":
                 blocked = any(
-                    point_in_obstacles(x, y, point_z, (obstacle,), config.obstacle_strategy)
+                    point_in_obstacles(
+                        x,
+                        y,
+                        point_z,
+                        (obstacle,),
+                        config.obstacle_strategy,
+                        min_block_height_m=config.walk_ignore_low_obstacles_below_m,
+                    )
                     for obstacle in walk_blockers
                 )
             else:
@@ -865,7 +890,7 @@ def generate_ue_points_for_room(
     if config.ue_strategy == "free_space_grid":
         stats.update(
             {
-                "walk_obstacle_mode": "footprint_column",
+                "walk_obstacle_mode": config.obstacle_strategy,
                 "walk_blocking_classes": list(config.walk_blocking_classes),
                 "walk_ignore_low_obstacles_below_m": config.walk_ignore_low_obstacles_below_m,
                 "walk_min_component_area_m2": config.walk_min_component_area_m2,
@@ -1327,7 +1352,7 @@ def generate_front3d_global_subtractive_points(
         1
         for obstacle in context.obstacles
         if obstacle.placement_class in set(config.walk_blocking_classes)
-        and obstacle.max_z - obstacle.min_z < config.walk_ignore_low_obstacles_below_m
+        and is_low_walk_obstacle(obstacle, config)
     )
     ignored_class_obstacle_count = sum(
         1 for obstacle in context.obstacles if obstacle.placement_class not in set(config.walk_blocking_classes)
@@ -1354,7 +1379,17 @@ def generate_front3d_global_subtractive_points(
             bounds_rejected_count += 1
             continue
         if config.ue_strategy == "free_space_grid":
-            blocked = any(point_in_obstacles(x, y, point_z, (obstacle,), config.obstacle_strategy) for obstacle in walk_blockers)
+            blocked = any(
+                point_in_obstacles(
+                    x,
+                    y,
+                    point_z,
+                    (obstacle,),
+                    config.obstacle_strategy,
+                    min_block_height_m=config.walk_ignore_low_obstacles_below_m,
+                )
+                for obstacle in walk_blockers
+            )
         else:
             blocked = False
         if blocked:

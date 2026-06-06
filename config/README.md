@@ -148,7 +148,7 @@ uv run scenegen \
 | 字段 | 可选值 / 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `furniture_clearance_m` | float, `>=0` | `0.1` | walk 策略扣除家具时对 bbox 的额外避让距离。 |
-| `obstacle_strategy` | `height_aware` / `footprint_column` | `height_aware` | walk 家具障碍物过滤方式。 |
+| `obstacle_strategy` | `below_ue_column` / `height_aware` / `footprint_column` | `below_ue_column` | walk 家具障碍物过滤方式。`below_ue_column` 会扣除 UE 高度以下超过低物体阈值的家具 footprint；`height_aware` 只检查 UE 所在高度层；`footprint_column` 会扣除整列 footprint。 |
 | `ignore_low_obstacles_below_m` | float, `>=0` | `0.10` | walk 策略忽略低矮物体的高度阈值。 |
 | `blocking_classes` | list | `[table, seat, floor]` | 哪些 placement class 会阻挡 walk UE。 |
 

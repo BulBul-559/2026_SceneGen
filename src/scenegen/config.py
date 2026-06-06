@@ -87,7 +87,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             },
             "walk": {
                 "furniture_clearance_m": 0.1,
-                "obstacle_strategy": "height_aware",
+                "obstacle_strategy": "below_ue_column",
                 "ignore_low_obstacles_below_m": 0.10,
                 "blocking_classes": ["table", "seat", "floor"],
             },
@@ -514,8 +514,10 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("label.ue.sampling.grid_m values must be positive")
     if walk["furniture_clearance_m"] < 0:
         raise ValueError("label.ue.walk.furniture_clearance_m must be non-negative")
-    if walk["obstacle_strategy"] not in {"height_aware", "footprint_column"}:
-        raise ValueError("label.ue.walk.obstacle_strategy must be 'height_aware' or 'footprint_column'")
+    if walk["obstacle_strategy"] not in {"below_ue_column", "height_aware", "footprint_column"}:
+        raise ValueError(
+            "label.ue.walk.obstacle_strategy must be 'below_ue_column', 'height_aware', or 'footprint_column'"
+        )
     if walk["ignore_low_obstacles_below_m"] < 0:
         raise ValueError("label.ue.walk.ignore_low_obstacles_below_m must be non-negative")
     allowed_walk_classes = {"table", "seat", "tabletop", "floor", "skip"}
