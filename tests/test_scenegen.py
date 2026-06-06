@@ -56,20 +56,27 @@ def iter_json_strings(value: object) -> list[str]:
     return []
 
 
+def assert_subset_of_default(payload: dict[str, object], defaults: dict[str, object]) -> None:
+    for key, value in payload.items():
+        assert key in defaults
+        default_value = defaults[key]
+        if isinstance(value, dict) and isinstance(default_value, dict):
+            assert_subset_of_default(value, default_value)
+        else:
+            assert value == default_value
+
+
 def make_label_config(
     *,
     strategy: str | None = None,
     grid_m: float | None = None,
-    connected: list[bool] | None = None,
     **updates: object,
 ) -> LabelConfig:
     payload = deepcopy(DEFAULT_CONFIG["label"])
     if strategy is not None:
-        payload["ue"]["variants"]["strategies"] = [strategy]
+        payload["ue"]["sampling"]["strategies"] = [strategy]
     if grid_m is not None:
-        payload["ue"]["variants"]["grid_m"] = [grid_m]
-    if connected is not None:
-        payload["ue"]["variants"]["connected"] = connected
+        payload["ue"]["sampling"]["grid_m"] = [grid_m]
     for key, value in updates.items():
         target = payload
         parts = key.split("__")
@@ -98,26 +105,36 @@ def test_floorplan_layer_filename_uses_height_token() -> None:
 
 
 def test_cli_version_matches_package_version(capsys: pytest.CaptureFixture[str]) -> None:
-    assert __version__ == "2.1.0"
+    assert __version__ == "2.1.1"
     with pytest.raises(SystemExit) as exc_info:
         parse_args(["--version"])
 
     assert exc_info.value.code == 0
-    assert capsys.readouterr().out.strip() == "SceneGen 2.1.0"
+    assert capsys.readouterr().out.strip() == "SceneGen 2.1.1"
 
 
-def test_bistro_config_matches_code_defaults() -> None:
+def test_bistro_config_is_mode_specific_default_overlay() -> None:
     root = find_project_root()
+    payload = yaml.safe_load((root / "config" / "bistro.yaml").read_text(encoding="utf-8"))
 
-    assert yaml.safe_load((root / "config" / "bistro.yaml").read_text(encoding="utf-8")) == DEFAULT_CONFIG
+    assert "front3d" not in payload
+    assert payload["pipeline"]["mode"] == "bistro"
+    assert_subset_of_default(payload, DEFAULT_CONFIG)
 
 
-def test_front3d_config_differs_only_by_mode() -> None:
+def test_front3d_config_is_mode_specific_default_overlay() -> None:
     root = find_project_root()
-    expected = deepcopy(DEFAULT_CONFIG)
-    expected["pipeline"]["mode"] = "front3d"
+    payload = yaml.safe_load((root / "config" / "front3d.yaml").read_text(encoding="utf-8"))
+    expected = deepcopy(DEFAULT_CONFIG["front3d"])
 
-    assert yaml.safe_load((root / "config" / "front3d.yaml").read_text(encoding="utf-8")) == expected
+    assert "assets" not in payload
+    assert "bistro" not in payload
+    assert "placement" not in payload
+    assert payload["pipeline"]["mode"] == "front3d"
+    assert payload["front3d"] == expected
+    overlay_payload = deepcopy(payload)
+    overlay_payload["pipeline"]["mode"] = "bistro"
+    assert_subset_of_default(overlay_payload, DEFAULT_CONFIG)
 
 
 @pytest.mark.parametrize("config_name", ["bistro.yaml", "front3d.yaml"])
@@ -192,7 +209,12 @@ def test_front3d_precheck_rejects_anomalous_statistics() -> None:
 
 
 def test_label_plane_grid_respects_floor_domain_and_ignores_obstacles() -> None:
-    config = make_label_config(strategy="panel", grid_m=1.0, ue__wall_clearance_m=0.5, ue__furniture_clearance_m=0.0)
+    config = make_label_config(
+        strategy="panel",
+        grid_m=1.0,
+        ue__sampling__wall_clearance_m=0.5,
+        ue__walk__furniture_clearance_m=0.0,
+    )
     tri = SupportTriangle(vertices=((0.0, 0.0, 0.0), (4.0, 0.0, 0.0), (0.0, 4.0, 0.0)), area=8.0, z=0.0)
     context = RoomLabelContext(
         room_index=0,
@@ -220,9 +242,9 @@ def test_label_height_aware_obstacles_keep_points_above_low_objects() -> None:
         strategy="walk",
         grid_m=1.0,
         ue__height_m=1.8,
-        ue__wall_clearance_m=0.0,
-        ue__furniture_clearance_m=0.0,
-        ue__obstacle_strategy="height_aware",
+        ue__sampling__wall_clearance_m=0.0,
+        ue__walk__furniture_clearance_m=0.0,
+        ue__walk__obstacle_strategy="height_aware",
     )
     tri = SupportTriangle(vertices=((0.0, 0.0, 0.0), (3.0, 0.0, 0.0), (0.0, 3.0, 0.0)), area=4.5, z=0.0)
     context = RoomLabelContext(
@@ -251,9 +273,9 @@ def test_label_footprint_column_obstacles_block_points_above_low_objects() -> No
         strategy="walk",
         grid_m=1.0,
         ue__height_m=1.8,
-        ue__wall_clearance_m=0.0,
-        ue__furniture_clearance_m=0.0,
-        ue__obstacle_strategy="footprint_column",
+        ue__sampling__wall_clearance_m=0.0,
+        ue__walk__furniture_clearance_m=0.0,
+        ue__walk__obstacle_strategy="footprint_column",
     )
     tri = SupportTriangle(vertices=((0.0, 0.0, 0.0), (2.0, 0.0, 0.0), (0.0, 2.0, 0.0)), area=2.0, z=0.0)
     context = RoomLabelContext(
@@ -334,27 +356,25 @@ def test_global_floor_assignment_keeps_corridor_points() -> None:
     assert by_room["__corridor__"] == [(2.0, 2.0)]
 
 
-def test_label_variants_combine_strategy_resolution_and_connected_area() -> None:
+def test_label_variants_combine_strategy_and_resolution() -> None:
     payload = deepcopy(DEFAULT_CONFIG["label"])
-    payload["ue"]["variants"]["strategies"] = ["panel", "walk"]
-    payload["ue"]["variants"]["grid_m"] = [0.1]
-    payload["ue"]["variants"]["connected"] = [True, False]
+    payload["ue"]["sampling"]["strategies"] = ["panel", "walk"]
+    payload["ue"]["sampling"]["grid_m"] = [0.1, 0.2]
     config = LabelConfig.from_mapping(payload, DEFAULT_CONFIG["front3d"]["openings"])
 
     variants = label_variants(config)
 
     assert [variant.name for variant in variants] == [
-        "label_panel_connected_0p1",
-        "label_panel_room_0p1",
-        "label_walk_connected_0p1",
-        "label_walk_room_0p1",
+        "label_panel_0p1",
+        "label_panel_0p2",
+        "label_walk_0p1",
+        "label_walk_0p2",
     ]
-    assert [variant.config.connected_area_enabled for variant in variants] == [True, False, True, False]
 
 
 def test_geometry_center_bs_selects_near_center_free_point() -> None:
     config = make_label_config(
-        bs__strategy="geometry_center",
+        bs__center__enabled=True,
         bs__wall_clearance_m=0.2,
         bs__center__initial_radius_m=0.2,
         bs__center__radius_step_m=0.1,
@@ -467,7 +487,7 @@ def test_partial_config_inherits_builtin_defaults(tmp_path: Path) -> None:
     assert effective["assets"]["catalog"].endswith("data/catalogs/bistro.v1.json")
     assert "manifest" not in effective["assets"]
     assert effective["bistro"]["forbidden_xy"] == [[1.0, 11.0, 4.5, 16.0], [8.0, 8.0, 14.0, 10.0]]
-    assert effective["floorplan"]["semantic"]["enabled"] is False
+    assert effective["floorplan"]["geometry"]["height"]["values_m"] == [1.6]
 
 
 def test_legacy_assets_manifest_config_is_rejected(tmp_path: Path) -> None:
@@ -497,7 +517,7 @@ def test_cli_set_overrides_yaml_and_parses_types(tmp_path: Path) -> None:
             "--set",
             "label.ue.height_m=1.8",
             "--set",
-            "label.ue.variants.grid_m=[0.1,0.2,0.5]",
+            "label.ue.sampling.grid_m=[0.1,0.2,0.5]",
             "--set",
             "floorplan.enabled=false",
         ]
@@ -508,7 +528,7 @@ def test_cli_set_overrides_yaml_and_parses_types(tmp_path: Path) -> None:
     assert effective["pipeline"]["mode"] == "front3d"
     assert effective["pipeline"]["scenes"] == 5
     assert effective["label"]["ue"]["height_m"] == 1.8
-    assert effective["label"]["ue"]["variants"]["grid_m"] == [0.1, 0.2, 0.5]
+    assert effective["label"]["ue"]["sampling"]["grid_m"] == [0.1, 0.2, 0.5]
     assert effective["floorplan"]["enabled"] is False
     assert overrides["pipeline"]["mode"] == "front3d"
 
@@ -739,8 +759,9 @@ def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
     assert exit_code == 0
     for filename in ("scene.obj", "scene.xml", "placements.json", "quality_report.json", "statistics.json"):
         assert (scene_dir / filename).is_file()
-    for filename in ("floorplan_1p60.png", "geometry_raw.png", "preview.png", "side_view.png", "meta.json", "stack.npz"):
+    for filename in ("floorplan_1p60.png", "preview.png", "side_view.png", "meta.json", "stack.npz"):
         assert (scene_dir / "floorplan" / filename).is_file()
+    assert not (scene_dir / "floorplan" / "geometry_raw.png").exists()
     for filename in ("class_mask.png", "class_mask_preview.png", "class_mask.npy", "class_mask.npz", "class_mask_meta.json"):
         assert (scene_dir / "floorplan" / filename).is_file()
     class_mask = np.load(scene_dir / "floorplan" / "class_mask.npy")
@@ -761,7 +782,7 @@ def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
     assert class_meta["class_id_counts"]["3"] > 0
     assert (output_dir / "smoke_front3d" / "manifest_front3d.json").is_file()
     assert (output_dir / "smoke_front3d" / "summary_obj" / "front3d_0000.obj").is_file()
-    assert (output_dir / "smoke_front3d" / "summary_floorplan_raw" / "front3d_0000_geometry_raw.png").is_file()
+    assert (output_dir / "smoke_front3d" / "summary_floorplan_raw" / "front3d_0000_floorplan_1p60.png").is_file()
 
     placements = json.loads((scene_dir / "placements.json").read_text(encoding="utf-8"))
     assert placements["mode"] == "front3d"
@@ -788,7 +809,8 @@ def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
     assert label["ue_points"]
     assert all(round(float(point["z"]), 3) == 1.6 for point in label["ue_points"])
     assert {point["strategy"] for point in label["ue_points"]} == {"free_space_grid"}
-    assert len(label["groups"][0]["bs_points"]) <= 4
+    assert any(point["label"] == "BS_CENTER" for point in label["groups"][0]["bs_points"])
+    assert len(label["groups"][0]["bs_points"]) <= 5
     assert (scene_dir / "label" / "label_walk_0p1.json").is_file()
     report = json.loads((scene_dir / "label" / "report" / "label_walk_0p1_report.json").read_text(encoding="utf-8"))
     assert report["bs_count"] == len(label["bs_points"])
@@ -849,9 +871,9 @@ def test_front3d_batch_label_outputs(tmp_path: Path) -> None:
             "--config",
             str(config_path),
             "--set",
-            "label.ue.variants.strategies=[panel,walk]",
+            "label.ue.sampling.strategies=[panel,walk]",
             "--set",
-            "label.ue.variants.grid_m=[0.1,0.2]",
+            "label.ue.sampling.grid_m=[0.1,0.2]",
         ]
     )
 
@@ -900,7 +922,7 @@ def test_front3d_batch_label_outputs(tmp_path: Path) -> None:
     assert len(scene_record["label"]["overlays"]) == 4
 
 
-def test_front3d_connected_area_batch_outputs_four_modes(tmp_path: Path) -> None:
+def test_front3d_global_sampling_keeps_connected_area_in_each_label(tmp_path: Path) -> None:
     pytest.importorskip("trimesh")
     config_path = make_front3d_runtime_fixture(tmp_path)
     output_dir = tmp_path / "out"
@@ -922,55 +944,40 @@ def test_front3d_connected_area_batch_outputs_four_modes(tmp_path: Path) -> None
             "--config",
             str(config_path),
             "--set",
-            "label.ue.variants.strategies=[panel,walk]",
+            "label.ue.sampling.strategies=[panel,walk]",
             "--set",
-            "label.ue.variants.grid_m=[0.1]",
+            "label.ue.sampling.grid_m=[0.1]",
             "--set",
-            "label.ue.variants.connected=[true,false]",
-            "--set",
-            "label.bs.strategy=geometry_center",
+            "label.bs.center.enabled=true",
         ]
     )
 
     scene_dir = output_dir / "smoke_front3d" / "front3d_0000"
     assert exit_code == 0
     expected_names = {
-        "label_panel_connected_0p1",
-        "label_panel_room_0p1",
-        "label_walk_connected_0p1",
-        "label_walk_room_0p1",
+        "label_panel_0p1",
+        "label_walk_0p1",
     }
     assert {path.stem for path in (scene_dir / "label").glob("label_*.json")} == expected_names
     assert {path.stem for path in (scene_dir / "label_floorplan").glob("label_*.png")} == expected_names
-    panel_connected_label = json.loads((scene_dir / "label" / "label_panel_connected_0p1.json").read_text(encoding="utf-8"))
-    panel_room_label = json.loads((scene_dir / "label" / "label_panel_room_0p1.json").read_text(encoding="utf-8"))
-    walk_connected_label = json.loads((scene_dir / "label" / "label_walk_connected_0p1.json").read_text(encoding="utf-8"))
-    walk_room_label = json.loads((scene_dir / "label" / "label_walk_room_0p1.json").read_text(encoding="utf-8"))
-    corridor_groups = [group for group in panel_connected_label["groups"] if group["room_id"] == "__corridor__"]
-    assert corridor_groups
-    assert len(corridor_groups[0]["ue_points"]) > 0
-    assert len(panel_connected_label["ue_points"]) > len(panel_room_label["ue_points"])
-    assert len(walk_connected_label["ue_points"]) > len(walk_room_label["ue_points"])
+    panel_label = json.loads((scene_dir / "label" / "label_panel_0p1.json").read_text(encoding="utf-8"))
+    walk_label = json.loads((scene_dir / "label" / "label_walk_0p1.json").read_text(encoding="utf-8"))
+    for label in (panel_label, walk_label):
+        corridor_groups = [group for group in label["groups"] if group["room_id"] == "__corridor__"]
+        assert corridor_groups
+        assert len(corridor_groups[0]["ue_points"]) > 0
+        assert any(point["label"] == "BS_CENTER" for point in label["bs_points"])
 
-    panel_connected = json.loads((scene_dir / "label" / "report" / "label_panel_connected_0p1_report.json").read_text(encoding="utf-8"))
-    panel_room = json.loads((scene_dir / "label" / "report" / "label_panel_room_0p1_report.json").read_text(encoding="utf-8"))
-    walk_connected = json.loads((scene_dir / "label" / "report" / "label_walk_connected_0p1_report.json").read_text(encoding="utf-8"))
-    walk_room = json.loads((scene_dir / "label" / "report" / "label_walk_room_0p1_report.json").read_text(encoding="utf-8"))
+    panel_report = json.loads((scene_dir / "label" / "report" / "label_panel_0p1_report.json").read_text(encoding="utf-8"))
+    walk_report = json.loads((scene_dir / "label" / "report" / "label_walk_0p1_report.json").read_text(encoding="utf-8"))
 
-    assert panel_connected["rooms"][0]["ue_sampling"]["sampling_source"] == "front3d_global_rect_subtractive_mask"
-    assert panel_connected["rooms"][0]["ue_sampling"]["connected_area_enabled"] is True
-    assert panel_connected["rooms"][0]["ue_sampling"]["panel_obstacle_mode"] == "none"
-    assert panel_connected["rooms"][0]["ue_sampling"]["panel_furniture_filter_enabled"] is False
-    assert walk_connected["rooms"][0]["ue_sampling"]["sampling_source"] == "front3d_global_rect_subtractive_mask"
-    assert walk_connected["rooms"][0]["ue_sampling"]["connected_area_enabled"] is True
-    assert panel_room["rooms"][0]["ue_sampling"]["sampling_source"] == "front3d_global_rect_subtractive_mask"
-    assert panel_room["rooms"][0]["ue_sampling"]["connected_area_enabled"] is False
-    assert walk_room["rooms"][0]["ue_sampling"]["sampling_source"] == "front3d_global_rect_subtractive_mask"
-    assert walk_room["rooms"][0]["ue_sampling"]["connected_area_enabled"] is False
+    assert panel_report["rooms"][0]["ue_sampling"]["sampling_source"] == "front3d_global_rect_subtractive_mask"
+    assert panel_report["rooms"][0]["ue_sampling"]["panel_obstacle_mode"] == "none"
+    assert panel_report["rooms"][0]["ue_sampling"]["panel_furniture_filter_enabled"] is False
+    assert walk_report["rooms"][0]["ue_sampling"]["sampling_source"] == "front3d_global_rect_subtractive_mask"
 
     manifest = json.loads((output_dir / "smoke_front3d" / "manifest.json").read_text(encoding="utf-8"))
     assert set(manifest["label_variants"]) == expected_names
-    assert manifest["label_batch_connected_area_enabled"] == [True, False]
 
 
 def test_generated_scene_outputs_and_sionna_load(tmp_path: Path) -> None:
@@ -1016,7 +1023,6 @@ def test_generated_scene_outputs_and_sionna_load(tmp_path: Path) -> None:
         "side_view.png",
         "meta.json",
         "stack.npz",
-        "geometry_raw.png",
         "floorplan_1p60.png",
     ):
         assert (scene_dir / "floorplan" / filename).is_file()
@@ -1027,7 +1033,7 @@ def test_generated_scene_outputs_and_sionna_load(tmp_path: Path) -> None:
     assert (scene_dir / "label" / "report" / "label_walk_0p1_report.json").is_file()
     assert (scene_dir / "label_floorplan" / "label_walk_0p1.png").is_file()
     assert not (scene_dir / "floorplan" / "000_z_1.60.png").exists()
-    for filename in ("semantic.png", "semantic.json"):
+    for filename in ("geometry_raw.png", "semantic.png", "semantic.json", "geometry_clean.png", "geometry_clean_preview.png"):
         assert not (scene_dir / "floorplan" / filename).exists()
     for filename in ("quality_report.json", "statistics.json"):
         assert (scene_dir / filename).is_file()
@@ -1042,17 +1048,15 @@ def test_generated_scene_outputs_and_sionna_load(tmp_path: Path) -> None:
     assert manifest["statistics"]["scene_count"] == 1
     assert (output_dir / "smoke_generated" / "statistics.json").is_file()
     assert manifest["floorplan_ok"] is True
-    assert manifest["floorplan_geometry_clean_requested"] is False
     assert manifest["floorplan_height_mode"] == "heights"
     assert manifest["floorplan_heights_m"] == [1.6]
-    assert manifest["floorplan_semantic_requested"] is False
     assert manifest["summary_floorplan_raw"]["count"] == 1
-    assert (output_dir / "smoke_generated" / "summary_floorplan_raw" / "scene_0000_geometry_raw.png").is_file()
+    assert (output_dir / "smoke_generated" / "summary_floorplan_raw" / "scene_0000_floorplan_1p60.png").is_file()
     geometry_meta = json.loads((scene_dir / "floorplan" / "meta.json").read_text(encoding="utf-8"))
     assert geometry_meta["height_mode"] == "heights"
     assert geometry_meta["z_levels_m"] == [1.6]
     assert geometry_meta["num_levels"] == 1
-    assert geometry_meta["geometry_clean"] is None
+    assert geometry_meta["primary_layer"].endswith("floorplan/floorplan_1p60.png")
     assert geometry_meta["projection_stats"][0]["image"].endswith("floorplan/floorplan_1p60.png")
     quality = json.loads((scene_dir / "quality_report.json").read_text(encoding="utf-8"))
     assert quality["ok"] is True
@@ -1075,14 +1079,12 @@ def test_generated_scene_outputs_and_sionna_load(tmp_path: Path) -> None:
     assert "catalog" in effective_config["assets"]
     assert "manifest" not in effective_config["assets"]
     assert effective_config["floorplan"]["sampling"]["min_points"] == 1000
-    assert effective_config["floorplan"]["geometry"]["clean"]["enabled"] is False
-    assert effective_config["floorplan"]["height"]["mode"] == "heights"
-    assert effective_config["floorplan"]["height"]["values_m"] == [1.6]
-    assert effective_config["floorplan"]["semantic"]["enabled"] is False
+    assert effective_config["floorplan"]["geometry"]["height"]["mode"] == "heights"
+    assert effective_config["floorplan"]["geometry"]["height"]["values_m"] == [1.6]
     assert effective_config["quality"]["enabled"] is True
     assert effective_config["label"]["enabled"] is True
-    assert effective_config["label"]["ue"]["variants"]["strategies"] == ["walk"]
-    assert effective_config["label"]["ue"]["obstacle_strategy"] == "height_aware"
+    assert effective_config["label"]["ue"]["sampling"]["strategies"] == ["walk"]
+    assert effective_config["label"]["ue"]["walk"]["obstacle_strategy"] == "height_aware"
 
     json_files = [
         output_dir / "smoke_generated" / "manifest.json",

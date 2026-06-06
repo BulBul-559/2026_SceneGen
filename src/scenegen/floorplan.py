@@ -17,16 +17,6 @@ from .paths import portable_path
 SUPPORTED_INPUTS = {".glb", ".gltf", ".obj", ".ply", ".stl"}
 DEFAULT_BIN_SIZE = 0.05
 FIXED_ORIGIN_XY = np.array([0.0, 0.0], dtype=np.float64)
-SEMANTIC_COLORS: dict[str, tuple[int, int, int]] = {
-    "table": (66, 135, 245),
-    "seat": (240, 151, 57),
-    "floor": (76, 175, 80),
-    "tabletop": (156, 94, 181),
-    "unknown": (120, 120, 120),
-}
-SEMANTIC_BACKGROUND = (252, 252, 248)
-SEMANTIC_SCENE_OUTLINE = (40, 40, 40)
-SEMANTIC_FORBIDDEN = (210, 64, 64)
 CLASS_MASK_LABELS: dict[int, str] = {
     0: "outdoor",
     1: "wall",
@@ -46,18 +36,15 @@ def floorplan_layer_filename(level_m: float) -> str:
     return f"floorplan_{height_token}.png"
 
 
+def world_to_pixel(point: tuple[float, float], min_x: float, max_y: float, resolution: float) -> tuple[int, int]:
+    x, y = point
+    return int(round((x - min_x) / resolution)), int(round((max_y - y) / resolution))
+
+
 @dataclass(frozen=True)
 class FloorplanConfig:
     enabled: bool
     geometry_enabled: bool
-    geometry_clean_enabled: bool
-    geometry_clean_min_density: float
-    geometry_clean_min_neighbors: int
-    geometry_clean_min_z_m: float
-    geometry_clean_max_abs_normal_z: float
-    geometry_clean_opening_px: int
-    geometry_clean_closing_px: int
-    semantic_enabled: bool
     class_mask_enabled: bool
     class_mask_wall_dilation_m: float
     class_mask_furniture_dilation_m: float
@@ -72,30 +59,18 @@ class FloorplanConfig:
     min_sample_points: int
     max_sample_points: int
     preview_tile_size_px: int
-    semantic_padding_m: float
-    semantic_draw_labels: bool
     fail_on_error: bool
 
     @classmethod
     def from_mapping(cls, payload: dict[str, Any], openings: dict[str, Any] | Front3DOpeningConfig | None = None) -> FloorplanConfig:
         geometry = payload["geometry"]
-        clean = geometry["clean"]
-        semantic = payload["semantic"]
         class_mask = payload["class_mask"]
-        height = payload["height"]
+        height = geometry["height"]
         sampling = payload["sampling"]
         preview = payload["preview"]
         return cls(
             enabled=bool(payload["enabled"]),
             geometry_enabled=bool(geometry["enabled"]),
-            geometry_clean_enabled=bool(clean["enabled"]),
-            geometry_clean_min_density=float(clean["min_density"]),
-            geometry_clean_min_neighbors=int(clean["min_neighbors"]),
-            geometry_clean_min_z_m=float(clean["min_z_m"]),
-            geometry_clean_max_abs_normal_z=float(clean["max_abs_normal_z"]),
-            geometry_clean_opening_px=int(clean["opening_px"]),
-            geometry_clean_closing_px=int(clean["closing_px"]),
-            semantic_enabled=bool(semantic["enabled"]),
             class_mask_enabled=bool(class_mask["enabled"]),
             class_mask_wall_dilation_m=float(class_mask["wall_dilation_m"]),
             class_mask_furniture_dilation_m=float(class_mask["furniture_dilation_m"]),
@@ -110,8 +85,6 @@ class FloorplanConfig:
             min_sample_points=int(sampling["min_points"]),
             max_sample_points=int(sampling["max_points"]),
             preview_tile_size_px=int(preview["tile_size_px"]),
-            semantic_padding_m=float(semantic["padding_m"]),
-            semantic_draw_labels=bool(semantic["draw_labels"]),
             fail_on_error=bool(payload["fail_on_error"]),
         )
 
@@ -169,13 +142,6 @@ def generate_floorplan_for_scene(
             preview_tile_size=config.preview_tile_size_px,
             height_mode=config.height_mode,
             heights_m=config.heights_m,
-            clean_enabled=config.geometry_clean_enabled,
-            clean_min_density=config.geometry_clean_min_density,
-            clean_min_neighbors=config.geometry_clean_min_neighbors,
-            clean_min_z=config.geometry_clean_min_z_m,
-            clean_max_abs_normal_z=config.geometry_clean_max_abs_normal_z,
-            clean_opening_px=config.geometry_clean_opening_px,
-            clean_closing_px=config.geometry_clean_closing_px,
         )
         record.update(
             {
@@ -198,22 +164,6 @@ def generate_floorplan_for_scene(
                 },
             }
         )
-
-    if config.semantic_enabled:
-        if placements is None or bounds_xy is None:
-            raise ValueError("Semantic floorplan requires placements and scene bounds.")
-        semantic = generate_semantic_floorplan(
-            output_dir=output_dir,
-            placements=placements,
-            bounds_xy=bounds_xy,
-            forbidden_xy_rects=forbidden_xy_rects,
-            resolution=config.resolution_m_per_pixel,
-            padding_m=config.semantic_padding_m,
-            draw_labels=config.semantic_draw_labels,
-            path_root=path_root,
-        )
-        record["semantic"] = semantic
-        record["semantic_preview"] = semantic["image"]
 
     if config.class_mask_enabled:
         if front3d_base_scene is None:
@@ -560,182 +510,6 @@ def render_class_mask_preview(class_mask: np.ndarray) -> Image.Image:
     return Image.fromarray(rgb, mode="RGB")
 
 
-def generate_semantic_floorplan(
-    output_dir: Path,
-    placements: list[PlacedAsset],
-    bounds_xy: tuple[float, float, float, float],
-    forbidden_xy_rects: tuple[Rect2D, ...],
-    resolution: float,
-    padding_m: float,
-    draw_labels: bool,
-    path_root: Path | None = None,
-) -> dict[str, object]:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    root = path_root or output_dir
-    scene_min_x, scene_min_y, scene_max_x, scene_max_y = bounds_xy
-    polygons = [placement_polygon_xy(placement) for placement in placements]
-    all_x = [scene_min_x, scene_max_x]
-    all_y = [scene_min_y, scene_max_y]
-    for polygon in polygons:
-        all_x.extend(point[0] for point in polygon)
-        all_y.extend(point[1] for point in polygon)
-    for rect in forbidden_xy_rects:
-        all_x.extend((rect[0], rect[2]))
-        all_y.extend((rect[1], rect[3]))
-
-    min_x = min(all_x) - padding_m
-    max_x = max(all_x) + padding_m
-    min_y = min(all_y) - padding_m
-    max_y = max(all_y) + padding_m
-    width_px = max(1, int(math.ceil((max_x - min_x) / resolution)) + 1)
-    height_px = max(1, int(math.ceil((max_y - min_y) / resolution)) + 1)
-
-    image = Image.new("RGB", (width_px, height_px), SEMANTIC_BACKGROUND)
-    draw = ImageDraw.Draw(image, "RGBA")
-
-    scene_rect_px = [
-        world_to_pixel((scene_min_x, scene_min_y), min_x, max_y, resolution),
-        world_to_pixel((scene_max_x, scene_max_y), min_x, max_y, resolution),
-    ]
-    draw.rectangle(
-        [
-            min(scene_rect_px[0][0], scene_rect_px[1][0]),
-            min(scene_rect_px[0][1], scene_rect_px[1][1]),
-            max(scene_rect_px[0][0], scene_rect_px[1][0]),
-            max(scene_rect_px[0][1], scene_rect_px[1][1]),
-        ],
-        outline=SEMANTIC_SCENE_OUTLINE + (255,),
-        width=2,
-    )
-
-    for rect in forbidden_xy_rects:
-        rect_px = [
-            world_to_pixel((rect[0], rect[1]), min_x, max_y, resolution),
-            world_to_pixel((rect[2], rect[3]), min_x, max_y, resolution),
-        ]
-        xy = [
-            min(rect_px[0][0], rect_px[1][0]),
-            min(rect_px[0][1], rect_px[1][1]),
-            max(rect_px[0][0], rect_px[1][0]),
-            max(rect_px[0][1], rect_px[1][1]),
-        ]
-        draw.rectangle(xy, fill=SEMANTIC_FORBIDDEN + (35,), outline=SEMANTIC_FORBIDDEN + (180,), width=2)
-        for offset in range(-height_px, width_px, 18):
-            draw.line((xy[0] + offset, xy[3], xy[0] + offset + (xy[3] - xy[1]), xy[1]), fill=SEMANTIC_FORBIDDEN + (80,))
-
-    objects: list[dict[str, object]] = []
-    draw_order = sorted(
-        zip(placements, polygons, strict=True),
-        key=lambda item: (item[0].z, item[0].asset.height, item[0].instance_name),
-    )
-    for placement, polygon in draw_order:
-        placement_class = placement.asset.placement_class
-        color = SEMANTIC_COLORS.get(placement_class, SEMANTIC_COLORS["unknown"])
-        polygon_px = [world_to_pixel(point, min_x, max_y, resolution) for point in polygon]
-        draw.polygon(polygon_px, fill=color + (100,), outline=color + (235,))
-        draw.line(polygon_px + [polygon_px[0]], fill=color + (255,), width=2)
-        if draw_labels:
-            maybe_draw_label(draw, placement, polygon_px)
-        objects.append(
-            {
-                "instance_name": placement.instance_name,
-                "asset_name": placement.asset.name,
-                "placement_class": placement_class,
-                "support_type": placement.support_type,
-                "parent": placement.parent,
-                "center_xy_m": [round(placement.x, 6), round(placement.y, 6)],
-                "z_m": round(placement.z, 6),
-                "yaw_radians": round(placement.yaw, 6),
-                "asset_size_m": [
-                    round(placement.asset.width, 6),
-                    round(placement.asset.length, 6),
-                    round(placement.asset.height, 6),
-                ],
-                "polygon_xy_m": [[round(x, 6), round(y, 6)] for x, y in polygon],
-                "bbox_xy_m": [
-                    round(placement.min_x, 6),
-                    round(placement.min_y, 6),
-                    round(placement.max_x, 6),
-                    round(placement.max_y, 6),
-                ],
-                "color_rgb": list(color),
-            }
-        )
-
-    draw_semantic_legend(draw, width_px)
-    image_path = output_dir / "semantic.png"
-    json_path = output_dir / "semantic.json"
-    image.save(image_path)
-    payload = {
-        "type": "semantic_floorplan",
-        "image": portable_path(image_path, root),
-        "resolution_m_per_pixel": resolution,
-        "bounds_xy_m": [min_x, min_y, max_x, max_y],
-        "scene_bounds_xy_m": [scene_min_x, scene_min_y, scene_max_x, scene_max_y],
-        "image_size_px": [width_px, height_px],
-        "forbidden_xy_rects": [list(rect) for rect in forbidden_xy_rects],
-        "legend": {name: list(color) for name, color in SEMANTIC_COLORS.items() if name != "unknown"},
-        "object_count": len(objects),
-        "objects": objects,
-    }
-    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    return {
-        "ok": True,
-        "image": portable_path(image_path, root),
-        "json": portable_path(json_path, root),
-        "object_count": len(objects),
-        "bounds_xy_m": payload["bounds_xy_m"],
-        "image_size_px": payload["image_size_px"],
-    }
-
-
-def placement_polygon_xy(placement: PlacedAsset) -> list[tuple[float, float]]:
-    half_x = placement.asset.width / 2.0
-    half_y = placement.asset.length / 2.0
-    cos_yaw = math.cos(placement.yaw)
-    sin_yaw = math.sin(placement.yaw)
-    polygon: list[tuple[float, float]] = []
-    for local_x, local_y in ((-half_x, -half_y), (half_x, -half_y), (half_x, half_y), (-half_x, half_y)):
-        polygon.append(
-            (
-                placement.x + cos_yaw * local_x - sin_yaw * local_y,
-                placement.y + sin_yaw * local_x + cos_yaw * local_y,
-            )
-        )
-    return polygon
-
-
-def world_to_pixel(point: tuple[float, float], min_x: float, max_y: float, resolution: float) -> tuple[int, int]:
-    x, y = point
-    return int(round((x - min_x) / resolution)), int(round((max_y - y) / resolution))
-
-
-def maybe_draw_label(draw: ImageDraw.ImageDraw, placement: PlacedAsset, polygon_px: list[tuple[int, int]]) -> None:
-    xs = [point[0] for point in polygon_px]
-    ys = [point[1] for point in polygon_px]
-    width = max(xs) - min(xs)
-    height = max(ys) - min(ys)
-    if width < 46 or height < 16:
-        return
-    label = placement.asset.placement_class
-    text_x = min(xs) + 4
-    text_y = min(ys) + 3
-    draw.rectangle((text_x - 2, text_y - 2, text_x + len(label) * 7 + 2, text_y + 12), fill=(255, 255, 255, 150))
-    draw.text((text_x, text_y), label, fill=(20, 20, 20, 230))
-
-
-def draw_semantic_legend(draw: ImageDraw.ImageDraw, width_px: int) -> None:
-    x = 10
-    y = 10
-    for name in ("table", "seat", "floor", "tabletop"):
-        color = SEMANTIC_COLORS[name]
-        draw.rectangle((x, y, x + 14, y + 14), fill=color + (150,), outline=color + (255,))
-        draw.text((x + 20, y), name, fill=(20, 20, 20, 230))
-        y += 20
-    draw.rectangle((width_px - 120, 10, width_px - 106, 24), fill=SEMANTIC_FORBIDDEN + (60,), outline=SEMANTIC_FORBIDDEN + (180,))
-    draw.text((width_px - 100, 10), "forbidden", fill=(20, 20, 20, 230))
-
-
 def process_scene(
     input_path: Path,
     output_dir: Path,
@@ -751,13 +525,6 @@ def process_scene(
     preview_tile_size: int,
     height_mode: str = "layers",
     heights_m: list[float] | None = None,
-    clean_enabled: bool = False,
-    clean_min_density: float = 2.0,
-    clean_min_neighbors: int = 2,
-    clean_min_z: float = 0.05,
-    clean_max_abs_normal_z: float = 0.7,
-    clean_opening_px: int = 0,
-    clean_closing_px: int = 1,
 ) -> dict[str, object]:
     mesh_path, conversion_meta = prepare_mesh_path(input_path, output_dir)
     path_root = input_path.parent
@@ -769,13 +536,13 @@ def process_scene(
     oriented_vertices = vertices[:, reorder]
     oriented_mesh = trimesh.Trimesh(vertices=oriented_vertices, faces=mesh.faces, process=False)
 
-    sampled_points, sampled_normals, sample_meta = sample_surface_points(
+    sampled_points, _sampled_normals, sample_meta = sample_surface_points(
         oriented_mesh,
         resolution,
         sample_density_scale,
         min_sample_points,
         max_sample_points,
-        include_normals=clean_enabled,
+        include_normals=False,
     )
     all_points = np.vstack([oriented_vertices, sampled_points]).astype(np.float32, copy=False)
 
@@ -842,47 +609,19 @@ def process_scene(
             }
         )
 
-    if clean_enabled:
-        shifted_sampled_points = sampled_points.astype(np.float32, copy=True)
-        shifted_sampled_points[:, 2] -= effective_bottom
-        assert sampled_normals is not None
-        clean_points = shifted_sampled_points[np.abs(sampled_normals[:, 2]) <= clean_max_abs_normal_z]
-        clean_rows, clean_cols, clean_z_vals = rasterize_points(
-            points=clean_points,
-            origin_xy=xy_min,
-            resolution=resolution,
-            shape=shape,
-        )
-    else:
-        clean_rows = np.asarray([], dtype=np.int32)
-        clean_cols = np.asarray([], dtype=np.int32)
-        clean_z_vals = np.asarray([], dtype=np.float32)
-    clean_layer_dir = output_dir / "clean_layers"
     projection_render = render_projection_stack(
         rows=rows,
         cols=cols,
         z_vals=z_vals,
-        clean_rows=clean_rows,
-        clean_cols=clean_cols,
-        clean_z_vals=clean_z_vals,
         z_levels=z_levels,
         shape=shape,
         output_dir=output_dir,
         max_alpha=0.90,
         foreground_color=(40, 40, 40),
-        clean_output_dir=clean_layer_dir if clean_enabled else None,
-        clean_min_density=clean_min_density,
-        clean_min_neighbors=clean_min_neighbors,
-        clean_min_z=clean_min_z,
-        clean_opening_px=clean_opening_px,
-        clean_closing_px=clean_closing_px,
     )
     soft_plain_images_by_index = projection_render["raw_images"]
-    clean_images_by_index = projection_render["clean_images"]
     soft_plain_panels = [(f"z<={level:.2f}", soft_plain_images_by_index[index]) for index, level in enumerate(z_levels)]
-    clean_preview_path = output_dir / "geometry_clean_preview.png"
-    clean_top_path = output_dir / "geometry_clean.png"
-    raw_top_path = output_dir / "geometry_raw.png"
+    primary_layer_path = output_dir / floorplan_layer_filename(float(z_levels[0]))
 
     np.savez_compressed(
         output_dir / "stack.npz",
@@ -899,30 +638,6 @@ def process_scene(
         tile_size=preview_tile_size,
     )
     soft_plain_preview.save(preview_output_path)
-    soft_plain_images_by_index[0].save(raw_top_path)
-
-    clean_record: dict[str, object] | None = None
-    if clean_enabled:
-        clean_panels = [(f"z<={level:.2f}", clean_images_by_index[index]) for index, level in enumerate(z_levels)]
-        clean_preview = build_contact_sheet(
-            clean_panels,
-            title=f"clean scene: {input_path.name}",
-            tile_size=preview_tile_size,
-        )
-        clean_preview.save(clean_preview_path)
-        clean_images_by_index[0].save(clean_top_path)
-        clean_record = {
-            "image": portable_path(clean_top_path, path_root),
-            "preview": portable_path(clean_preview_path, path_root),
-            "layers_dir": portable_path(clean_layer_dir, path_root),
-            "min_density": float(clean_min_density),
-            "min_neighbors": int(clean_min_neighbors),
-            "min_z_m": float(clean_min_z),
-            "max_abs_normal_z": float(clean_max_abs_normal_z),
-            "opening_px": int(clean_opening_px),
-            "closing_px": int(clean_closing_px),
-            "stats": projection_render["clean_stats"],
-        }
 
     meta = {
         "approach": "height_sweep_projection",
@@ -947,8 +662,7 @@ def process_scene(
         "origin_clipping_warning": origin_clipping_warning,
         "height_histogram": hist_meta,
         "sampling": sample_meta,
-        "geometry_raw": portable_path(raw_top_path, path_root),
-        "geometry_clean": clean_record,
+        "primary_layer": portable_path(primary_layer_path, path_root),
         "conversion": conversion_meta,
         "projection_stats": projection_stats,
     }
@@ -963,8 +677,7 @@ def process_scene(
         "step_m": float(step),
         "height_mode": height_mode,
         "z_levels_m": [float(level) for level in z_levels],
-        "raw": portable_path(raw_top_path, path_root),
-        "clean": clean_record,
+        "raw": portable_path(primary_layer_path, path_root),
     }
 
 
@@ -1152,146 +865,23 @@ def render_projection_stack(
     rows: np.ndarray,
     cols: np.ndarray,
     z_vals: np.ndarray,
-    clean_rows: np.ndarray,
-    clean_cols: np.ndarray,
-    clean_z_vals: np.ndarray,
     z_levels: list[float],
     shape: tuple[int, int],
     output_dir: Path,
     max_alpha: float,
     foreground_color: tuple[int, int, int],
-    clean_output_dir: Path | None,
-    clean_min_density: float,
-    clean_min_neighbors: int,
-    clean_min_z: float,
-    clean_opening_px: int,
-    clean_closing_px: int,
 ) -> dict[str, object]:
-    raw_images_by_index: dict[int, Image.Image] = {}
-    clean_images_by_index: dict[int, Image.Image] = {}
-    clean_stats_by_index: dict[int, dict[str, object]] = {}
-
-    if rows.size == 0:
-        empty_density = np.zeros(shape, dtype=np.float32)
-        for index, level in enumerate(z_levels):
-            raw_image = render_density_projection(
-                empty_density,
-                max_alpha=max_alpha,
-                foreground_color=foreground_color,
-            )
-            raw_image.save(output_dir / floorplan_layer_filename(float(level)))
-            raw_images_by_index[index] = raw_image
-            if clean_output_dir is not None:
-                clean_output_dir.mkdir(parents=True, exist_ok=True)
-                clean_image = render_clean_geometry_mask(np.zeros(shape, dtype=bool))
-                clean_image.save(clean_output_dir / floorplan_layer_filename(float(level)))
-                clean_images_by_index[index] = clean_image
-                clean_stats_by_index[index] = clean_geometry_stats(
-                    index,
-                    level,
-                    empty_density,
-                    np.zeros(shape, dtype=bool),
-                )
-        return {
-            "raw_images": raw_images_by_index,
-            "clean_images": clean_images_by_index,
-            "clean_stats": (
-                [clean_stats_by_index[index] for index in range(len(z_levels))] if clean_output_dir is not None else []
-            ),
-        }
-
-    if len(z_levels) == 1:
-        level = float(z_levels[0])
-        density = np.zeros(shape, dtype=np.float32)
-        keep = z_vals <= level
-        if np.any(keep):
-            np.add.at(density, (rows[keep], cols[keep]), 1.0)
-        raw_image = render_density_projection(density, max_alpha=max_alpha, foreground_color=foreground_color)
-        raw_image.save(output_dir / floorplan_layer_filename(level))
-        raw_images_by_index[0] = raw_image
-
-        if clean_output_dir is not None:
-            clean_output_dir.mkdir(parents=True, exist_ok=True)
-            clean_density = np.zeros(shape, dtype=np.float32)
-            clean_keep = (clean_z_vals >= clean_min_z) & (clean_z_vals <= level)
-            if np.any(clean_keep):
-                np.add.at(clean_density, (clean_rows[clean_keep], clean_cols[clean_keep]), 1.0)
-            clean_mask = build_clean_geometry_mask(
-                clean_density,
-                min_density=clean_min_density,
-                min_neighbors=clean_min_neighbors,
-                opening_px=clean_opening_px,
-                closing_px=clean_closing_px,
-            )
-            clean_image = render_clean_geometry_mask(clean_mask)
-            clean_image.save(clean_output_dir / floorplan_layer_filename(level))
-            clean_images_by_index[0] = clean_image
-            clean_stats_by_index[0] = clean_geometry_stats(0, level, clean_density, clean_mask)
-
-        return {
-            "raw_images": raw_images_by_index,
-            "clean_images": clean_images_by_index,
-            "clean_stats": [clean_stats_by_index[0]] if clean_output_dir is not None else [],
-        }
-
-    order = np.argsort(z_vals, kind="mergesort")
-    rows_sorted = rows[order]
-    cols_sorted = cols[order]
-    z_sorted = z_vals[order]
-    density = np.zeros(shape, dtype=np.float32)
-    clean_density = np.zeros(shape, dtype=np.float32)
-    cursor = 0
-    clean_order = np.argsort(clean_z_vals, kind="mergesort")
-    clean_rows_sorted = clean_rows[clean_order]
-    clean_cols_sorted = clean_cols[clean_order]
-    clean_z_sorted = clean_z_vals[clean_order]
-    clean_cursor = int(np.searchsorted(clean_z_sorted, clean_min_z, side="left"))
-
-    if clean_output_dir is not None:
-        clean_output_dir.mkdir(parents=True, exist_ok=True)
-
-    ascending_levels = sorted((float(level), index) for index, level in enumerate(z_levels))
-    for level, original_index in ascending_levels:
-        next_cursor = int(np.searchsorted(z_sorted, level, side="right"))
-        if next_cursor > cursor:
-            np.add.at(density, (rows_sorted[cursor:next_cursor], cols_sorted[cursor:next_cursor]), 1.0)
-            cursor = next_cursor
-        if clean_output_dir is not None:
-            next_clean_cursor = int(np.searchsorted(clean_z_sorted, level, side="right"))
-            if next_clean_cursor > clean_cursor:
-                np.add.at(
-                    clean_density,
-                    (
-                        clean_rows_sorted[clean_cursor:next_clean_cursor],
-                        clean_cols_sorted[clean_cursor:next_clean_cursor],
-                    ),
-                    1.0,
-                )
-                clean_cursor = next_clean_cursor
-
-        raw_image = render_density_projection(density, max_alpha=max_alpha, foreground_color=foreground_color)
-        raw_image.save(output_dir / floorplan_layer_filename(level))
-        raw_images_by_index[original_index] = raw_image
-
-        if clean_output_dir is not None:
-            clean_mask = build_clean_geometry_mask(
-                clean_density,
-                min_density=clean_min_density,
-                min_neighbors=clean_min_neighbors,
-                opening_px=clean_opening_px,
-                closing_px=clean_closing_px,
-            )
-            clean_image = render_clean_geometry_mask(clean_mask)
-            clean_image.save(clean_output_dir / floorplan_layer_filename(level))
-            clean_images_by_index[original_index] = clean_image
-            clean_stats_by_index[original_index] = clean_geometry_stats(original_index, level, clean_density, clean_mask)
-
     return {
-        "raw_images": raw_images_by_index,
-        "clean_images": clean_images_by_index,
-        "clean_stats": (
-            [clean_stats_by_index[index] for index in range(len(z_levels))] if clean_output_dir is not None else []
-        ),
+        "raw_images": render_soft_projection_stack(
+            rows=rows,
+            cols=cols,
+            z_vals=z_vals,
+            z_levels=z_levels,
+            shape=shape,
+            output_dir=output_dir,
+            max_alpha=max_alpha,
+            foreground_color=foreground_color,
+        )
     }
 
 
@@ -1307,7 +897,12 @@ def render_soft_projection_stack(
 ) -> dict[int, Image.Image]:
     if rows.size == 0:
         empty = render_density_projection(np.zeros(shape, dtype=np.float32), max_alpha=max_alpha, foreground_color=foreground_color)
-        return {index: empty.copy() for index in range(len(z_levels))}
+        images_by_index = {}
+        for index, level in enumerate(z_levels):
+            image = empty.copy()
+            image.save(output_dir / floorplan_layer_filename(float(level)))
+            images_by_index[index] = image
+        return images_by_index
 
     order = np.argsort(z_vals, kind="mergesort")
     rows_sorted = rows[order]
@@ -1365,84 +960,6 @@ def render_side_projection(
         max_alpha=max_alpha,
         foreground_color=foreground_color if foreground_color is not None else (40, 40, 40),
     )
-
-
-def build_clean_geometry_mask(
-    density: np.ndarray,
-    min_density: float,
-    min_neighbors: int,
-    opening_px: int,
-    closing_px: int,
-) -> np.ndarray:
-    if min_density <= 0:
-        mask = density > 0
-    else:
-        mask = density >= min_density
-
-    if min_neighbors > 0:
-        neighbor_count = count_binary_neighbors(mask, include_center=False)
-        mask &= neighbor_count >= min_neighbors
-    if opening_px > 0:
-        mask = binary_open(mask, opening_px)
-    if closing_px > 0:
-        mask = binary_close(mask, closing_px)
-    return mask
-
-
-def clean_geometry_stats(index: int, level: float, density: np.ndarray, mask: np.ndarray) -> dict[str, object]:
-    positive_density = density[density > 0]
-    return {
-        "index": int(index),
-        "z_level_m": float(level),
-        "raw_positive_pixels": int(positive_density.size),
-        "clean_occupied_pixels": int(mask.sum()),
-        "clean_occupied_ratio": float(mask.mean()) if mask.size else 0.0,
-        "raw_density_mean": float(positive_density.mean()) if positive_density.size else 0.0,
-        "raw_density_max": float(positive_density.max()) if positive_density.size else 0.0,
-    }
-
-
-def render_clean_geometry_mask(mask: np.ndarray) -> Image.Image:
-    image = np.full(mask.shape + (3,), 255, dtype=np.uint8)
-    image[mask] = (35, 35, 35)
-    return Image.fromarray(np.flipud(image))
-
-
-def binary_open(mask: np.ndarray, radius: int) -> np.ndarray:
-    opened = mask
-    for _ in range(radius):
-        opened = binary_erode(opened)
-    for _ in range(radius):
-        opened = binary_dilate(opened)
-    return opened
-
-
-def binary_close(mask: np.ndarray, radius: int) -> np.ndarray:
-    closed = mask
-    for _ in range(radius):
-        closed = binary_dilate(closed)
-    for _ in range(radius):
-        closed = binary_erode(closed)
-    return closed
-
-
-def binary_dilate(mask: np.ndarray) -> np.ndarray:
-    return count_binary_neighbors(mask, include_center=True) > 0
-
-
-def binary_erode(mask: np.ndarray) -> np.ndarray:
-    return count_binary_neighbors(mask, include_center=True) == 9
-
-
-def count_binary_neighbors(mask: np.ndarray, include_center: bool) -> np.ndarray:
-    padded = np.pad(mask.astype(np.uint8, copy=False), 1)
-    counts = np.zeros(mask.shape, dtype=np.uint8)
-    for dy in (-1, 0, 1):
-        for dx in (-1, 0, 1):
-            if not include_center and dy == 0 and dx == 0:
-                continue
-            counts += padded[1 + dy : 1 + dy + mask.shape[0], 1 + dx : 1 + dx + mask.shape[1]]
-    return counts
 
 
 def render_density_projection(

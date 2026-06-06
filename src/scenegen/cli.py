@@ -374,7 +374,6 @@ def main(argv: list[str] | None = None) -> int:
         "label_overlay_requested": bool(label_config.enabled and label_config.overlay_enabled),
         "label_batch_strategies": list(label_config.batch_strategies) if label_config.enabled else [],
         "label_batch_grid_resolutions_m": list(label_config.batch_grid_resolutions_m) if label_config.enabled else [],
-        "label_batch_connected_area_enabled": list(label_config.batch_connected_area_enabled) if label_config.enabled else [],
         "label_variants": [variant.name for variant in label_variants(label_config)] if label_config.enabled else [],
         "label_variant_count": len(label_variants(label_config)) if label_config.enabled else 0,
         "statistics": run_statistics,
@@ -382,13 +381,9 @@ def main(argv: list[str] | None = None) -> int:
         "floorplan_requested": bool(floorplan_config.enabled),
         "floorplan_ok": not floorplan_failed if floorplan_config.enabled else None,
         "floorplan_geometry_requested": bool(floorplan_config.enabled and floorplan_config.geometry_enabled),
-        "floorplan_geometry_clean_requested": bool(
-            floorplan_config.enabled and floorplan_config.geometry_enabled and floorplan_config.geometry_clean_enabled
-        ),
         "floorplan_class_mask_requested": bool(floorplan_config.enabled and floorplan_config.class_mask_enabled),
         "floorplan_height_mode": floorplan_config.height_mode if floorplan_config.enabled else None,
         "floorplan_heights_m": floorplan_config.heights_m if floorplan_config.enabled else None,
-        "floorplan_semantic_requested": bool(floorplan_config.enabled and floorplan_config.semantic_enabled),
         "effective_config": portable_path(run_dir / "effective_config.yaml", run_dir),
         "scenes": scene_records,
     }

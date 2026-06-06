@@ -22,12 +22,12 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 - `src/scenegen/front3d.py`: 3D-FRONT manifest、scene JSON、实例矩阵、坐标转换和 asset 解析。
 - `src/scenegen/exporters.py`: OBJ、XML、placements、manifest 和 summary 输出。
 - `src/scenegen/labels.py`: BS/UE label v1.1 生成、验证和 floorplan overlay。
-- `src/scenegen/floorplan.py`: 几何 floorplan、clean 图、semantic floorplan。
+- `src/scenegen/floorplan.py`: 几何 floorplan 和 3D-FRONT 四分类 class mask。
 - `src/scenegen/quality.py`: 质量检查和统计报告。
 - `src/scenegen/assets/`: Bistro 资产契约、loader、legacy converter、材质映射。
 - `tools/prepare_front3d_phase1.py`: 3D-FRONT 第一阶段离线整理脚本。
-- `config/bistro.yaml`: Bistro 默认完整模板，也是默认 YAML 入口。
-- `config/front3d.yaml`: 3D-FRONT 完整模板。
+- `config/bistro.yaml`: Bistro 专用模板，也是默认 YAML 入口。
+- `config/front3d.yaml`: 3D-FRONT 专用模板。
 - `data/3D-Front/`: 本地 3D-FRONT 原始数据和整理结果，默认 git ignored。
 
 ## 配置链路
@@ -45,8 +45,8 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 
 维护规则：
 
-- `config/bistro.yaml` 应与 `src/scenegen/config.py` 里的 `DEFAULT_CONFIG` 保持一致。
-- `config/front3d.yaml` 应只在 `pipeline.mode` 上与 Bistro 默认不同。
+- `config/bistro.yaml` 和 `config/front3d.yaml` 是模式专用覆盖文件，不需要包含无关模式配置。
+- `DEFAULT_CONFIG` 仍是完整 schema；模板缺失的字段会在配置合并时由默认值补齐。
 - 需要实验配置时复制对应模板到其他位置，或通过 CLI 覆盖。
 - 配置 v2 不兼容旧 YAML 字段和旧显式 CLI 参数。
 - YAML 或 `--set` 写错字段会直接报错，不应静默忽略。
@@ -56,11 +56,9 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 `floorplan` 默认用于训练输入的 raw 几何投影：
 
 - `floorplan.resolution_m: 0.05`
-- `floorplan.height.mode: heights`
-- `floorplan.height.values_m: [1.6]`
+- `floorplan.geometry.height.mode: heights`
+- `floorplan.geometry.height.values_m: [1.6]`
 - `floorplan.sampling.density_scale: 128.0`
-- `floorplan.semantic.enabled: false`
-- `floorplan.geometry.clean.enabled: false`
 - `floorplan.class_mask.enabled: false`: 需要训练用四分类掩码时在 `front3d` 模式打开。输出 `floorplan/class_mask.png`、`class_mask_preview.png`、`class_mask.npy`、`class_mask.npz` 和 `class_mask_meta.json`，类别固定为 `0 outdoor`、`1 wall`、`2 free_space`、`3 furniture`。开口策略由共享 `front3d.openings.mode` 控制，默认 `doors`。
 
 `front3d` 默认策略：
@@ -75,12 +73,11 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 
 - label 输出版本由代码固定为 `1.1`。
 - `ue.height_m: 1.6`
-- `ue.sampling_domain: global_floor`
-- `ue.variants.strategies: [walk]`
-- `ue.variants.grid_m: [0.1]`
-- `ue.variants.connected: [true]`
-- `ue.wall_clearance_m: 0.2`
-- `ue.obstacle_strategy: height_aware`
+- `ue.sampling.domain: global_floor`
+- `ue.sampling.strategies: [walk]`
+- `ue.sampling.grid_m: [0.1]`
+- `ue.sampling.wall_clearance_m: 0.2`
+- `ue.walk.obstacle_strategy: height_aware`
 - `ue.connected_area.room_id: "__corridor__"`
 - `bs.strategy: wall_or_corner`
 - `bs.count.strategy: fixed_per_room`
@@ -88,7 +85,7 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 - `bs.wall_clearance_m: 0.2`
 - `overlay.enabled: true`
 
-`label.ue.sampling_domain: global_floor` + `label.ue.variants.connected: [true]` 是当前 front3d 推荐策略：`panel` 和 `walk` 先在建筑 XY bbox 的全局矩形网格上采样，再扣 outdoor 和膨胀后的 wall，随后按 room floor mesh 分类，未归属点进入 `ConnectedArea` group。门洞/窗洞由 `front3d.openings` 统一控制。`label.ue.variants.connected: [true, false]` 可同时生成 connected 和 room-only 两套 label。需要严格旧行为时切换为 `room_floor`。单基站定位实验可用 `label.bs.strategy: geometry_center`，它会在建筑几何中心附近搜索一个满足自由空间和 BS 离墙约束的 `BS0`。
+`label.ue.sampling.domain: global_floor` 是当前 front3d 推荐策略：`panel` 和 `walk` 先在建筑 XY bbox 的全局矩形网格上采样，再扣 outdoor 和膨胀后的 wall，随后按 room floor mesh 分类，未归属点进入 `ConnectedArea` group。门洞/窗洞由 `front3d.openings` 统一控制。当前不再生成 room-only 版本，也不丢弃 connected area residual 点；需要严格旧行为时切换为 `room_floor`。单基站定位实验可用 `label.bs.center.enabled: true`，它会在普通 BS 之外生成一个建筑几何中心附近的 `BS_CENTER`。
 
 ## 常用命令
 
@@ -155,14 +152,11 @@ summary_floorplan_raw/
   assets/
   floorplan/
     floorplan_1p60.png
-    geometry_raw.png
     preview.png
     side_view.png
     stack.npz
     meta.json
 ```
-
-如果 `floorplan.semantic.enabled: true`，还会生成 `floorplan/semantic.png` 和 `floorplan/semantic.json`。
 
 ## 3D-FRONT 数据阶段
 
@@ -194,7 +188,7 @@ uv run python tools/prepare_front3d_phase1.py \
 - `3d_scripts/` 是参考脚本目录，不是当前主流程的一部分。
 - `--clean` 会清理整个 `output_dir` 下旧 run，使用共享结果目录时要谨慎。
 - 质量检查默认开启；`quality.fail_on_error: true` 时发现 error 会让命令返回非零，但仍会写出报告。
-- semantic floorplan 默认关闭，当前主训练输入优先使用高密度 raw 几何投影。
+- semantic floorplan 和 geometry clean 已移除；当前主训练输入优先使用高密度几何高度层投影和可选 class mask。
 - 3D-FRONT 的电磁材质目前主要靠类别/材质名映射，低置信度结果需要后续抽样校正。
 
 ## 后续可能方向

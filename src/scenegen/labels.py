@@ -13,6 +13,7 @@ from PIL import Image, ImageDraw, ImageOps
 from .floorplan import (
     dilate_binary_image,
     draw_front3d_mesh_projection,
+    floorplan_layer_filename,
     front3d_mesh_type_is_wall,
     front3d_opening_kind,
 )
@@ -41,8 +42,6 @@ class LabelConfig:
     grid_resolution_m: float
     batch_strategies: tuple[str, ...]
     batch_grid_resolutions_m: tuple[float, ...]
-    connected_area_enabled: bool
-    batch_connected_area_enabled: tuple[bool, ...]
     ue_clearance_m: float
     obstacle_strategy: str
     walk_ignore_low_obstacles_below_m: float
@@ -58,6 +57,7 @@ class LabelConfig:
     bs_height_m: float
     bs_ceiling_margin_m: float
     bs_wall_clearance_m: float
+    bs_center_enabled: bool
     bs_center_initial_radius_m: float
     bs_center_radius_step_m: float
     bs_center_max_radius_m: float
@@ -73,31 +73,29 @@ class LabelConfig:
     def from_mapping(cls, payload: dict[str, Any], openings: dict[str, Any] | Front3DOpeningConfig | None = None) -> LabelConfig:
         ue = payload["ue"]
         bs = payload["bs"]
-        variants = ue["variants"]
+        sampling = ue["sampling"]
+        walk = ue["walk"]
         count = bs["count"]
         center = bs["center"]
         connected_area = ue["connected_area"]
         overlay = payload["overlay"]
         opening_config = opening_config_from_mapping(openings)
-        batch_strategies = tuple(label_strategy_to_internal(value) for value in variants["strategies"])
-        batch_grid_resolutions_m = tuple(float(value) for value in variants["grid_m"])
-        batch_connected_area_enabled = tuple(bool(value) for value in variants["connected"])
+        batch_strategies = tuple(label_strategy_to_internal(value) for value in sampling["strategies"])
+        batch_grid_resolutions_m = tuple(float(value) for value in sampling["grid_m"])
         return cls(
             enabled=bool(payload["enabled"]),
             version="1.1",
             ue_height_m=float(ue["height_m"]),
-            sampling_domain=str(ue["sampling_domain"]),
+            sampling_domain=str(sampling["domain"]),
             ue_strategy=batch_strategies[0],
             grid_resolution_m=batch_grid_resolutions_m[0],
             batch_strategies=batch_strategies,
             batch_grid_resolutions_m=batch_grid_resolutions_m,
-            connected_area_enabled=batch_connected_area_enabled[0],
-            batch_connected_area_enabled=batch_connected_area_enabled,
-            ue_clearance_m=float(ue["furniture_clearance_m"]),
-            obstacle_strategy=str(ue["obstacle_strategy"]),
-            walk_ignore_low_obstacles_below_m=float(ue["ignore_low_obstacles_below_m"]),
-            walk_blocking_classes=tuple(str(value) for value in ue["blocking_classes"]),
-            walk_min_component_area_m2=float(ue["min_component_area_m2"]),
+            ue_clearance_m=float(walk["furniture_clearance_m"]),
+            obstacle_strategy=str(walk["obstacle_strategy"]),
+            walk_ignore_low_obstacles_below_m=float(walk["ignore_low_obstacles_below_m"]),
+            walk_blocking_classes=tuple(str(value) for value in walk["blocking_classes"]),
+            walk_min_component_area_m2=float(sampling["min_component_area_m2"]),
             bs_strategy=str(bs["strategy"]),
             bs_count_strategy=str(count["strategy"]),
             bs_per_room=int(count["per_room"]),
@@ -108,13 +106,14 @@ class LabelConfig:
             bs_height_m=float(bs["height_m"]),
             bs_ceiling_margin_m=float(bs["ceiling_margin_m"]),
             bs_wall_clearance_m=float(bs["wall_clearance_m"]),
+            bs_center_enabled=bool(center["enabled"]),
             bs_center_initial_radius_m=float(center["initial_radius_m"]),
             bs_center_radius_step_m=float(center["radius_step_m"]),
             bs_center_max_radius_m=float(center["max_radius_m"]),
-            wall_clearance_m=float(ue["wall_clearance_m"]),
+            wall_clearance_m=float(sampling["wall_clearance_m"]),
             corridor_room_id=str(connected_area["room_id"]),
             corridor_room_type=str(connected_area["room_type"]),
-            corridor_clearance_m=float(ue["wall_clearance_m"]),
+            corridor_clearance_m=float(sampling["wall_clearance_m"]),
             overlay_enabled=bool(overlay["enabled"]),
             fail_on_error=bool(payload["fail_on_error"]),
             openings=opening_config,
@@ -127,7 +126,7 @@ def label_strategy_to_internal(value: object) -> str:
         return "plane_grid"
     if strategy == "walk":
         return "free_space_grid"
-    raise ValueError("label.ue.variants.strategies values must be 'panel' or 'walk'")
+    raise ValueError("label.ue.sampling.strategies values must be 'panel' or 'walk'")
 
 
 def opening_config_from_mapping(payload: dict[str, Any] | Front3DOpeningConfig | None) -> Front3DOpeningConfig:
@@ -366,30 +365,22 @@ def label_strategy_name(strategy: str) -> str:
 def label_variants(config: LabelConfig) -> list[LabelVariant]:
     variants: list[LabelVariant] = []
     seen: set[str] = set()
-    include_connected_suffix = len(set(config.batch_connected_area_enabled)) > 1
     for strategy in config.batch_strategies:
         for resolution in config.batch_grid_resolutions_m:
-            for connected_area_enabled in config.batch_connected_area_enabled:
-                connected_token = "_connected" if connected_area_enabled else "_room"
-                name = (
-                    f"label_{label_strategy_name(strategy)}{connected_token}_{height_token(resolution)}"
-                    if include_connected_suffix
-                    else f"label_{label_strategy_name(strategy)}_{height_token(resolution)}"
+            name = f"label_{label_strategy_name(strategy)}_{height_token(resolution)}"
+            if name in seen:
+                continue
+            seen.add(name)
+            variants.append(
+                LabelVariant(
+                    name=name,
+                    config=replace(
+                        config,
+                        ue_strategy=strategy,
+                        grid_resolution_m=resolution,
+                    ),
                 )
-                if name in seen:
-                    continue
-                seen.add(name)
-                variants.append(
-                    LabelVariant(
-                        name=name,
-                        config=replace(
-                            config,
-                            ue_strategy=strategy,
-                            grid_resolution_m=resolution,
-                            connected_area_enabled=connected_area_enabled,
-                        ),
-                    )
-                )
+            )
     if not variants:
         variants.append(
             LabelVariant(
@@ -930,8 +921,6 @@ def generate_bs_points_for_room(
     free_points: list[tuple[float, float]],
     config: LabelConfig,
 ) -> list[tuple[float, float, float]]:
-    if config.bs_strategy != "wall_or_corner":
-        return []
     bs_count = bs_count_for_room(context, config)
     if not free_points or bs_count <= 0:
         return []
@@ -1180,8 +1169,6 @@ def assign_global_free_points(
     points: list[tuple[float, float]],
     room_contexts: list[RoomLabelContext],
     corridor_context: RoomLabelContext,
-    *,
-    include_connected_area: bool = True,
 ) -> list[tuple[RoomLabelContext, list[tuple[float, float]]]]:
     assignments: dict[str, list[tuple[float, float]]] = {context.room_id: [] for context in room_contexts}
     assignments[corridor_context.room_id] = []
@@ -1193,7 +1180,7 @@ def assign_global_free_points(
         assignments[room_id].append((x, y))
     grouped = [(context, assignments[context.room_id]) for context in room_contexts]
     corridor_points = assignments[corridor_context.room_id]
-    if include_connected_area and corridor_points:
+    if corridor_points:
         grouped.append((corridor_context, corridor_points))
     return grouped
 
@@ -1207,7 +1194,6 @@ def room_sampling_result_from_assigned_points(
     stats = {
         "ue_strategy": config.ue_strategy,
         "sampling_domain": config.sampling_domain,
-        "connected_area_enabled": config.connected_area_enabled,
         "grid_resolution_m": config.grid_resolution_m,
         "boundary_clearance_m": context.boundary_clearance_m,
         "assigned_count": len(points),
@@ -1230,8 +1216,6 @@ def room_sampling_result_from_assigned_points(
     if context.is_corridor:
         stats["corridor_room_id"] = context.room_id
         stats["corridor_clearance_m"] = config.corridor_clearance_m
-    elif not config.connected_area_enabled:
-        stats["connected_area_residual_discarded"] = True
     for key, value in global_result.stats.items():
         if key in stats or key in {
             "floor_candidate_count",
@@ -1392,7 +1376,6 @@ def generate_front3d_global_subtractive_points(
     stats: dict[str, object] = {
         "ue_strategy": config.ue_strategy,
         "sampling_domain": config.sampling_domain,
-        "connected_area_enabled": config.connected_area_enabled,
         "sampling_source": "front3d_global_rect_subtractive_mask",
         "sampling_pipeline_version": "2.0.0",
         "grid_resolution_m": config.grid_resolution_m,
@@ -1520,7 +1503,6 @@ def generate_front3d_label(
                 global_result.points,
                 room_contexts,
                 corridor_context,
-                include_connected_area=config.connected_area_enabled,
             )
             grouped_sampling = [
                 (context, room_sampling_result_from_assigned_points(context, global_result, points, config))
@@ -1533,7 +1515,7 @@ def generate_front3d_label(
     center_bs_context: RoomLabelContext | None = None
     center_bs_xyz: tuple[float, float, float] | None = None
     bs_selection: dict[str, object] | None = None
-    if config.bs_strategy == "geometry_center":
+    if config.bs_center_enabled:
         if global_context is None:
             bs_selection = {"ok": False, "strategy": "geometry_center", "reason": "missing_global_floor_context"}
         else:
@@ -1559,25 +1541,36 @@ def generate_front3d_label(
             )
             for index, (x, y) in enumerate(free_xy)
         ]
-        if config.bs_strategy == "geometry_center":
-            bs_xyz = [center_bs_xyz] if center_bs_context is not None and center_bs_context.room_id == context.room_id and center_bs_xyz is not None else []
-        elif context.is_corridor:
+        if context.is_corridor:
             bs_xyz = []
         else:
             bs_xyz = generate_bs_points_for_room(context, free_xy, config)
         bs_points = []
         for index, (x, y, z) in enumerate(bs_xyz):
-            label = "BS0" if config.bs_strategy == "geometry_center" else f"BS_{group_index}_{index}"
             bs_points.append(
                 bs_point_payload(
                     x=x,
                     y=y,
                     z=z,
-                    label=label,
+                    label=f"BS_{group_index}_{index}",
                     room_id=context.room_id,
                     room_type=context.room_type,
                     strategy=config.bs_strategy,
                 )
+            )
+        if center_bs_context is not None and center_bs_context.room_id == context.room_id and center_bs_xyz is not None:
+            x, y, z = center_bs_xyz
+            bs_points.insert(
+                0,
+                bs_point_payload(
+                    x=x,
+                    y=y,
+                    z=z,
+                    label="BS_CENTER",
+                    room_id=context.room_id,
+                    room_type=context.room_type,
+                    strategy="geometry_center",
+                ),
             )
         validation = validate_front3d_room_points(context, ue_points, bs_points, base_scene, config)
         error_count += len(validation["errors"])
@@ -1594,7 +1587,6 @@ def generate_front3d_label(
                 "floor_area_m2": round(floor_area_m2, 3),
                 "sampling_domain": config.sampling_domain,
                 "ue_strategy": config.ue_strategy,
-                "connected_area_enabled": config.connected_area_enabled,
                 "obstacle_strategy": config.obstacle_strategy,
                 "bs_strategy": config.bs_strategy,
                 "bs_count_strategy": config.bs_count_strategy,
@@ -1614,7 +1606,6 @@ def generate_front3d_label(
                 "floor_area_m2": round(floor_area_m2, 3),
                 "sampling_domain": config.sampling_domain,
                 "ue_strategy": config.ue_strategy,
-                "connected_area_enabled": config.connected_area_enabled,
                 "obstacle_strategy": config.obstacle_strategy,
                 "bs_strategy": config.bs_strategy,
                 "bs_count_strategy": config.bs_count_strategy,
@@ -1707,7 +1698,6 @@ def copy_label_variant_outputs(
         "name": variant.name,
         "ue_strategy": variant.config.ue_strategy,
         "grid_resolution_m": variant.config.grid_resolution_m,
-        "connected_area_enabled": variant.config.connected_area_enabled,
         "label_file": portable_path(label_path, path_root),
         "report_file": portable_path(report_path, path_root),
     }
@@ -1835,7 +1825,7 @@ def write_label_overlay(
     output_name: str = "label_overlay",
 ) -> dict[str, object]:
     meta_path = floorplan_dir / "meta.json"
-    base_path = floorplan_dir / "geometry_raw.png"
+    base_path = floorplan_primary_image_path(floorplan_dir, meta_path)
     if not meta_path.is_file() or not base_path.is_file() or not label_path.is_file():
         return {"ok": False, "reason": "missing_floorplan_or_label"}
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
@@ -1898,3 +1888,16 @@ def write_label_overlay(
         "ue_radius_px": round(ue_radius_px, 3),
         "bs_radius_px": round(bs_radius_px, 3),
     }
+
+
+def floorplan_primary_image_path(floorplan_dir: Path, meta_path: Path) -> Path:
+    if not meta_path.is_file():
+        return floorplan_dir / "floorplan_1p60.png"
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return floorplan_dir / "floorplan_1p60.png"
+    levels = meta.get("z_levels_m")
+    if isinstance(levels, list) and levels:
+        return floorplan_dir / floorplan_layer_filename(float(levels[0]))
+    return floorplan_dir / "floorplan_1p60.png"

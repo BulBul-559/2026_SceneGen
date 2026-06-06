@@ -631,7 +631,7 @@ def collect_raw_floorplans(run_dir: Path, scene_records: list[dict[str, object]]
         if not source.is_file():
             continue
 
-        destination = summary_dir / f"{scene_prefix}_{scene_index:04d}_geometry_raw.png"
+        destination = summary_dir / f"{scene_prefix}_{scene_index:04d}_{source.name}"
         shutil.copy2(source, destination)
         copied.append(
             {

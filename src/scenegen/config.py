@@ -78,21 +78,22 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "fail_on_error": True,
         "ue": {
             "height_m": 1.6,
-            "sampling_domain": "global_floor",
-            "wall_clearance_m": 0.2,
-            "furniture_clearance_m": 0.35,
-            "obstacle_strategy": "height_aware",
-            "ignore_low_obstacles_below_m": 0.10,
-            "blocking_classes": ["table", "seat", "floor"],
-            "min_component_area_m2": 0.25,
+            "sampling": {
+                "domain": "global_floor",
+                "grid_m": [0.1],
+                "wall_clearance_m": 0.2,
+                "min_component_area_m2": 0.25,
+                "strategies": ["walk"],
+            },
+            "walk": {
+                "furniture_clearance_m": 0.35,
+                "obstacle_strategy": "height_aware",
+                "ignore_low_obstacles_below_m": 0.10,
+                "blocking_classes": ["table", "seat", "floor"],
+            },
             "connected_area": {
                 "room_id": "__corridor__",
                 "room_type": "ConnectedArea",
-            },
-            "variants": {
-                "strategies": ["walk"],
-                "grid_m": [0.1],
-                "connected": [True],
             },
         },
         "bs": {
@@ -109,6 +110,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
                 "area_per_point_m2": 12.0,
             },
             "center": {
+                "enabled": True,
                 "initial_radius_m": 0.2,
                 "radius_step_m": 0.1,
                 "max_radius_m": 2.0,
@@ -124,32 +126,18 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "resolution_m": 0.05,
         "geometry": {
             "enabled": True,
-            "clean": {
-                "enabled": False,
-                "min_density": 2.0,
-                "min_neighbors": 2,
-                "min_z_m": 0.05,
-                "max_abs_normal_z": 0.7,
-                "opening_px": 0,
-                "closing_px": 1,
+            "height": {
+                "mode": "heights",
+                "values_m": [1.6],
+                "step_m": 0.2,
+                "top_m": None,
+                "bottom_m": 0.0,
             },
-        },
-        "semantic": {
-            "enabled": False,
-            "padding_m": 0.5,
-            "draw_labels": True,
         },
         "class_mask": {
             "enabled": False,
             "wall_dilation_m": 0.0,
-            "furniture_dilation_m": 0.0,
-        },
-        "height": {
-            "mode": "heights",
-            "values_m": [1.6],
-            "step_m": 0.2,
-            "top_m": None,
-            "bottom_m": 0.0,
+            "furniture_dilation_m": 0.1,
         },
         "sampling": {
             "density_scale": 128.0,
@@ -294,10 +282,6 @@ def parse_float_sequence(value: Any, key: str) -> list[float]:
     return [float(part) for part in parse_sequence(value, key)]
 
 
-def parse_bool_sequence(value: Any, key: str) -> list[bool]:
-    return [as_bool(part, key) for part in parse_sequence(value, key)]
-
-
 def parse_string_sequence(value: Any, key: str) -> list[str]:
     return [str(part).strip() for part in parse_sequence(value, key) if str(part).strip()]
 
@@ -387,22 +371,22 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     label["fail_on_error"] = as_bool(label["fail_on_error"], "label.fail_on_error")
     ue = label["ue"]
     ue["height_m"] = float(ue["height_m"])
-    ue["sampling_domain"] = str(ue["sampling_domain"])
-    ue["wall_clearance_m"] = float(ue["wall_clearance_m"])
-    ue["furniture_clearance_m"] = float(ue["furniture_clearance_m"])
-    ue["obstacle_strategy"] = str(ue["obstacle_strategy"])
-    ue["ignore_low_obstacles_below_m"] = float(ue["ignore_low_obstacles_below_m"])
-    ue["blocking_classes"] = parse_string_sequence(ue["blocking_classes"], "label.ue.blocking_classes")
-    ue["min_component_area_m2"] = float(ue["min_component_area_m2"])
+    sampling = ue["sampling"]
+    sampling["domain"] = str(sampling["domain"])
+    sampling["wall_clearance_m"] = float(sampling["wall_clearance_m"])
+    sampling["min_component_area_m2"] = float(sampling["min_component_area_m2"])
+    sampling["strategies"] = [
+        normalize_label_strategy(value, "label.ue.sampling.strategies")
+        for value in parse_string_sequence(sampling["strategies"], "label.ue.sampling.strategies")
+    ]
+    sampling["grid_m"] = parse_float_sequence(sampling["grid_m"], "label.ue.sampling.grid_m")
+    walk = ue["walk"]
+    walk["furniture_clearance_m"] = float(walk["furniture_clearance_m"])
+    walk["obstacle_strategy"] = str(walk["obstacle_strategy"])
+    walk["ignore_low_obstacles_below_m"] = float(walk["ignore_low_obstacles_below_m"])
+    walk["blocking_classes"] = parse_string_sequence(walk["blocking_classes"], "label.ue.walk.blocking_classes")
     ue["connected_area"]["room_id"] = str(ue["connected_area"]["room_id"])
     ue["connected_area"]["room_type"] = str(ue["connected_area"]["room_type"])
-    variants = ue["variants"]
-    variants["strategies"] = [
-        normalize_label_strategy(value, "label.ue.variants.strategies")
-        for value in parse_string_sequence(variants["strategies"], "label.ue.variants.strategies")
-    ]
-    variants["grid_m"] = parse_float_sequence(variants["grid_m"], "label.ue.variants.grid_m")
-    variants["connected"] = parse_bool_sequence(variants["connected"], "label.ue.variants.connected")
 
     bs = label["bs"]
     bs["strategy"] = str(bs["strategy"])
@@ -417,6 +401,7 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     count["min_room_area_m2"] = float(count["min_room_area_m2"])
     count["area_per_point_m2"] = float(count["area_per_point_m2"])
     center = bs["center"]
+    center["enabled"] = as_bool(center["enabled"], "label.bs.center.enabled")
     center["initial_radius_m"] = float(center["initial_radius_m"])
     center["radius_step_m"] = float(center["radius_step_m"])
     center["max_radius_m"] = float(center["max_radius_m"])
@@ -428,28 +413,16 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     floorplan["resolution_m"] = float(floorplan["resolution_m"])
     geometry = floorplan["geometry"]
     geometry["enabled"] = as_bool(geometry["enabled"], "floorplan.geometry.enabled")
-    clean = geometry["clean"]
-    clean["enabled"] = as_bool(clean["enabled"], "floorplan.geometry.clean.enabled")
-    clean["min_density"] = float(clean["min_density"])
-    clean["min_neighbors"] = int(clean["min_neighbors"])
-    clean["min_z_m"] = float(clean["min_z_m"])
-    clean["max_abs_normal_z"] = float(clean["max_abs_normal_z"])
-    clean["opening_px"] = int(clean["opening_px"])
-    clean["closing_px"] = int(clean["closing_px"])
-    semantic = floorplan["semantic"]
-    semantic["enabled"] = as_bool(semantic["enabled"], "floorplan.semantic.enabled")
-    semantic["padding_m"] = float(semantic["padding_m"])
-    semantic["draw_labels"] = as_bool(semantic["draw_labels"], "floorplan.semantic.draw_labels")
+    height = geometry["height"]
+    height["mode"] = str(height["mode"])
+    height["values_m"] = parse_float_sequence(height["values_m"], "floorplan.geometry.height.values_m")
+    height["step_m"] = float(height["step_m"])
+    height["top_m"] = None if height["top_m"] is None else float(height["top_m"])
+    height["bottom_m"] = float(height["bottom_m"])
     class_mask = floorplan["class_mask"]
     class_mask["enabled"] = as_bool(class_mask["enabled"], "floorplan.class_mask.enabled")
     class_mask["wall_dilation_m"] = float(class_mask["wall_dilation_m"])
     class_mask["furniture_dilation_m"] = float(class_mask["furniture_dilation_m"])
-    height = floorplan["height"]
-    height["mode"] = str(height["mode"])
-    height["values_m"] = parse_float_sequence(height["values_m"], "floorplan.height.values_m")
-    height["step_m"] = float(height["step_m"])
-    height["top_m"] = None if height["top_m"] is None else float(height["top_m"])
-    height["bottom_m"] = float(height["bottom_m"])
     sampling = floorplan["sampling"]
     sampling["density_scale"] = float(sampling["density_scale"])
     sampling["min_points"] = int(sampling["min_points"])
@@ -521,39 +494,38 @@ def validate_effective_config(config: dict[str, Any]) -> None:
 
     label = config["label"]
     ue = label["ue"]
+    sampling = ue["sampling"]
+    walk = ue["walk"]
     if ue["height_m"] <= 0:
         raise ValueError("label.ue.height_m must be positive")
-    if ue["sampling_domain"] not in {"room_floor", "global_floor"}:
-        raise ValueError("label.ue.sampling_domain must be 'room_floor' or 'global_floor'")
-    if ue["wall_clearance_m"] < 0:
-        raise ValueError("label.ue.wall_clearance_m must be non-negative")
-    if ue["furniture_clearance_m"] < 0:
-        raise ValueError("label.ue.furniture_clearance_m must be non-negative")
-    if ue["obstacle_strategy"] not in {"height_aware", "footprint_column"}:
-        raise ValueError("label.ue.obstacle_strategy must be 'height_aware' or 'footprint_column'")
-    if ue["ignore_low_obstacles_below_m"] < 0:
-        raise ValueError("label.ue.ignore_low_obstacles_below_m must be non-negative")
+    if sampling["domain"] not in {"room_floor", "global_floor"}:
+        raise ValueError("label.ue.sampling.domain must be 'room_floor' or 'global_floor'")
+    if sampling["wall_clearance_m"] < 0:
+        raise ValueError("label.ue.sampling.wall_clearance_m must be non-negative")
+    if sampling["min_component_area_m2"] < 0:
+        raise ValueError("label.ue.sampling.min_component_area_m2 must be non-negative")
+    if not sampling["strategies"]:
+        raise ValueError("label.ue.sampling.strategies must not be empty")
+    if any(resolution <= 0 for resolution in sampling["grid_m"]):
+        raise ValueError("label.ue.sampling.grid_m values must be positive")
+    if walk["furniture_clearance_m"] < 0:
+        raise ValueError("label.ue.walk.furniture_clearance_m must be non-negative")
+    if walk["obstacle_strategy"] not in {"height_aware", "footprint_column"}:
+        raise ValueError("label.ue.walk.obstacle_strategy must be 'height_aware' or 'footprint_column'")
+    if walk["ignore_low_obstacles_below_m"] < 0:
+        raise ValueError("label.ue.walk.ignore_low_obstacles_below_m must be non-negative")
     allowed_walk_classes = {"table", "seat", "tabletop", "floor", "skip"}
-    if not ue["blocking_classes"]:
-        raise ValueError("label.ue.blocking_classes must not be empty")
-    if any(value not in allowed_walk_classes for value in ue["blocking_classes"]):
-        raise ValueError("label.ue.blocking_classes values must be table, seat, tabletop, floor, or skip")
-    if ue["min_component_area_m2"] < 0:
-        raise ValueError("label.ue.min_component_area_m2 must be non-negative")
+    if not walk["blocking_classes"]:
+        raise ValueError("label.ue.walk.blocking_classes must not be empty")
+    if any(value not in allowed_walk_classes for value in walk["blocking_classes"]):
+        raise ValueError("label.ue.walk.blocking_classes values must be table, seat, tabletop, floor, or skip")
     if not ue["connected_area"]["room_id"].strip():
         raise ValueError("label.ue.connected_area.room_id must not be empty")
     if not ue["connected_area"]["room_type"].strip():
         raise ValueError("label.ue.connected_area.room_type must not be empty")
-    variants = ue["variants"]
-    if not variants["strategies"]:
-        raise ValueError("label.ue.variants.strategies must not be empty")
-    if any(resolution <= 0 for resolution in variants["grid_m"]):
-        raise ValueError("label.ue.variants.grid_m values must be positive")
-    if not variants["connected"]:
-        raise ValueError("label.ue.variants.connected must not be empty")
     bs = label["bs"]
-    if bs["strategy"] not in {"wall_or_corner", "geometry_center"}:
-        raise ValueError("label.bs.strategy must be 'wall_or_corner' or 'geometry_center'")
+    if bs["strategy"] not in {"wall_or_corner"}:
+        raise ValueError("label.bs.strategy must be 'wall_or_corner'")
     if bs["height_m"] <= 0:
         raise ValueError("label.bs.height_m must be positive")
     if bs["ceiling_margin_m"] < 0:
@@ -585,45 +557,27 @@ def validate_effective_config(config: dict[str, Any]) -> None:
     if floorplan["resolution_m"] <= 0:
         raise ValueError("floorplan.resolution_m must be positive")
     geometry = floorplan["geometry"]
-    semantic = floorplan["semantic"]
     class_mask = floorplan["class_mask"]
-    if floorplan["enabled"] and not (geometry["enabled"] or semantic["enabled"] or class_mask["enabled"]):
-        raise ValueError("At least one of floorplan.geometry.enabled, floorplan.semantic.enabled, or floorplan.class_mask.enabled must be true")
-    clean = geometry["clean"]
-    if clean["enabled"] and not geometry["enabled"]:
-        raise ValueError("floorplan.geometry.clean.enabled requires floorplan.geometry.enabled")
-    if clean["min_density"] < 0:
-        raise ValueError("floorplan.geometry.clean.min_density must be non-negative")
-    if clean["min_neighbors"] < 0:
-        raise ValueError("floorplan.geometry.clean.min_neighbors must be non-negative")
-    if clean["min_z_m"] < 0:
-        raise ValueError("floorplan.geometry.clean.min_z_m must be non-negative")
-    if not 0 <= clean["max_abs_normal_z"] <= 1:
-        raise ValueError("floorplan.geometry.clean.max_abs_normal_z must be between 0 and 1")
-    if clean["opening_px"] < 0:
-        raise ValueError("floorplan.geometry.clean.opening_px must be non-negative")
-    if clean["closing_px"] < 0:
-        raise ValueError("floorplan.geometry.clean.closing_px must be non-negative")
-    if semantic["padding_m"] < 0:
-        raise ValueError("floorplan.semantic.padding_m must be non-negative")
+    if floorplan["enabled"] and not (geometry["enabled"] or class_mask["enabled"]):
+        raise ValueError("At least one of floorplan.geometry.enabled or floorplan.class_mask.enabled must be true")
     if class_mask["enabled"] and mode != "front3d":
         raise ValueError("floorplan.class_mask.enabled currently supports only front3d mode")
     if class_mask["wall_dilation_m"] < 0:
         raise ValueError("floorplan.class_mask.wall_dilation_m must be non-negative")
     if class_mask["furniture_dilation_m"] < 0:
         raise ValueError("floorplan.class_mask.furniture_dilation_m must be non-negative")
-    height = floorplan["height"]
+    height = geometry["height"]
     if height["mode"] not in {"layers", "heights"}:
-        raise ValueError("floorplan.height.mode must be 'layers' or 'heights'")
+        raise ValueError("floorplan.geometry.height.mode must be 'layers' or 'heights'")
     if height["mode"] == "heights":
         if not height["values_m"]:
-            raise ValueError("floorplan.height.values_m must contain at least one height when mode is 'heights'")
+            raise ValueError("floorplan.geometry.height.values_m must contain at least one height when mode is 'heights'")
         if any(value < height["bottom_m"] for value in height["values_m"]):
-            raise ValueError("floorplan.height.values_m values must be greater than or equal to floorplan.height.bottom_m")
+            raise ValueError("floorplan.geometry.height.values_m values must be greater than or equal to floorplan.geometry.height.bottom_m")
     if height["top_m"] is not None and height["top_m"] < height["bottom_m"]:
-        raise ValueError("floorplan.height.top_m must be greater than or equal to floorplan.height.bottom_m")
+        raise ValueError("floorplan.geometry.height.top_m must be greater than or equal to floorplan.geometry.height.bottom_m")
     if height["step_m"] <= 0:
-        raise ValueError("floorplan.height.step_m must be positive")
+        raise ValueError("floorplan.geometry.height.step_m must be positive")
     sampling = floorplan["sampling"]
     if sampling["density_scale"] <= 0:
         raise ValueError("floorplan.sampling.density_scale must be positive")
@@ -661,17 +615,16 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
     quality = config["quality"]
     label = config["label"]
     ue = label["ue"]
-    variants = ue["variants"]
+    ue_sampling = ue["sampling"]
+    walk = ue["walk"]
     bs = label["bs"]
     count = bs["count"]
     center = bs["center"]
     floorplan = config["floorplan"]
     geometry = floorplan["geometry"]
-    clean = geometry["clean"]
-    semantic = floorplan["semantic"]
     class_mask = floorplan["class_mask"]
-    height = floorplan["height"]
-    sampling = floorplan["sampling"]
+    height = geometry["height"]
+    floor_sampling = floorplan["sampling"]
     openings = front3d["openings"]
     return argparse.Namespace(
         mode=pipeline["mode"],
@@ -714,18 +667,16 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         label_enabled=label["enabled"],
         label_version=LABEL_VERSION,
         label_ue_height=ue["height_m"],
-        label_sampling_domain=ue["sampling_domain"],
-        label_ue_strategy=internal_label_strategy(variants["strategies"][0]),
-        label_grid_resolution=variants["grid_m"][0],
-        label_batch_strategies=[internal_label_strategy(value) for value in variants["strategies"]],
-        label_batch_grid_resolutions=variants["grid_m"],
-        label_connected_area_enabled=variants["connected"][0],
-        label_batch_connected_area_enabled=variants["connected"],
-        label_ue_clearance=ue["furniture_clearance_m"],
-        label_obstacle_strategy=ue["obstacle_strategy"],
-        label_walk_ignore_low_obstacles_below=ue["ignore_low_obstacles_below_m"],
-        label_walk_blocking_classes=ue["blocking_classes"],
-        label_walk_min_component_area=ue["min_component_area_m2"],
+        label_sampling_domain=ue_sampling["domain"],
+        label_ue_strategy=internal_label_strategy(ue_sampling["strategies"][0]),
+        label_grid_resolution=ue_sampling["grid_m"][0],
+        label_batch_strategies=[internal_label_strategy(value) for value in ue_sampling["strategies"]],
+        label_batch_grid_resolutions=ue_sampling["grid_m"],
+        label_ue_clearance=walk["furniture_clearance_m"],
+        label_obstacle_strategy=walk["obstacle_strategy"],
+        label_walk_ignore_low_obstacles_below=walk["ignore_low_obstacles_below_m"],
+        label_walk_blocking_classes=walk["blocking_classes"],
+        label_walk_min_component_area=ue_sampling["min_component_area_m2"],
         label_bs_strategy=bs["strategy"],
         label_bs_count_strategy=count["strategy"],
         label_bs_per_room=count["per_room"],
@@ -736,25 +687,18 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         label_bs_height=bs["height_m"],
         label_bs_ceiling_margin=bs["ceiling_margin_m"],
         label_bs_wall_clearance=bs["wall_clearance_m"],
+        label_bs_center_enabled=center["enabled"],
         label_bs_center_initial_radius=center["initial_radius_m"],
         label_bs_center_radius_step=center["radius_step_m"],
         label_bs_center_max_radius=center["max_radius_m"],
-        label_wall_clearance=ue["wall_clearance_m"],
+        label_wall_clearance=ue_sampling["wall_clearance_m"],
         label_corridor_room_id=ue["connected_area"]["room_id"],
         label_corridor_room_type=ue["connected_area"]["room_type"],
-        label_corridor_clearance=ue["wall_clearance_m"],
+        label_corridor_clearance=ue_sampling["wall_clearance_m"],
         label_overlay_enabled=label["overlay"]["enabled"],
         label_fail_on_error=label["fail_on_error"],
         floorplan_enabled=floorplan["enabled"],
         floorplan_geometry_enabled=geometry["enabled"],
-        floorplan_geometry_clean_enabled=clean["enabled"],
-        floorplan_geometry_clean_min_density=clean["min_density"],
-        floorplan_geometry_clean_min_neighbors=clean["min_neighbors"],
-        floorplan_geometry_clean_min_z=clean["min_z_m"],
-        floorplan_geometry_clean_max_abs_normal_z=clean["max_abs_normal_z"],
-        floorplan_geometry_clean_opening_px=clean["opening_px"],
-        floorplan_geometry_clean_closing_px=clean["closing_px"],
-        floorplan_semantic_enabled=semantic["enabled"],
         floorplan_class_mask_enabled=class_mask["enabled"],
         floorplan_class_mask_wall_dilation=class_mask["wall_dilation_m"],
         floorplan_class_mask_furniture_dilation=class_mask["furniture_dilation_m"],
@@ -770,12 +714,10 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         floorplan_step=height["step_m"],
         floorplan_top_z=height["top_m"],
         floorplan_bottom_z=height["bottom_m"],
-        floorplan_sample_density_scale=sampling["density_scale"],
-        floorplan_min_sample_points=sampling["min_points"],
-        floorplan_max_sample_points=sampling["max_points"],
+        floorplan_sample_density_scale=floor_sampling["density_scale"],
+        floorplan_min_sample_points=floor_sampling["min_points"],
+        floorplan_max_sample_points=floor_sampling["max_points"],
         floorplan_preview_tile_size=floorplan["preview"]["tile_size_px"],
-        floorplan_semantic_padding=semantic["padding_m"],
-        floorplan_semantic_draw_labels=semantic["draw_labels"],
         floorplan_fail_on_error=floorplan["fail_on_error"],
     )
 

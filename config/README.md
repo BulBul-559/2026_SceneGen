@@ -1,6 +1,6 @@
 # SceneGen Config v2 Reference
 
-`config/` 下提供两个完整模板：`bistro.yaml` 和 `front3d.yaml`。CLI 默认读取 `config/bistro.yaml`；需要合成 3D-FRONT 时使用 `--config config/front3d.yaml`。配置 v2 是破坏性版本：旧 YAML 字段和旧显式 CLI 参数不再兼容，未知字段会直接报错。
+`config/` 下提供两个模式专用模板：`bistro.yaml` 和 `front3d.yaml`。CLI 默认读取 `config/bistro.yaml`；需要合成 3D-FRONT 时使用 `--config config/front3d.yaml`。模板只保留对应模式常用的配置段，未写出的字段由代码内置默认值补齐。配置 v2 是破坏性版本：旧 YAML 字段和旧显式 CLI 参数不再兼容，未知字段会直接报错。
 
 每次运行都会在 run 目录写出 `effective_config.yaml`，它记录最终真正生效的配置。
 
@@ -21,7 +21,7 @@ uv run scenegen \
   --config config/front3d.yaml \
   --set pipeline.scenes=5 \
   --set label.ue.height_m=1.8 \
-  --set 'label.ue.variants.grid_m=[0.1,0.2,0.5]'
+  --set 'label.ue.sampling.grid_m=[0.1,0.2,0.5]'
 ```
 
 ## pipeline
@@ -126,13 +126,29 @@ uv run scenegen \
 | 字段 | 可选值 / 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `height_m` | float, `>0` | `1.6` | UE 相对 floor 的高度。 |
-| `sampling_domain` | `global_floor` / `room_floor` | `global_floor` | UE 采样域。`global_floor` 先全局采样再按 room 分类；`room_floor` 逐 room 采样。 |
+
+### label.ue.sampling
+
+批量 label 入口。最终 label 数量为 `strategies * grid_m` 的笛卡尔积。
+
+| 字段 | 可选值 / 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `domain` | `global_floor` / `room_floor` | `global_floor` | UE 采样域。`global_floor` 先全局采样再按 room 分类；`room_floor` 逐 room 采样。 |
+| `grid_m` | list of float, `>0` | `[0.1]` | UE 网格间隔。 |
 | `wall_clearance_m` | float, `>=0` | `0.2` | UE 与墙/边界的避让距离。 |
+| `min_component_area_m2` | float, `>=0` | `0.25` | 删除小于该面积的孤立自由空间。 |
+| `strategies` | list: `panel` / `walk` | `[walk]` | `panel` 不扣家具；`walk` 扣除家具自由空间。 |
+
+### label.ue.walk
+
+只影响 `sampling.strategies` 中的 `walk`。
+
+| 字段 | 可选值 / 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
 | `furniture_clearance_m` | float, `>=0` | `0.35` | walk 策略扣除家具时对 bbox 的额外避让距离。 |
 | `obstacle_strategy` | `height_aware` / `footprint_column` | `height_aware` | walk 家具障碍物过滤方式。 |
 | `ignore_low_obstacles_below_m` | float, `>=0` | `0.10` | walk 策略忽略低矮物体的高度阈值。 |
 | `blocking_classes` | list | `[table, seat, floor]` | 哪些 placement class 会阻挡 walk UE。 |
-| `min_component_area_m2` | float, `>=0` | `0.25` | 删除小于该面积的孤立自由空间。 |
 
 ### label.ue.connected_area
 
@@ -141,27 +157,18 @@ uv run scenegen \
 | `room_id` | string | `__corridor__` | 归属不到具体 room 的连通区域 id。 |
 | `room_type` | string | `ConnectedArea` | 连通区域类型名。 |
 
-### label.ue.variants
-
-批量 label 入口。最终 label 数量为 `strategies * grid_m * connected` 的笛卡尔积。
-
-| 字段 | 可选值 / 类型 | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `strategies` | list: `panel` / `walk` | `[walk]` | `panel` 不扣家具；`walk` 扣除家具自由空间。 |
-| `grid_m` | list of float, `>0` | `[0.1]` | UE 网格间隔。 |
-| `connected` | list of boolean | `[true]` | 是否保留 connected area group。 |
-
 命名规则：
 
 - `label_panel_0p1`
 - `label_walk_0p2`
-- 同时启用 `connected: [true, false]` 时会生成 `label_panel_connected_0p1`、`label_panel_room_0p1` 等。
+
+`global_floor` 采样会始终保留未归属到具体 room 的 connected area group，不再生成 room-only 版本。
 
 ### label.bs
 
 | 字段 | 可选值 / 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `strategy` | `wall_or_corner` / `geometry_center` | `wall_or_corner` | BS 位置策略。 |
+| `strategy` | `wall_or_corner` | `wall_or_corner` | 普通 BS 位置策略。 |
 | `height_m` | float, `>0` | `2.4` | BS 目标高度。 |
 | `ceiling_margin_m` | float, `>=0` | `0.3` | BS 距离天花的最小距离。 |
 | `wall_clearance_m` | float, `>=0` | `0.2` | BS 与墙/边界的避让距离。 |
@@ -179,10 +186,11 @@ uv run scenegen \
 
 ### label.bs.center
 
-`label.bs.strategy: geometry_center` 使用：
+额外中心 BS 开关。启用后会在普通 BS 之外生成一个 `BS_CENTER`，用于单基站定位评估。
 
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
+| `enabled` | boolean | `true` | 是否额外生成中心 BS。 |
 | `initial_radius_m` | float, `>=0` | `0.2` | 初始搜索半径。 |
 | `radius_step_m` | float, `>0` | `0.1` | 半径扩张步长。 |
 | `max_radius_m` | float, `>= initial` | `2.0` | 最大搜索半径。 |
@@ -207,25 +215,15 @@ uv run scenegen \
 | --- | --- | --- | --- |
 | `enabled` | boolean | `true` | 是否生成基于 `scene.obj` 采样的几何占据图。 |
 
-### floorplan.geometry.clean
+### floorplan.geometry.height
 
-| 字段 | 类型 | 默认值 | 说明 |
+| 字段 | 可选值 / 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `enabled` | boolean | `false` | 是否生成 `geometry_clean.png`。 |
-| `min_density` | float, `>=0` | `2.0` | 保留像素的最低累计采样密度。 |
-| `min_neighbors` | integer, `>=0` | `2` | 保留像素所需 8 邻域支撑像素数量。 |
-| `min_z_m` | float, `>=0` | `0.05` | 忽略低于该高度的采样点。 |
-| `max_abs_normal_z` | float, `0..1` | `0.7` | 保留表面法线竖直分量上限。 |
-| `opening_px` | integer, `>=0` | `0` | clean 图 opening 像素半径。 |
-| `closing_px` | integer, `>=0` | `1` | clean 图 closing 像素半径。 |
-
-### floorplan.semantic
-
-| 字段 | 类型 | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `enabled` | boolean | `false` | 是否生成基于 placements 的语义平面图。 |
-| `padding_m` | float, `>=0` | `0.5` | 场景外留白。 |
-| `draw_labels` | boolean | `true` | 是否绘制文字标签。 |
+| `mode` | `heights` / `layers` | `heights` | 指定高度或逐层扫描。 |
+| `values_m` | list of float | `[1.6]` | `mode: heights` 时的投影高度。 |
+| `step_m` | float, `>0` | `0.2` | `mode: layers` 时层间隔。 |
+| `top_m` | float / `null` | `null` | `mode: layers` 时扫描顶部；`null` 表示自动检测。 |
+| `bottom_m` | float | `0.0` | 扫描底部高度。 |
 
 ### floorplan.class_mask
 
@@ -235,19 +233,9 @@ uv run scenegen \
 | --- | --- | --- | --- |
 | `enabled` | boolean | `false` | 是否生成四分类训练掩码。 |
 | `wall_dilation_m` | float, `>=0` | `0.0` | wall 类额外膨胀距离。 |
-| `furniture_dilation_m` | float, `>=0` | `0.0` | furniture 类额外膨胀距离。 |
+| `furniture_dilation_m` | float, `>=0` | `0.1` | furniture 类额外膨胀距离。 |
 
 四分类固定为：`0 outdoor`、`1 wall`、`2 free_space`、`3 furniture`。
-
-### floorplan.height
-
-| 字段 | 可选值 / 类型 | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `mode` | `heights` / `layers` | `heights` | 指定高度或逐层扫描。 |
-| `values_m` | list of float | `[1.6]` | `mode: heights` 时的投影高度。 |
-| `step_m` | float, `>0` | `0.2` | `mode: layers` 时层间隔。 |
-| `top_m` | float / `null` | `null` | `mode: layers` 时扫描顶部；`null` 表示自动检测。 |
-| `bottom_m` | float | `0.0` | 扫描底部高度。 |
 
 ### floorplan.sampling
 
@@ -279,8 +267,8 @@ uv run scenegen \
 ```bash
 uv run scenegen \
   --config config/front3d.yaml \
-  --set 'label.ue.variants.strategies=[panel,walk]' \
-  --set 'label.ue.variants.grid_m=[0.1,0.2,0.5]'
+  --set 'label.ue.sampling.strategies=[panel,walk]' \
+  --set 'label.ue.sampling.grid_m=[0.1,0.2,0.5]'
 ```
 
 打开四分类 mask 并把门洞和窗洞都作为 free space：
