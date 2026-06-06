@@ -14,6 +14,7 @@ from PIL import Image
 
 from scenegen import __version__
 from scenegen.assets import AssetSpec, group_assets_by_class, legacy_item_to_spec, load_assets, resolve_obj_file
+from scenegen.batch import main as batch_main
 from scenegen.cli import evaluate_front3d_precheck, main, parse_args
 from scenegen.config import DEFAULT_CONFIG, load_effective_config
 from scenegen.floorplan import floorplan_layer_filename, generate_front3d_class_mask, process_scene
@@ -998,6 +999,9 @@ def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
     assert (output_dir / "smoke_front3d" / "manifest_front3d.json").is_file()
     assert (output_dir / "smoke_front3d" / "summary_obj" / "front3d_0000.obj").is_file()
     assert (output_dir / "smoke_front3d" / "summary_floorplan_raw" / "front3d_0000_floorplan_1p60.png").is_file()
+    assert (output_dir / "smoke_front3d" / "logs" / "events.jsonl").is_file()
+    assert (output_dir / "smoke_front3d" / "logs" / "timings.jsonl").is_file()
+    assert (output_dir / "smoke_front3d" / "logs" / "state" / "run_state.json").is_file()
 
     placements = json.loads((scene_dir / "placements.json").read_text(encoding="utf-8"))
     assert placements["mode"] == "front3d"
@@ -1054,6 +1058,11 @@ def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
     assert manifest["label_variants"] == ["label_walk_0p1"]
     assert manifest["label_variant_count"] == 1
     assert manifest["summary_floorplan_raw"]["count"] == 1
+    assert manifest["logs"]["events"] == "logs/events.jsonl"
+    assert "timing_summary_s" in manifest
+    assert "floorplan" in manifest["timing_summary_s"]
+    assert "timings_s" in manifest["scenes"][0]
+    assert "floorplan_geometry" in manifest["scenes"][0]["timings_s"]
     quality = json.loads((scene_dir / "quality_report.json").read_text(encoding="utf-8"))
     assert quality["ok"] is True
 
@@ -1074,6 +1083,51 @@ def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
     for json_file in json_files:
         payload = json.loads(json_file.read_text(encoding="utf-8"))
         assert not [value for value in iter_json_strings(payload) if value.startswith("/")]
+
+
+def test_front3d_batch_runner_writes_plan_state_and_worker_logs(tmp_path: Path) -> None:
+    pytest.importorskip("trimesh")
+    config_path = make_front3d_runtime_fixture(tmp_path)
+    output_dir = tmp_path / "out"
+
+    exit_code = batch_main(
+        [
+            "--config",
+            str(config_path),
+            "--workers",
+            "2",
+            "--max-retries",
+            "0",
+            "--set",
+            "pipeline.scenes=2",
+            "--set",
+            "pipeline.run_name=batch_smoke",
+        ]
+    )
+
+    run_dir = output_dir / "batch_smoke"
+    assert exit_code == 0
+    assert (run_dir / "front3d_0000" / "scene.obj").is_file()
+    assert (run_dir / "front3d_0001" / "scene.obj").is_file()
+    assert (run_dir / "manifest_batch.json").is_file()
+    assert (run_dir / "manifest_front3d.json").is_file()
+    assert (run_dir / "summary_obj" / "front3d_0000.obj").is_file()
+    assert (run_dir / "summary_obj" / "front3d_0001.obj").is_file()
+    plan_lines = (run_dir / "batch" / "scene_plan.jsonl").read_text(encoding="utf-8").strip().splitlines()
+    assert len(plan_lines) == 2
+    state = json.loads((run_dir / "batch" / "state.json").read_text(encoding="utf-8"))
+    assert state["status"] == "completed"
+    assert state["succeeded"] == 2
+    assert all(task["status"] == "succeeded" for task in state["tasks"].values())
+    assert (run_dir / "batch" / "logs" / "events.jsonl").is_file()
+    assert (run_dir / "batch" / "logs" / "timings.jsonl").is_file()
+    assert (run_dir / "batch" / "logs" / "workers" / "worker_000.log").is_file()
+    assert (run_dir / "batch" / "logs" / "workers" / "worker_001.log").is_file()
+    manifest = json.loads((run_dir / "manifest_batch.json").read_text(encoding="utf-8"))
+    assert manifest["batch"] is True
+    assert manifest["workers"] == 2
+    assert manifest["succeeded_scenes"] == 2
+    assert manifest["failed_scenes"] == 0
 
 
 def test_front3d_batch_label_outputs(tmp_path: Path) -> None:

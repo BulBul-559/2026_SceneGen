@@ -24,6 +24,8 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 - `src/scenegen/labels.py`: BS/UE label v1.1 生成、验证和 floorplan overlay。
 - `src/scenegen/floorplan.py`: 几何 floorplan 和 3D-FRONT 四分类 class mask。
 - `src/scenegen/quality.py`: 质量检查和统计报告。
+- `src/scenegen/runlog.py`: 单 run JSONL 事件、阶段耗时、state 快照和 traceback 输出。
+- `src/scenegen/batch.py`: front3d 生产管理入口，负责 scene plan、worker、resume、失败/重试队列和 batch manifest。
 - `src/scenegen/assets/`: Bistro 资产契约、loader、legacy converter、材质映射。
 - `tools/prepare_front3d_phase1.py`: 3D-FRONT 第一阶段离线整理脚本。
 - `config/bistro.yaml`: Bistro 专用模板，也是默认 YAML 入口。
@@ -116,6 +118,28 @@ uv run scenegen
 uv run scenegen --config config/front3d.yaml --set pipeline.scenes=3 --set pipeline.run_name=front3d_preview
 ```
 
+正式 front3d batch 生产：
+
+```bash
+uv run scenegen-batch \
+  --config config/tasks/front3d_full_simulation.yaml \
+  --workers 4 \
+  --max-retries 1 \
+  --set pipeline.scenes=2000 \
+  --set pipeline.run_name=front3d_production_2000
+```
+
+同名任务恢复：
+
+```bash
+uv run scenegen-batch \
+  --config config/tasks/front3d_full_simulation.yaml \
+  --workers 4 \
+  --resume \
+  --set pipeline.scenes=2000 \
+  --set pipeline.run_name=front3d_production_2000
+```
+
 快速 smoke，不生成 floorplan：
 
 ```bash
@@ -137,6 +161,12 @@ effective_config.yaml
 manifest.json
 manifest_<mode>.json
 statistics.json
+logs/
+  events.jsonl
+  timings.jsonl
+  state/run_state.json
+  workers/
+  scenes/
 summary_obj/
 summary_floorplan_raw/
 <mode_prefix>_0000/
@@ -158,6 +188,23 @@ summary_floorplan_raw/
     side_view.png
     stack.npz
     meta.json
+```
+
+`scenegen-batch` 额外输出：
+
+```text
+batch/
+  scene_plan.jsonl
+  state.json
+  logs/events.jsonl
+  logs/timings.jsonl
+  logs/workers/worker_*.log
+  logs/queues/failures.jsonl
+  logs/queues/retry.jsonl
+  logs/queues/dead_letter.jsonl
+  logs/scenes/<task>/attempt_*/task.traceback.*
+  worker_runs/
+manifest_batch.json
 ```
 
 ## 3D-FRONT 数据阶段

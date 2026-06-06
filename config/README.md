@@ -4,6 +4,8 @@
 
 每次运行都会在 run 目录写出 `effective_config.yaml`，它记录最终真正生效的配置。
 
+`config/tasks/front3d_full_simulation.yaml` 是后续大规模 front3d 仿真的任务模板，默认打开 label、geometry sampling floorplan、class mask 和 mesh furniture mask；`label.ue.sampling.grid_m` 使用 `[0.1, 0.2, 0.4, 0.5]` 四档。
+
 ## 合并规则
 
 配置优先级从低到高：
@@ -292,3 +294,16 @@ uv run scenegen \
   --config config/front3d.yaml \
   --set floorplan.geometry.projection=ray_height_filtered
 ```
+
+使用正式生产模板跑 4 worker batch：
+
+```bash
+uv run scenegen-batch \
+  --config config/tasks/front3d_full_simulation.yaml \
+  --workers 4 \
+  --max-retries 1 \
+  --set pipeline.scenes=2000 \
+  --set pipeline.run_name=front3d_production_2000
+```
+
+`scenegen-batch` 不是新的 YAML 字段，而是生产管理入口。它会复用同一份配置和 `--set` 语法，并在 run 目录写出 `batch/scene_plan.jsonl`、`batch/state.json`、worker 日志、失败队列、重试队列和 `manifest_batch.json`。

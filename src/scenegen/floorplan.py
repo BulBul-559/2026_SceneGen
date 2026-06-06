@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -130,12 +131,14 @@ def generate_floorplan_for_scene(
         "output_dir": portable_path(output_dir, path_root),
         "ok": True,
     }
+    timings_s: dict[str, float] = {}
 
     if config.geometry_enabled:
         if scene_obj.suffix.lower() not in SUPPORTED_INPUTS:
             raise ValueError(f"Unsupported floorplan input: {scene_obj}")
         preview_path = output_dir / "preview.png"
         side_view_path = output_dir / "side_view.png"
+        start = time.perf_counter()
         geometry_record = process_scene(
             input_path=scene_obj,
             output_dir=output_dir,
@@ -153,6 +156,7 @@ def generate_floorplan_for_scene(
             heights_m=config.heights_m,
             projection_mode=config.geometry_projection,
         )
+        timings_s["floorplan_geometry"] = round(time.perf_counter() - start, 6)
         record.update(
             {
                 "num_levels": geometry_record["num_levels"],
@@ -180,6 +184,7 @@ def generate_floorplan_for_scene(
             raise ValueError("Front3D class mask requires a front3d base scene.")
         if placements is None:
             raise ValueError("Front3D class mask requires placements.")
+        start = time.perf_counter()
         class_mask = generate_front3d_class_mask(
             output_dir=output_dir,
             base_scene=front3d_base_scene,
@@ -197,8 +202,11 @@ def generate_floorplan_for_scene(
             include_windows_as_wall=config.openings.include_windows_as_wall,
             path_root=path_root,
         )
+        timings_s["class_mask"] = round(time.perf_counter() - start, 6)
         record["class_mask"] = class_mask
         record["class_mask_preview"] = class_mask["preview"]
+    if timings_s:
+        record["timings_s"] = timings_s
     return record
 
 

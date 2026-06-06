@@ -4,6 +4,7 @@ import argparse
 import json
 import random
 import shutil
+import time
 from pathlib import Path
 
 from . import __version__
@@ -25,6 +26,7 @@ from .quality import (
     scene_statistics,
     write_json_report,
 )
+from .runlog import RunLogger, timing_summary
 from .sources import create_scene_source
 from .validation import validate_sionna_scene
 
@@ -119,6 +121,7 @@ def front3d_precheck_settings(args: argparse.Namespace) -> dict[str, object]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    run_start = time.perf_counter()
     cli_args = parse_args(argv)
     repo_root = find_project_root()
     config_path = cli_args.config if cli_args.config.is_absolute() else (repo_root / cli_args.config)
@@ -138,21 +141,33 @@ def main(argv: list[str] | None = None) -> int:
 
     run_name = args.run_name or make_timestamp()
     run_dir = prepare_run_dir(args.output_dir, run_name, args.clean)
+    run_logger = RunLogger(run_dir, run_name=run_name, mode=args.mode)
     effective_config["pipeline"]["run_name"] = run_name
     effective_config["runtime"]["run_dir"] = str(run_dir)
+    effective_config["runtime"]["run_id"] = run_logger.run_id
+    effective_config["runtime"]["worker_id"] = run_logger.worker_id
     save_effective_config(run_dir / "effective_config.yaml", effective_config)
+    run_logger.event(
+        "run_started",
+        message="SceneGen run started",
+        metrics={"requested_scenes": int(args.scenes), "seed": int(args.seed)},
+        paths={"run_dir": "."},
+    )
     front3d_openings = effective_config["front3d"]["openings"]
     floorplan_config = FloorplanConfig.from_mapping(effective_config["floorplan"], front3d_openings)
     quality_config = QualityConfig.from_mapping(effective_config["quality"])
     label_config = LabelConfig.from_mapping(effective_config["label"], front3d_openings)
 
+    setup_timings: dict[str, float] = {}
     if args.mode == "front3d":
         assets_by_class = {}
     else:
-        assets = load_assets(asset_catalog_path)
-        assets_by_class = group_assets_by_class(assets)
-        validate_asset_pool(assets_by_class)
-    source = create_scene_source(args, assets_by_class, bistro_base_dir)
+        with run_logger.stage(setup_timings, "load_assets"):
+            assets = load_assets(asset_catalog_path)
+            assets_by_class = group_assets_by_class(assets)
+            validate_asset_pool(assets_by_class)
+    with run_logger.stage(setup_timings, "create_scene_source"):
+        source = create_scene_source(args, assets_by_class, bistro_base_dir)
     scene_prefix = source.scene_prefix
 
     master_rng = random.Random(args.seed)
@@ -176,22 +191,55 @@ def main(argv: list[str] | None = None) -> int:
             scene_seed = master_rng.randrange(1, 2**31)
             rng = random.Random(scene_seed)
             scene_dir = run_dir / f"{scene_prefix}_{scene_index:04d}"
+            scene_key = scene_dir.name
+            scene_timings: dict[str, float] = {}
+            attempt_no = attempt_index + 1
+            run_logger.event(
+                "scene_started",
+                scene_key=scene_key,
+                scene_index=scene_index,
+                attempt_no=attempt_no,
+                metrics={"scene_seed": scene_seed},
+                paths={"scene_dir": scene_key},
+            )
             if scene_dir.exists():
                 shutil.rmtree(scene_dir)
-            build = source.build_scene(scene_dir, scene_index, scene_seed, rng)
+            with run_logger.stage(
+                scene_timings,
+                "build_scene",
+                scene_key=scene_key,
+                scene_index=scene_index,
+                attempt_no=attempt_no,
+            ):
+                build = source.build_scene(scene_dir, scene_index, scene_seed, rng)
             placements = build.placements
             record = build.record
+            record["timings_s"] = scene_timings
 
-            statistics = scene_statistics(
-                args.mode,
-                placements,
-                room=build.room,
-                base_scene=build.base_scene,
-                front3d_base_scene=build.front3d_base_scene,
-            )
-            record["statistics"] = statistics
-            record["statistics_file"] = write_json_report(scene_dir / "statistics.json", statistics, run_dir)
-            precheck = evaluate_front3d_precheck(args, statistics)
+            with run_logger.stage(
+                scene_timings,
+                "statistics",
+                scene_key=scene_key,
+                scene_index=scene_index,
+                attempt_no=attempt_no,
+            ):
+                statistics = scene_statistics(
+                    args.mode,
+                    placements,
+                    room=build.room,
+                    base_scene=build.base_scene,
+                    front3d_base_scene=build.front3d_base_scene,
+                )
+                record["statistics"] = statistics
+                record["statistics_file"] = write_json_report(scene_dir / "statistics.json", statistics, run_dir)
+            with run_logger.stage(
+                scene_timings,
+                "precheck",
+                scene_key=scene_key,
+                scene_index=scene_index,
+                attempt_no=attempt_no,
+            ):
+                precheck = evaluate_front3d_precheck(args, statistics)
             record["precheck"] = precheck
             if not bool(precheck["ok"]):
                 scene_id = str(record.get("front3d_scene_id") or "")
@@ -210,6 +258,19 @@ def main(argv: list[str] | None = None) -> int:
                 if callable(mark_rejected):
                     mark_rejected(scene_id)
                 shutil.rmtree(scene_dir, ignore_errors=True)
+                run_logger.event(
+                    "precheck_rejected",
+                    level="warning",
+                    scene_key=scene_key,
+                    scene_index=scene_index,
+                    attempt_no=attempt_no,
+                    metrics={"scene_seed": scene_seed},
+                    extra={
+                        "front3d_scene_id": scene_id,
+                        "precheck_errors": precheck["errors"],
+                        "timings_s": scene_timings,
+                    },
+                )
                 error_codes = ",".join(str(item.get("code")) for item in precheck["errors"] if isinstance(item, dict))
                 print(
                     f"[precheck skip] target={scene_index + 1}/{args.scenes} "
@@ -218,104 +279,185 @@ def main(argv: list[str] | None = None) -> int:
                 continue
 
             if quality_config.enabled:
-                quality = check_scene_quality(
-                    args.mode,
-                    placements,
-                    quality_config,
-                    room=build.room,
-                    base_scene=build.base_scene,
-                    front3d_base_scene=build.front3d_base_scene,
-                    forbidden_xy_rects=source.forbidden_xy_rects,
-                    skipped_objects=(
-                        record.get("skipped_objects") if isinstance(record.get("skipped_objects"), list) else None
-                    ),
-                )
-                record["quality"] = quality
-                record["quality_report"] = write_json_report(scene_dir / "quality_report.json", quality, run_dir)
+                with run_logger.stage(
+                    scene_timings,
+                    "quality",
+                    scene_key=scene_key,
+                    scene_index=scene_index,
+                    attempt_no=attempt_no,
+                ):
+                    quality = check_scene_quality(
+                        args.mode,
+                        placements,
+                        quality_config,
+                        room=build.room,
+                        base_scene=build.base_scene,
+                        front3d_base_scene=build.front3d_base_scene,
+                        forbidden_xy_rects=source.forbidden_xy_rects,
+                        skipped_objects=(
+                            record.get("skipped_objects") if isinstance(record.get("skipped_objects"), list) else None
+                        ),
+                    )
+                    record["quality"] = quality
+                    record["quality_report"] = write_json_report(scene_dir / "quality_report.json", quality, run_dir)
                 quality_failed = quality_failed or not bool(quality["ok"])
 
             if args.validate_sionna:
-                validation = validate_sionna_scene(scene_dir / "scene.xml", run_dir)
+                with run_logger.stage(
+                    scene_timings,
+                    "validate_sionna",
+                    scene_key=scene_key,
+                    scene_index=scene_index,
+                    attempt_no=attempt_no,
+                ):
+                    validation = validate_sionna_scene(scene_dir / "scene.xml", run_dir)
                 record["sionna_validation"] = validation
                 validation_failed = validation_failed or not bool(validation["ok"])
             if label_config.enabled:
                 try:
-                    label_record = generate_label_batch_for_scene(
-                        mode=args.mode,
-                        scene_dir=scene_dir,
-                        config=label_config,
-                        rng=rng,
-                        path_root=run_dir,
-                        room=build.room,
-                        base_scene=build.base_scene,
-                        front3d_base_scene=build.front3d_base_scene,
-                        placements=placements,
-                    )
+                    with run_logger.stage(
+                        scene_timings,
+                        "label",
+                        scene_key=scene_key,
+                        scene_index=scene_index,
+                        attempt_no=attempt_no,
+                    ):
+                        label_record = generate_label_batch_for_scene(
+                            mode=args.mode,
+                            scene_dir=scene_dir,
+                            config=label_config,
+                            rng=rng,
+                            path_root=run_dir,
+                            room=build.room,
+                            base_scene=build.base_scene,
+                            front3d_base_scene=build.front3d_base_scene,
+                            placements=placements,
+                        )
                     record["label"] = label_record
                     label_failed = label_failed or not bool(label_record["ok"])
                 except Exception as exc:
                     label_failed = True
+                    traceback_file = run_logger.write_traceback(
+                        scene_key=scene_key,
+                        attempt_no=attempt_no,
+                        stage="label",
+                        exc=exc,
+                        context={"scene_seed": scene_seed, "scene_dir": scene_key},
+                    )
                     record["label"] = {
                         "ok": False,
                         "error_type": type(exc).__name__,
                         "error": str(exc),
+                        "traceback_file": traceback_file,
                     }
+                    run_logger.event(
+                        "scene_failed",
+                        level="error",
+                        scene_key=scene_key,
+                        scene_index=scene_index,
+                        attempt_no=attempt_no,
+                        stage="label",
+                        status="failed",
+                        error={"type": type(exc).__name__, "message": str(exc)},
+                        traceback_file=traceback_file,
+                    )
                     if label_config.fail_on_error:
+                        record["timings_s"] = scene_timings
                         scene_records.append(record)
                         stop_generation = True
                         accepted = True
                         break
             if floorplan_config.enabled:
                 try:
-                    record["floorplan"] = generate_floorplan_for_scene(
-                        scene_dir / "scene.obj",
-                        scene_dir / "floorplan",
-                        floorplan_config,
-                        placements=placements,
-                        bounds_xy=build.bounds_xy,
-                        forbidden_xy_rects=source.forbidden_xy_rects,
-                        front3d_base_scene=build.front3d_base_scene,
-                    )
+                    with run_logger.stage(
+                        scene_timings,
+                        "floorplan",
+                        scene_key=scene_key,
+                        scene_index=scene_index,
+                        attempt_no=attempt_no,
+                    ):
+                        record["floorplan"] = generate_floorplan_for_scene(
+                            scene_dir / "scene.obj",
+                            scene_dir / "floorplan",
+                            floorplan_config,
+                            placements=placements,
+                            bounds_xy=build.bounds_xy,
+                            forbidden_xy_rects=source.forbidden_xy_rects,
+                            front3d_base_scene=build.front3d_base_scene,
+                        )
+                    floorplan_timings = record["floorplan"].get("timings_s") if isinstance(record.get("floorplan"), dict) else None
+                    if isinstance(floorplan_timings, dict):
+                        for timing_name, duration in floorplan_timings.items():
+                            if isinstance(duration, int | float):
+                                scene_timings[str(timing_name)] = float(duration)
                     label_value = record.get("label", {})
                     if label_config.enabled and label_config.overlay_enabled and isinstance(label_value, dict) and bool(
                         label_value.get("ok")
                     ):
-                        label_record = label_value
-                        overlays: list[dict[str, object]] = []
-                        (scene_dir / "floorplan" / "label_overlay.png").unlink(missing_ok=True)
-                        label_floorplan_dir = scene_dir / "label_floorplan"
-                        if label_floorplan_dir.is_dir():
-                            for stale_path in label_floorplan_dir.glob("label_*.png"):
-                                stale_path.unlink()
-                        for variant in label_record.get("variants", []):
-                            if not isinstance(variant, dict):
-                                continue
-                            label_path = run_dir / str(variant["label_file"])
-                            overlay = write_label_overlay(
-                                scene_dir / "floorplan",
-                                label_path,
-                                run_dir,
-                                output_dir=label_floorplan_dir,
-                                output_name=str(variant["name"]),
-                            )
-                            overlay["name"] = variant["name"]
-                            variant["overlay"] = overlay
-                            overlays.append(overlay)
-                        label_record["overlays"] = overlays
-                        label_record["label_floorplan_dir"] = portable_path(scene_dir / "label_floorplan", run_dir)
-                        record["floorplan"]["label_overlays"] = overlays
+                        with run_logger.stage(
+                            scene_timings,
+                            "label_overlay",
+                            scene_key=scene_key,
+                            scene_index=scene_index,
+                            attempt_no=attempt_no,
+                        ):
+                            label_record = label_value
+                            overlays: list[dict[str, object]] = []
+                            (scene_dir / "floorplan" / "label_overlay.png").unlink(missing_ok=True)
+                            label_floorplan_dir = scene_dir / "label_floorplan"
+                            if label_floorplan_dir.is_dir():
+                                for stale_path in label_floorplan_dir.glob("label_*.png"):
+                                    stale_path.unlink()
+                            for variant in label_record.get("variants", []):
+                                if not isinstance(variant, dict):
+                                    continue
+                                label_path = run_dir / str(variant["label_file"])
+                                overlay = write_label_overlay(
+                                    scene_dir / "floorplan",
+                                    label_path,
+                                    run_dir,
+                                    output_dir=label_floorplan_dir,
+                                    output_name=str(variant["name"]),
+                                )
+                                overlay["name"] = variant["name"]
+                                variant["overlay"] = overlay
+                                overlays.append(overlay)
+                            label_record["overlays"] = overlays
+                            label_record["label_floorplan_dir"] = portable_path(scene_dir / "label_floorplan", run_dir)
+                            record["floorplan"]["label_overlays"] = overlays
                 except Exception as exc:
                     floorplan_failed = True
+                    traceback_file = run_logger.write_traceback(
+                        scene_key=scene_key,
+                        attempt_no=attempt_no,
+                        stage="floorplan",
+                        exc=exc,
+                        context={"scene_seed": scene_seed, "scene_dir": scene_key},
+                    )
                     record["floorplan"] = {
                         "ok": False,
                         "error_type": type(exc).__name__,
                         "error": str(exc),
+                        "traceback_file": traceback_file,
                     }
+                    run_logger.event(
+                        "scene_failed",
+                        level="error",
+                        scene_key=scene_key,
+                        scene_index=scene_index,
+                        attempt_no=attempt_no,
+                        stage="floorplan",
+                        status="failed",
+                        error={"type": type(exc).__name__, "message": str(exc)},
+                        traceback_file=traceback_file,
+                    )
                     if floorplan_config.fail_on_error:
+                        record["timings_s"] = scene_timings
                         scene_records.append(record)
                         stop_generation = True
                         accepted = True
                         break
+            record["timings_s"] = scene_timings
             scene_records.append(record)
             quality_note = ""
             if quality_config.enabled:
@@ -323,6 +465,34 @@ def main(argv: list[str] | None = None) -> int:
                 if isinstance(quality, dict):
                     quality_note = f" quality_errors={quality.get('error_count', 0)}"
             print(f"[{scene_index + 1}/{args.scenes}] {scene_dir} placements={len(placements)}{quality_note}")
+            run_logger.event(
+                "scene_completed",
+                scene_key=scene_key,
+                scene_index=scene_index,
+                attempt_no=attempt_no,
+                status="ok",
+                metrics={
+                    "scene_seed": scene_seed,
+                    "placement_count": len(placements),
+                    "duration_s": round(sum(scene_timings.values()), 6),
+                },
+                paths={"scene_dir": scene_key},
+                extra={"timings_s": scene_timings},
+            )
+            run_logger.write_state(
+                {
+                    "status": "running",
+                    "requested_scenes": int(args.scenes),
+                    "completed_scenes": len(scene_records),
+                    "failed_flags": {
+                        "validation_failed": validation_failed,
+                        "quality_failed": quality_failed,
+                        "label_failed": label_failed,
+                        "floorplan_failed": floorplan_failed,
+                        "precheck_failed": precheck_failed,
+                    },
+                }
+            )
             accepted = True
             break
         if not accepted:
@@ -330,10 +500,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"3D-FRONT precheck could not fill scene index {scene_index} after {max_attempts} attempts.")
             break
 
-    copy_manifest = collect_scene_objs(run_dir, scene_records, scene_prefix)
-    raw_floorplan_manifest = collect_raw_floorplans(run_dir, scene_records, scene_prefix)
-    run_statistics = aggregate_run_statistics(scene_records)
-    statistics_file = write_json_report(run_dir / "statistics.json", run_statistics, run_dir)
+    final_timings: dict[str, float] = {}
+    with run_logger.stage(final_timings, "write_manifest"):
+        copy_manifest = collect_scene_objs(run_dir, scene_records, scene_prefix)
+        raw_floorplan_manifest = collect_raw_floorplans(run_dir, scene_records, scene_prefix)
+        run_statistics = aggregate_run_statistics(scene_records)
+        statistics_file = write_json_report(run_dir / "statistics.json", run_statistics, run_dir)
     class_counts = {name: len(items) for name, items in sorted(assets_by_class.items())}
     manifest: dict[str, object] = {
         "generator": "SceneGen",
@@ -378,6 +550,19 @@ def main(argv: list[str] | None = None) -> int:
         "label_variant_count": len(label_variants(label_config)) if label_config.enabled else 0,
         "statistics": run_statistics,
         "statistics_file": statistics_file,
+        "timing_summary_s": timing_summary(scene_records),
+        "run_timings_s": {
+            **setup_timings,
+            **final_timings,
+            "total_run": round(time.perf_counter() - run_start, 6),
+        },
+        "logs": {
+            "events": "logs/events.jsonl",
+            "timings": "logs/timings.jsonl",
+            "state": "logs/state/run_state.json",
+            "workers": "logs/workers",
+            "tracebacks": "logs/scenes",
+        },
         "floorplan_requested": bool(floorplan_config.enabled),
         "floorplan_ok": not floorplan_failed if floorplan_config.enabled else None,
         "floorplan_geometry_requested": bool(floorplan_config.enabled and floorplan_config.geometry_enabled),
@@ -399,24 +584,44 @@ def main(argv: list[str] | None = None) -> int:
     mode_manifest_path = run_dir / f"manifest_{args.mode}.json"
     mode_manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     (run_dir / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    run_logger.event(
+        "manifest_written",
+        paths={"manifest": "manifest.json", "mode_manifest": mode_manifest_path.name},
+        metrics={"scene_count": len(scene_records), "total_run_s": round(time.perf_counter() - run_start, 6)},
+    )
     print(f"manifest: {mode_manifest_path}")
 
+    exit_code = 0
     if validation_failed:
         print("Sionna validation failed for at least one scene.")
-        return 1
+        exit_code = 1
     if quality_failed and quality_config.fail_on_error:
         print("Quality checks failed for at least one scene.")
-        return 1
+        exit_code = 1
     if precheck_failed:
         print("3D-FRONT precheck failed to backfill all requested scenes.")
-        return 1
+        exit_code = 1
     if label_failed and label_config.fail_on_error:
         print("Label generation failed for at least one scene.")
-        return 1
+        exit_code = 1
     if floorplan_failed and floorplan_config.fail_on_error:
         print("Floorplan generation failed for at least one scene.")
-        return 1
-    return 0
+        exit_code = 1
+    run_logger.write_state(
+        {
+            "status": "completed" if exit_code == 0 else "failed",
+            "requested_scenes": int(args.scenes),
+            "completed_scenes": len(scene_records),
+            "exit_code": exit_code,
+        }
+    )
+    run_logger.event(
+        "run_completed",
+        level="info" if exit_code == 0 else "error",
+        status="ok" if exit_code == 0 else "failed",
+        metrics={"exit_code": exit_code, "scene_count": len(scene_records), "total_run_s": round(time.perf_counter() - run_start, 6)},
+    )
+    return exit_code
 
 
 if __name__ == "__main__":

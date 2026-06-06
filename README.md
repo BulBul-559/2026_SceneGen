@@ -186,6 +186,70 @@ uv run scenegen --set pipeline.mode=generated --set pipeline.scenes=1 --set pipe
 uv run scenegen --config config/front3d.yaml --set pipeline.scenes=1 --set pipeline.run_name=smoke_front3d
 ```
 
+正式 front3d 大规模生产建议使用任务模板：
+
+```bash
+uv run scenegen --config config/tasks/front3d_full_simulation.yaml --set pipeline.scenes=1 --set pipeline.run_name=front3d_full_sample
+```
+
+该模板打开 label、geometry sampling floorplan、class mask 和 mesh furniture mask，`label.ue.sampling.grid_m` 默认包含 `[0.1, 0.2, 0.4, 0.5]`。
+
+## 生产运行与日志
+
+普通 `scenegen` run 会在 run 目录下写入轻量诊断日志：
+
+```text
+logs/
+  events.jsonl              # run/scene/stage 事件流
+  timings.jsonl             # 阶段耗时记录
+  state/run_state.json      # 当前/最终状态快照
+  workers/<worker_id>.jsonl # 单进程 worker 结构化日志
+  scenes/<scene>/attempt_*/ # label/floorplan 异常 traceback
+```
+
+每个 scene record 和最终 `manifest.json` 会记录 `timings_s`、`timing_summary_s` 和日志路径。阶段计时包含 `build_scene`、`statistics`、`precheck`、`quality`、`label`、`floorplan`、`floorplan_geometry`、`class_mask`、`label_overlay` 和 `write_manifest`。
+
+大规模生产使用 `scenegen-batch`，它会先固化 `scene_plan.jsonl`，再按 worker 分片执行，支持 resume、失败队列、重试队列、worker 日志和统一 batch manifest：
+
+```bash
+uv run scenegen-batch \
+  --config config/tasks/front3d_full_simulation.yaml \
+  --workers 4 \
+  --max-retries 1 \
+  --set pipeline.scenes=2000 \
+  --set pipeline.run_name=front3d_production_2000
+```
+
+继续未完成的同名生产任务：
+
+```bash
+uv run scenegen-batch \
+  --config config/tasks/front3d_full_simulation.yaml \
+  --workers 4 \
+  --resume \
+  --set pipeline.scenes=2000 \
+  --set pipeline.run_name=front3d_production_2000
+```
+
+batch run 额外输出：
+
+```text
+batch/
+  scene_plan.jsonl
+  state.json
+  logs/events.jsonl
+  logs/timings.jsonl
+  logs/workers/worker_*.log
+  logs/workers/worker_*.jsonl
+  logs/queues/failures.jsonl
+  logs/queues/retry.jsonl
+  logs/queues/dead_letter.jsonl
+  logs/scenes/<task>/attempt_*/task.traceback.*
+  worker_runs/
+```
+
+`manifest_batch.json`、`manifest_front3d.json` 和 `manifest.json` 会在 batch 完成后统一汇总最终发布到 run 根目录的 `front3d_0000/`、`front3d_0001/` 等标准场景目录。
+
 ## 输出结构
 
 一次运行会生成一个 run 目录，默认在 `results/<timestamp>/` 下：
@@ -204,6 +268,12 @@ results/<run_name>/
     copy_manifest.json
     bistro_0000_floorplan_1p60.png
     ...
+  logs/
+    events.jsonl
+    timings.jsonl
+    state/run_state.json
+    workers/
+    scenes/
   bistro_0000/
     scene.obj
     scene.xml

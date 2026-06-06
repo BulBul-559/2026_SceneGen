@@ -1,0 +1,612 @@
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import random
+import shutil
+import subprocess
+import sys
+import threading
+import time
+import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from . import __version__
+from .config import load_effective_config, save_effective_config
+from .exporters import collect_raw_floorplans, collect_scene_objs, make_timestamp
+from .front3d import Front3DConfig, Front3DIndex, choose_scene_ids
+from .paths import find_project_root, portable_path
+from .quality import aggregate_run_statistics, write_json_report
+from .runlog import append_jsonl, atomic_write_json
+
+
+BATCH_SCHEMA_VERSION = "scenegen.batch.v1"
+
+
+class TaskProcessError(RuntimeError):
+    def __init__(self, returncode: int, command: list[str], stdout: str, stderr: str):
+        super().__init__(f"scenegen task failed with exit code {returncode}")
+        self.returncode = returncode
+        self.command = command
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+def now_iso() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Run SceneGen production batches with workers, resume, and logs.")
+    parser.add_argument("--config", type=Path, required=True, help="SceneGen YAML config. Batch v1 currently targets front3d.")
+    parser.add_argument("--workers", type=int, default=1, help="Number of worker subprocess lanes.")
+    parser.add_argument("--resume", action="store_true", help="Resume an existing batch run with the same run_name.")
+    parser.add_argument("--max-retries", type=int, default=1, help="Retries per scene task after subprocess failure.")
+    parser.add_argument(
+        "--set",
+        action="append",
+        default=[],
+        dest="set_values",
+        metavar="KEY=VALUE",
+        help="Override SceneGen config before planning, same syntax as scenegen --set.",
+    )
+    return parser
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    return build_parser().parse_args(argv)
+
+
+@dataclass(frozen=True)
+class BatchPaths:
+    run_dir: Path
+    batch_dir: Path
+    logs_dir: Path
+    events: Path
+    timings: Path
+    state: Path
+    plan: Path
+    failures: Path
+    retry_queue: Path
+    dead_letter: Path
+    precheck_skips: Path
+    worker_runs: Path
+    workers: Path
+    tracebacks: Path
+
+
+def batch_paths(run_dir: Path) -> BatchPaths:
+    batch_dir = run_dir / "batch"
+    logs_dir = batch_dir / "logs"
+    return BatchPaths(
+        run_dir=run_dir,
+        batch_dir=batch_dir,
+        logs_dir=logs_dir,
+        events=logs_dir / "events.jsonl",
+        timings=logs_dir / "timings.jsonl",
+        state=batch_dir / "state.json",
+        plan=batch_dir / "scene_plan.jsonl",
+        failures=logs_dir / "queues" / "failures.jsonl",
+        retry_queue=logs_dir / "queues" / "retry.jsonl",
+        dead_letter=logs_dir / "queues" / "dead_letter.jsonl",
+        precheck_skips=logs_dir / "queues" / "precheck_skips.jsonl",
+        worker_runs=batch_dir / "worker_runs",
+        workers=logs_dir / "workers",
+        tracebacks=logs_dir / "scenes",
+    )
+
+
+def event(paths: BatchPaths, event_type: str, **payload: Any) -> None:
+    append_jsonl(
+        paths.events,
+        {
+            "schema_version": BATCH_SCHEMA_VERSION,
+            "event_id": str(uuid.uuid4()),
+            "ts": now_iso(),
+            "event_type": event_type,
+            **payload,
+        },
+    )
+
+
+def write_state(paths: BatchPaths, state: dict[str, Any]) -> None:
+    atomic_write_json(paths.state, {"schema_version": BATCH_SCHEMA_VERSION, "updated_at": now_iso(), **state})
+
+
+def read_jsonl(path: Path) -> list[dict[str, Any]]:
+    if not path.is_file():
+        return []
+    rows: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if line:
+                rows.append(json.loads(line))
+    return rows
+
+
+def write_plan(path: Path, tasks: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        for task in tasks:
+            handle.write(json.dumps(task, ensure_ascii=False, sort_keys=True) + "\n")
+
+
+def load_plan(path: Path) -> list[dict[str, Any]]:
+    return read_jsonl(path)
+
+
+def plan_tasks(effective_config: dict[str, Any], workers: int) -> list[dict[str, Any]]:
+    if effective_config["pipeline"]["mode"] != "front3d":
+        raise ValueError("scenegen-batch v1 currently supports only pipeline.mode=front3d")
+    front3d = effective_config["front3d"]
+    config = Front3DConfig(
+        manifest=Path(front3d["manifest"]),
+        source_scene_dir=Path(front3d["source_dir"]),
+        variant=str(front3d["arch_variant"]),
+        object_variant=str(front3d["object_variant"]),
+        scene_ids=tuple(front3d["scene_ids"]),
+        scene_selection=str(front3d["select"]),
+        use_replace_jid=bool(front3d["use_replace_jid"]),
+        skip_missing_objects=bool(front3d["skip_missing_objects"]),
+        normalize_positive_xy=bool(front3d["positive_xy"]),
+        ground_objects=bool(front3d["ground"]),
+    )
+    index = Front3DIndex(config)
+    count = int(effective_config["pipeline"]["scenes"])
+    seed = int(effective_config["pipeline"]["seed"])
+    scene_ids = choose_scene_ids(index.scene_ids, config.scene_ids, config.scene_selection, count, random.Random(seed))
+    seed_rng = random.Random(seed)
+    tasks: list[dict[str, Any]] = []
+    for target_index, scene_id in enumerate(scene_ids):
+        scene_key = f"front3d_{target_index:04d}"
+        tasks.append(
+            {
+                "task_id": scene_key,
+                "target_index": target_index,
+                "scene_key": scene_key,
+                "scene_id": scene_id,
+                "scene_seed": seed_rng.randrange(1, 2**31),
+                "shard_id": target_index % workers,
+                "status_initial": "pending",
+            }
+        )
+    return tasks
+
+
+def recursive_replace(value: Any, old: str, new: str) -> Any:
+    if isinstance(value, dict):
+        return {key: recursive_replace(child, old, new) for key, child in value.items()}
+    if isinstance(value, list):
+        return [recursive_replace(child, old, new) for child in value]
+    if isinstance(value, str):
+        return value.replace(old, new)
+    return value
+
+
+def command_for_task(
+    *,
+    config_path: Path,
+    raw_set_values: list[str],
+    paths: BatchPaths,
+    worker_id: str,
+    task: dict[str, Any],
+) -> list[str]:
+    worker_output_dir = paths.worker_runs / worker_id
+    set_values = [
+        *raw_set_values,
+        f"pipeline.output_dir={worker_output_dir}",
+        f"pipeline.run_name={task['task_id']}",
+        "pipeline.scenes=1",
+        "pipeline.clean=false",
+        f"pipeline.seed={int(task['scene_seed'])}",
+        f"front3d.scene_ids={json.dumps([task['scene_id']])}",
+        "front3d.select=sequential",
+    ]
+    command = [sys.executable, "-m", "scenegen.cli", "--config", str(config_path)]
+    for value in set_values:
+        command.extend(["--set", value])
+    return command
+
+
+def load_task_scene_record(worker_run_dir: Path, final_scene_key: str, target_index: int) -> dict[str, Any]:
+    manifest_path = worker_run_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    records = manifest.get("scenes") or []
+    if not records:
+        raise RuntimeError(f"Worker manifest has no scene records: {manifest_path}")
+    record = recursive_replace(records[0], "front3d_0000", final_scene_key)
+    record["scene_index"] = int(target_index)
+    record["batch_task_id"] = final_scene_key
+    record["batch_worker_run"] = str(worker_run_dir)
+    return record
+
+
+def run_task(
+    *,
+    config_path: Path,
+    repo_root: Path,
+    raw_set_values: list[str],
+    paths: BatchPaths,
+    worker_id: str,
+    task: dict[str, Any],
+    attempt_no: int,
+) -> dict[str, Any]:
+    start = time.perf_counter()
+    worker_plain_log = paths.workers / f"{worker_id}.log"
+    worker_jsonl = paths.workers / f"{worker_id}.jsonl"
+    paths.workers.mkdir(parents=True, exist_ok=True)
+    command = command_for_task(
+        config_path=config_path,
+        raw_set_values=raw_set_values,
+        paths=paths,
+        worker_id=worker_id,
+        task=task,
+    )
+    append_jsonl(
+        worker_jsonl,
+        {
+            "schema_version": BATCH_SCHEMA_VERSION,
+            "ts": now_iso(),
+            "event_type": "task_started",
+            "worker_id": worker_id,
+            "task_id": task["task_id"],
+            "attempt_no": attempt_no,
+            "command": command,
+        },
+    )
+    env = os.environ.copy()
+    src_path = str(repo_root / "src")
+    env["PYTHONPATH"] = f"{src_path}:{env['PYTHONPATH']}" if env.get("PYTHONPATH") else src_path
+    process = subprocess.run(command, cwd=repo_root, env=env, text=True, capture_output=True, check=False)
+    duration_s = round(time.perf_counter() - start, 6)
+    with worker_plain_log.open("a", encoding="utf-8") as handle:
+        handle.write(f"\n=== {now_iso()} {task['task_id']} attempt {attempt_no} exit {process.returncode} ===\n")
+        handle.write("COMMAND: " + " ".join(command) + "\n")
+        handle.write("--- stdout ---\n")
+        handle.write(process.stdout)
+        handle.write("\n--- stderr ---\n")
+        handle.write(process.stderr)
+        handle.write("\n")
+    append_jsonl(
+        paths.timings,
+        {
+            "schema_version": "scenegen.batch.timing.v1",
+            "ts": now_iso(),
+            "worker_id": worker_id,
+            "task_id": task["task_id"],
+            "scene_key": task["scene_key"],
+            "stage": "task_subprocess",
+            "attempt_no": attempt_no,
+            "status": "ok" if process.returncode == 0 else "failed",
+            "duration_ms": round(duration_s * 1000.0, 3),
+        },
+    )
+    if process.returncode != 0:
+        raise TaskProcessError(process.returncode, command, process.stdout, process.stderr)
+
+    worker_run_dir = paths.worker_runs / worker_id / str(task["task_id"])
+    source_scene_dir = worker_run_dir / "front3d_0000"
+    final_scene_dir = paths.run_dir / str(task["scene_key"])
+    if not source_scene_dir.is_dir():
+        raise FileNotFoundError(f"Expected worker scene directory not found: {source_scene_dir}")
+    if final_scene_dir.exists():
+        shutil.rmtree(final_scene_dir)
+    shutil.copytree(source_scene_dir, final_scene_dir)
+    record = load_task_scene_record(worker_run_dir, str(task["scene_key"]), int(task["target_index"]))
+    record["scene_dir"] = str(task["scene_key"])
+    record["batch_worker_id"] = worker_id
+    record["batch_attempt_no"] = attempt_no
+    record["batch_duration_s"] = duration_s
+    append_jsonl(
+        worker_jsonl,
+        {
+            "schema_version": BATCH_SCHEMA_VERSION,
+            "ts": now_iso(),
+            "event_type": "task_succeeded",
+            "worker_id": worker_id,
+            "task_id": task["task_id"],
+            "attempt_no": attempt_no,
+            "duration_s": duration_s,
+        },
+    )
+    return record
+
+
+def write_task_failure(paths: BatchPaths, worker_id: str, task: dict[str, Any], attempt_no: int, exc: BaseException) -> str:
+    trace_dir = paths.tracebacks / str(task["task_id"]) / f"attempt_{attempt_no:02d}"
+    trace_dir.mkdir(parents=True, exist_ok=True)
+    trace_path = trace_dir / "task.traceback.txt"
+    stdout_path = trace_dir / "stdout.txt"
+    stderr_path = trace_dir / "stderr.txt"
+    if isinstance(exc, TaskProcessError):
+        stdout_path.write_text(exc.stdout, encoding="utf-8")
+        stderr_path.write_text(exc.stderr, encoding="utf-8")
+    trace_path.write_text(f"{type(exc).__name__}: {exc}\n", encoding="utf-8")
+    payload = {
+        "schema_version": "scenegen.batch.traceback.v1",
+        "ts": now_iso(),
+        "worker_id": worker_id,
+        "task_id": task["task_id"],
+        "scene_key": task["scene_key"],
+        "scene_id": task["scene_id"],
+        "attempt_no": attempt_no,
+        "error_type": type(exc).__name__,
+        "error": str(exc),
+        "traceback_file": str(trace_path.relative_to(paths.run_dir)),
+        "stdout_file": str(stdout_path.relative_to(paths.run_dir)) if stdout_path.is_file() else None,
+        "stderr_file": str(stderr_path.relative_to(paths.run_dir)) if stderr_path.is_file() else None,
+        "returncode": exc.returncode if isinstance(exc, TaskProcessError) else None,
+        "command": exc.command if isinstance(exc, TaskProcessError) else None,
+        "stdout_tail": exc.stdout[-4000:] if isinstance(exc, TaskProcessError) else None,
+        "stderr_tail": exc.stderr[-4000:] if isinstance(exc, TaskProcessError) else None,
+    }
+    (trace_dir / "task.traceback.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return str((trace_dir / "task.traceback.json").relative_to(paths.run_dir))
+
+
+def worker_loop(
+    *,
+    worker_index: int,
+    tasks: list[dict[str, Any]],
+    config_path: Path,
+    repo_root: Path,
+    raw_set_values: list[str],
+    paths: BatchPaths,
+    max_retries: int,
+    state: dict[str, Any],
+    state_lock: threading.Lock,
+) -> list[dict[str, Any]]:
+    worker_id = f"worker_{worker_index:03d}"
+    records: list[dict[str, Any]] = []
+    event(paths, "worker_started", worker_id=worker_id, task_count=len(tasks))
+    for task in tasks:
+        task_id = str(task["task_id"])
+        with state_lock:
+            status = state["tasks"].get(task_id, {}).get("status")
+        if status == "succeeded":
+            event(paths, "task_skipped_resume", worker_id=worker_id, task_id=task_id)
+            final_scene_dir = paths.run_dir / str(task["scene_key"])
+            record_path = final_scene_dir / "scene_record_batch.json"
+            if record_path.is_file():
+                records.append(json.loads(record_path.read_text(encoding="utf-8")))
+            continue
+        attempt_no = 0
+        while attempt_no <= max_retries:
+            attempt_no += 1
+            event(paths, "task_started", worker_id=worker_id, task_id=task_id, attempt_no=attempt_no, scene_id=task["scene_id"])
+            with state_lock:
+                state["tasks"][task_id] = {
+                    **task,
+                    "status": "running",
+                    "worker_id": worker_id,
+                    "attempt_no": attempt_no,
+                    "updated_at": now_iso(),
+                }
+                write_state(paths, state)
+            try:
+                record = run_task(
+                    config_path=config_path,
+                    repo_root=repo_root,
+                    raw_set_values=raw_set_values,
+                    paths=paths,
+                    worker_id=worker_id,
+                    task=task,
+                    attempt_no=attempt_no,
+                )
+            except Exception as exc:
+                traceback_file = write_task_failure(paths, worker_id, task, attempt_no, exc)
+                queue_payload = {
+                    "schema_version": "scenegen.batch.queue.v1",
+                    "ts": now_iso(),
+                    "worker_id": worker_id,
+                    "task_id": task_id,
+                    "scene_key": task["scene_key"],
+                    "scene_id": task["scene_id"],
+                    "attempt_no": attempt_no,
+                    "max_retries": max_retries,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                    "traceback_file": traceback_file,
+                }
+                append_jsonl(paths.failures, queue_payload)
+                if attempt_no <= max_retries:
+                    append_jsonl(paths.retry_queue, {**queue_payload, "event_type": "retry_enqueued"})
+                    event(paths, "retry_enqueued", level="warning", **queue_payload)
+                    continue
+                append_jsonl(paths.dead_letter, {**queue_payload, "event_type": "dead_lettered"})
+                event(paths, "task_failed", level="error", **queue_payload)
+                with state_lock:
+                    state["tasks"][task_id] = {
+                        **task,
+                        "status": "failed",
+                        "worker_id": worker_id,
+                        "attempt_no": attempt_no,
+                        "traceback_file": traceback_file,
+                        "updated_at": now_iso(),
+                    }
+                    write_state(paths, state)
+                break
+            else:
+                record_path = paths.run_dir / str(task["scene_key"]) / "scene_record_batch.json"
+                record_path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+                records.append(record)
+                event(paths, "task_succeeded", worker_id=worker_id, task_id=task_id, attempt_no=attempt_no)
+                with state_lock:
+                    state["tasks"][task_id] = {
+                        **task,
+                        "status": "succeeded",
+                        "worker_id": worker_id,
+                        "attempt_no": attempt_no,
+                        "scene_record": portable_path(record_path, paths.run_dir),
+                        "updated_at": now_iso(),
+                    }
+                    write_state(paths, state)
+                break
+    event(paths, "worker_stopped", worker_id=worker_id, completed_count=len(records))
+    return records
+
+
+def build_final_manifest(
+    *,
+    paths: BatchPaths,
+    effective_config: dict[str, Any],
+    records: list[dict[str, Any]],
+    workers: int,
+    max_retries: int,
+) -> dict[str, Any]:
+    records = sorted(records, key=lambda item: int(item.get("batch_task_id", "front3d_999999").split("_")[-1]))
+    copy_manifest = collect_scene_objs(paths.run_dir, records, "front3d")
+    raw_floorplan_manifest = collect_raw_floorplans(paths.run_dir, records, "front3d")
+    run_statistics = aggregate_run_statistics(records)
+    statistics_file = write_json_report(paths.run_dir / "statistics.json", run_statistics, paths.run_dir)
+    manifest: dict[str, Any] = {
+        "generator": "SceneGen",
+        "batch": True,
+        "schema_version": BATCH_SCHEMA_VERSION,
+        "scenegen_version": __version__,
+        "mode": "front3d",
+        "seed": effective_config["pipeline"]["seed"],
+        "run_name": effective_config["pipeline"]["run_name"],
+        "run_dir": ".",
+        "workers": workers,
+        "max_retries": max_retries,
+        "requested_scenes": effective_config["pipeline"]["scenes"],
+        "succeeded_scenes": len(records),
+        "failed_scenes": len(read_jsonl(paths.dead_letter)),
+        "front3d_manifest": portable_path(Path(effective_config["front3d"]["manifest"]), paths.run_dir),
+        "summary_obj": copy_manifest,
+        "summary_floorplan_raw": raw_floorplan_manifest,
+        "statistics": run_statistics,
+        "statistics_file": statistics_file,
+        "effective_config": "effective_config.yaml",
+        "batch_logs": {
+            "events": portable_path(paths.events, paths.run_dir),
+            "timings": portable_path(paths.timings, paths.run_dir),
+            "state": portable_path(paths.state, paths.run_dir),
+            "plan": portable_path(paths.plan, paths.run_dir),
+            "worker_logs": portable_path(paths.workers, paths.run_dir),
+            "failures": portable_path(paths.failures, paths.run_dir),
+            "retry_queue": portable_path(paths.retry_queue, paths.run_dir),
+            "dead_letter": portable_path(paths.dead_letter, paths.run_dir),
+        },
+        "scenes": records,
+    }
+    for name in ("manifest.json", "manifest_front3d.json", "manifest_batch.json"):
+        (paths.run_dir / name).write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    return manifest
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    if args.workers < 1:
+        raise ValueError("--workers must be at least 1")
+    if args.max_retries < 0:
+        raise ValueError("--max-retries must be non-negative")
+    repo_root = find_project_root()
+    config_path = args.config if args.config.is_absolute() else repo_root / args.config
+    effective_config, _overrides = load_effective_config(config_path.resolve(), repo_root, args)
+    run_name = effective_config["pipeline"]["run_name"] or make_timestamp()
+    effective_config["pipeline"]["run_name"] = run_name
+    run_dir = Path(effective_config["pipeline"]["output_dir"]) / run_name
+    paths = batch_paths(run_dir)
+    if run_dir.exists() and not args.resume:
+        raise FileExistsError(f"Batch run already exists: {run_dir}. Use --resume or choose another pipeline.run_name.")
+    run_dir.mkdir(parents=True, exist_ok=True)
+    paths.batch_dir.mkdir(parents=True, exist_ok=True)
+    paths.logs_dir.mkdir(parents=True, exist_ok=True)
+    for queue_path in (paths.failures, paths.retry_queue, paths.dead_letter, paths.precheck_skips):
+        queue_path.parent.mkdir(parents=True, exist_ok=True)
+        queue_path.touch(exist_ok=True)
+    effective_config.setdefault("runtime", {})
+    effective_config["runtime"]["batch"] = {
+        "enabled": True,
+        "workers": args.workers,
+        "max_retries": args.max_retries,
+        "run_dir": str(run_dir),
+    }
+    save_effective_config(run_dir / "effective_config.yaml", effective_config)
+
+    if args.resume and paths.plan.is_file():
+        tasks = load_plan(paths.plan)
+    else:
+        tasks = plan_tasks(effective_config, args.workers)
+        write_plan(paths.plan, tasks)
+
+    existing_state = json.loads(paths.state.read_text(encoding="utf-8")) if args.resume and paths.state.is_file() else {}
+    state = {
+        "run_name": run_name,
+        "run_dir": str(run_dir),
+        "status": "running",
+        "workers": args.workers,
+        "max_retries": args.max_retries,
+        "total": len(tasks),
+        "started_at": existing_state.get("started_at") or now_iso(),
+        "tasks": existing_state.get("tasks") or {},
+    }
+    write_state(paths, state)
+    event(
+        paths,
+        "batch_started",
+        run_name=run_name,
+        run_dir=str(run_dir),
+        workers=args.workers,
+        task_count=len(tasks),
+        resume=bool(args.resume),
+    )
+
+    shards = [[task for task in tasks if int(task["shard_id"]) == worker_index] for worker_index in range(args.workers)]
+    state_lock = threading.Lock()
+    records: list[dict[str, Any]] = []
+    with ThreadPoolExecutor(max_workers=args.workers) as executor:
+        futures = [
+            executor.submit(
+                worker_loop,
+                worker_index=worker_index,
+                tasks=shard,
+                config_path=config_path.resolve(),
+                repo_root=repo_root,
+                raw_set_values=list(args.set_values or []),
+                paths=paths,
+                max_retries=args.max_retries,
+                state=state,
+                state_lock=state_lock,
+            )
+            for worker_index, shard in enumerate(shards)
+        ]
+        for future in as_completed(futures):
+            records.extend(future.result())
+
+    # Include succeeded records from previous resume runs that this invocation skipped.
+    for task_state in state["tasks"].values():
+        if not isinstance(task_state, dict) or task_state.get("status") != "succeeded":
+            continue
+        record_path = run_dir / str(task_state.get("scene_record", ""))
+        if record_path.is_file() and not any(record.get("batch_task_id") == task_state.get("task_id") for record in records):
+            records.append(json.loads(record_path.read_text(encoding="utf-8")))
+
+    manifest = build_final_manifest(
+        paths=paths,
+        effective_config=effective_config,
+        records=records,
+        workers=args.workers,
+        max_retries=args.max_retries,
+    )
+    failed_count = int(manifest["failed_scenes"])
+    state["status"] = "completed" if failed_count == 0 else "failed"
+    state["succeeded"] = len(records)
+    state["failed"] = failed_count
+    state["completed_at"] = now_iso()
+    write_state(paths, state)
+    event(paths, "batch_completed", status=state["status"], succeeded=len(records), failed=failed_count)
+    print(f"batch manifest: {paths.run_dir / 'manifest_batch.json'}")
+    return 0 if failed_count == 0 else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
