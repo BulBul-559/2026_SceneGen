@@ -132,14 +132,14 @@ CLI 覆盖：`--quality/--no-quality`、`--quality-fail-on-error/--no-quality-fa
 | `bs_area_per_point_m2` | float, `>0` | `12.0` | `area_adaptive` 下每多少平方米约增加一个 BS。 |
 | `bs_height_m` | float, `>0` | `2.4` | BS 目标高度。 |
 | `bs_ceiling_margin_m` | float, `>=0` | `0.3` | BS 距离天花的最小距离。 |
-| `bs_wall_clearance_m` | float, `>=0` | `0.25` | BS 与建筑 floor 边界的避让距离。`wall_or_corner` 和 `geometry_center` 都会使用。 |
+| `bs_wall_clearance_m` | float, `>=0` | `0.2` | BS 与建筑 floor 边界的避让距离。`wall_or_corner` 和 `geometry_center` 都会使用。 |
 | `bs_center_initial_radius_m` | float, `>=0` | `0.2` | `geometry_center` 搜索中心 BS 时的初始搜索半径。 |
 | `bs_center_radius_step_m` | float, `>0` | `0.1` | `geometry_center` 搜索中心 BS 时的半径扩张步长。 |
 | `bs_center_max_radius_m` | float, `>= initial` | `2.0` | `geometry_center` 搜索中心 BS 时的最大半径；超过后选择最近合法候选。 |
-| `wall_clearance_m` | float, `>=0` | `0.25` | `room_floor` 采样域下 UE 与 room floor 边界的避让距离。 |
+| `wall_clearance_m` | float, `>=0` | `0.2` | `room_floor` 采样域下 UE 与 room floor 边界的避让距离。 |
 | `corridor_room_id` | string | `__corridor__` | `global_floor` 采样域下，不属于任何 room 但仍在 global floor 上的点使用的 room id。 |
 | `corridor_room_type` | string | `ConnectedArea` | 全局采样后无法归属到具体 room 的 connected area group 的 room type。 |
-| `corridor_clearance_m` | float, `>=0` | `0.05` | `global_floor` 采样域下 UE 与 global floor 边界和墙体的避让距离，默认更小以保留门洞/联通区域。 |
+| `corridor_clearance_m` | float, `>=0` | `0.2` | `global_floor` 采样域下 UE 与 global floor 边界和墙体的避让距离。当前 front3d 默认用 0.2，在保留门洞/联通区域和避免贴墙之间折中。 |
 | `overlay_enabled` | boolean | `true` | 是否生成 label 可视化。批量图写入 `label_floorplan/`。 |
 | `fail_on_error` | boolean | `true` | label 验证失败时命令是否返回非零。 |
 
@@ -236,14 +236,14 @@ pipeline:
   scenes: 3
 ```
 
-UE 高密度平面采样，靠近墙和家具：
+UE 高密度平面采样，家具 clearance 更小，墙间隔使用默认 0.2m：
 
 ```yaml
 label:
   ue_strategy: plane_grid
   ue_height_m: 1.8
   ue_clearance_m: 0.1
-  wall_clearance_m: 0.1
+  wall_clearance_m: 0.2
   obstacle_strategy: height_aware
 ```
 
