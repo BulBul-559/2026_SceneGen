@@ -34,184 +34,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Generate Sionna-compatible procedural indoor scenes.")
     parser.add_argument("--version", action="version", version=f"SceneGen {__version__}")
     parser.add_argument("--config", type=Path, default=default_config_path(repo_root), help="Path to SceneGen YAML config.")
-    parser.add_argument("--mode", choices=("generated", "bistro", "front3d"), default=None)
-    parser.add_argument("--bistro-base-dir", type=Path, default=None)
-    parser.add_argument("--asset-catalog", type=Path, default=None)
-    parser.add_argument("--asset-manifest", type=Path, default=None, help="Deprecated alias for --asset-catalog.")
-    parser.add_argument("--front3d-manifest", type=Path, default=None)
-    parser.add_argument("--front3d-source-scene-dir", type=Path, default=None)
-    parser.add_argument("--front3d-variant", choices=("raw", "normalized"), default=None)
-    parser.add_argument("--front3d-object-variant", choices=("raw", "normalized"), default=None)
-    parser.add_argument("--front3d-scene-ids", default=None, help="Comma-separated 3D-FRONT scene ids to synthesize.")
-    parser.add_argument("--front3d-scene-selection", choices=("random", "sequential"), default=None)
-    parser.add_argument("--front3d-use-replace-jid", action=argparse.BooleanOptionalAction, default=None)
-    parser.add_argument("--front3d-skip-missing-objects", action=argparse.BooleanOptionalAction, default=None)
-    parser.add_argument("--front3d-normalize-positive-xy", action=argparse.BooleanOptionalAction, default=None)
-    parser.add_argument("--front3d-ground-objects", action=argparse.BooleanOptionalAction, default=None)
-    parser.add_argument("--front3d-precheck", dest="front3d_precheck_enabled", action="store_true", default=None)
-    parser.add_argument("--no-front3d-precheck", dest="front3d_precheck_enabled", action="store_false")
-    parser.add_argument("--front3d-precheck-max-attempts-per-scene", type=int, default=None)
-    parser.add_argument("--front3d-precheck-min-placements", type=int, default=None)
-    parser.add_argument("--front3d-precheck-max-z", type=float, default=None)
-    parser.add_argument("--front3d-precheck-max-footprint-ratio", type=float, default=None)
-    parser.add_argument("--output-dir", type=Path, default=None)
-    parser.add_argument("--run-name", default=None, help="Use a stable run directory name instead of a timestamp.")
-    parser.add_argument("--scenes", type=int, default=None)
-    parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--min-tables", type=int, default=None)
-    parser.add_argument("--max-tables", type=int, default=None)
-    parser.add_argument("--floor-extras", type=int, default=None)
-    parser.add_argument("--min-tabletop-items", type=int, default=None)
-    parser.add_argument("--max-tabletop-items", type=int, default=None)
     parser.add_argument(
-        "--bistro-support-items",
-        type=int,
-        default=None,
-        help="Small objects to place on existing Bistro counter/bar/support surfaces.",
-    )
-    parser.add_argument("--max-attempts", type=int, default=None)
-    parser.add_argument(
-        "--clean",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Remove old output runs under --output-dir before generating the new run.",
-    )
-    parser.add_argument(
-        "--validate-sionna",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Load every generated scene.xml with sionna.rt.load_scene(merge_shapes=False).",
-    )
-    parser.add_argument(
-        "--quality",
-        dest="quality_enabled",
-        action="store_true",
-        default=None,
-        help="Run post-generation placement quality checks.",
-    )
-    parser.add_argument("--no-quality", dest="quality_enabled", action="store_false")
-    parser.add_argument(
-        "--quality-fail-on-error",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Return a non-zero exit code when quality checks find errors.",
-    )
-    parser.add_argument("--quality-collision-padding", type=float, default=None)
-    parser.add_argument("--quality-bistro-static-clearance", type=float, default=None)
-    parser.add_argument("--quality-support-tolerance", type=float, default=None)
-    parser.add_argument("--label", dest="label_enabled", action="store_true", default=None)
-    parser.add_argument("--no-label", dest="label_enabled", action="store_false")
-    parser.add_argument("--label-version", default=None)
-    parser.add_argument("--label-ue-height", type=float, default=None)
-    parser.add_argument("--label-sampling-domain", choices=("room_floor", "global_floor"), default=None)
-    parser.add_argument("--label-ue-strategy", choices=("free_space_grid", "plane_grid"), default=None)
-    parser.add_argument("--label-grid-resolution", type=float, default=None)
-    parser.add_argument("--label-batch-strategies", default=None, help="Comma-separated label UE strategies.")
-    parser.add_argument("--label-batch-grid-resolutions", default=None, help="Comma-separated label grid resolutions in meters.")
-    parser.add_argument("--label-connected-area", dest="label_connected_area_enabled", action=argparse.BooleanOptionalAction, default=None)
-    parser.add_argument(
-        "--label-batch-connected-area-enabled",
-        default=None,
-        help="Comma-separated booleans controlling connected-area label variants, e.g. true,false.",
-    )
-    parser.add_argument("--label-ue-clearance", type=float, default=None)
-    parser.add_argument("--label-obstacle-strategy", choices=("height_aware", "footprint_column"), default=None)
-    parser.add_argument("--label-walk-ignore-low-obstacles-below", type=float, default=None)
-    parser.add_argument("--label-walk-blocking-classes", default=None, help="Comma-separated placement classes blocking walk labels.")
-    parser.add_argument("--label-walk-min-component-area", type=float, default=None)
-    parser.add_argument("--label-bs-strategy", choices=("wall_or_corner", "geometry_center"), default=None)
-    parser.add_argument("--label-bs-count-strategy", choices=("fixed_per_room", "area_adaptive"), default=None)
-    parser.add_argument("--label-bs-per-room", type=int, default=None)
-    parser.add_argument("--label-bs-min-per-room", type=int, default=None)
-    parser.add_argument("--label-bs-max-per-room", type=int, default=None)
-    parser.add_argument("--label-bs-min-room-area", type=float, default=None)
-    parser.add_argument("--label-bs-area-per-point", type=float, default=None)
-    parser.add_argument("--label-bs-height", type=float, default=None)
-    parser.add_argument("--label-bs-ceiling-margin", type=float, default=None)
-    parser.add_argument("--label-bs-wall-clearance", type=float, default=None)
-    parser.add_argument("--label-bs-center-initial-radius", type=float, default=None)
-    parser.add_argument("--label-bs-center-radius-step", type=float, default=None)
-    parser.add_argument("--label-bs-center-max-radius", type=float, default=None)
-    parser.add_argument("--label-wall-clearance", type=float, default=None)
-    parser.add_argument("--label-corridor-room-id", default=None)
-    parser.add_argument("--label-corridor-room-type", default=None)
-    parser.add_argument("--label-corridor-clearance", type=float, default=None)
-    parser.add_argument("--label-overlay", dest="label_overlay_enabled", action="store_true", default=None)
-    parser.add_argument("--no-label-overlay", dest="label_overlay_enabled", action="store_false")
-    parser.add_argument("--label-fail-on-error", action=argparse.BooleanOptionalAction, default=None)
-    parser.add_argument("--floorplan", dest="floorplan_enabled", action="store_true", default=None)
-    parser.add_argument("--no-floorplan", dest="floorplan_enabled", action="store_false")
-    parser.add_argument("--floorplan-geometry", dest="floorplan_geometry_enabled", action="store_true", default=None)
-    parser.add_argument("--no-floorplan-geometry", dest="floorplan_geometry_enabled", action="store_false")
-    parser.add_argument(
-        "--floorplan-geometry-clean",
-        dest="floorplan_geometry_clean_enabled",
-        action="store_true",
-        default=None,
-        help="Generate a denoised geometry occupancy image for model input experiments.",
-    )
-    parser.add_argument(
-        "--no-floorplan-geometry-clean",
-        dest="floorplan_geometry_clean_enabled",
-        action="store_false",
-    )
-    parser.add_argument("--floorplan-geometry-clean-min-density", type=float, default=None)
-    parser.add_argument("--floorplan-geometry-clean-min-neighbors", type=int, default=None)
-    parser.add_argument("--floorplan-geometry-clean-min-z", type=float, default=None)
-    parser.add_argument("--floorplan-geometry-clean-max-abs-normal-z", type=float, default=None)
-    parser.add_argument("--floorplan-geometry-clean-opening-px", type=int, default=None)
-    parser.add_argument("--floorplan-geometry-clean-closing-px", type=int, default=None)
-    parser.add_argument("--semantic-floorplan", dest="floorplan_semantic_enabled", action="store_true", default=None)
-    parser.add_argument("--no-semantic-floorplan", dest="floorplan_semantic_enabled", action="store_false")
-    parser.add_argument("--floorplan-class-mask", dest="floorplan_class_mask_enabled", action="store_true", default=None)
-    parser.add_argument("--no-floorplan-class-mask", dest="floorplan_class_mask_enabled", action="store_false")
-    parser.add_argument("--floorplan-class-mask-wall-dilation", type=float, default=None)
-    parser.add_argument("--floorplan-class-mask-furniture-dilation", type=float, default=None)
-    parser.add_argument(
-        "--floorplan-class-mask-opening-mode",
-        choices=("none", "doors", "windows", "doors_and_windows"),
-        default=None,
-        help="Which 3D-FRONT openings should be cut from wall pixels and reassigned to free_space.",
-    )
-    parser.add_argument("--floorplan-class-mask-opening-dilation", type=float, default=None)
-    parser.add_argument("--floorplan-class-mask-opening-floor-tolerance", type=float, default=None)
-    parser.add_argument("--floorplan-class-mask-opening-min-height", type=float, default=None)
-    parser.add_argument(
-        "--floorplan-class-mask-include-doors-as-wall",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-    )
-    parser.add_argument(
-        "--floorplan-class-mask-include-windows-as-wall",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-    )
-    parser.add_argument("--floorplan-resolution", type=float, default=None)
-    parser.add_argument("--floorplan-height-mode", choices=("layers", "heights"), default=None)
-    parser.add_argument(
-        "--floorplan-heights",
-        default=None,
-        help="Comma-separated projection heights in meters when floorplan.height_mode=heights, e.g. 1.2,1.6.",
-    )
-    parser.add_argument("--floorplan-step", type=float, default=None)
-    parser.add_argument("--floorplan-top-z", type=float, default=None)
-    parser.add_argument("--floorplan-bottom-z", type=float, default=None)
-    parser.add_argument("--floorplan-sample-density-scale", type=float, default=None)
-    parser.add_argument("--floorplan-min-sample-points", type=int, default=None)
-    parser.add_argument("--floorplan-max-sample-points", type=int, default=None)
-    parser.add_argument("--floorplan-preview-tile-size", type=int, default=None)
-    parser.add_argument("--floorplan-semantic-padding", type=float, default=None)
-    parser.add_argument(
-        "--floorplan-semantic-draw-labels",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Draw asset labels on semantic floorplans when there is enough room.",
-    )
-    parser.add_argument(
-        "--floorplan-fail-on-error",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Return a non-zero exit code if floorplan generation fails.",
+        "--set",
+        action="append",
+        default=[],
+        dest="set_values",
+        metavar="KEY=VALUE",
+        help="Override a v2 config value with YAML parsing, e.g. --set pipeline.mode=front3d.",
     )
     return parser
 
@@ -312,9 +141,10 @@ def main(argv: list[str] | None = None) -> int:
     effective_config["pipeline"]["run_name"] = run_name
     effective_config["runtime"]["run_dir"] = str(run_dir)
     save_effective_config(run_dir / "effective_config.yaml", effective_config)
-    floorplan_config = FloorplanConfig.from_mapping(effective_config["floorplan"])
+    front3d_openings = effective_config["front3d"]["openings"]
+    floorplan_config = FloorplanConfig.from_mapping(effective_config["floorplan"], front3d_openings)
     quality_config = QualityConfig.from_mapping(effective_config["quality"])
-    label_config = LabelConfig.from_mapping(effective_config["label"])
+    label_config = LabelConfig.from_mapping(effective_config["label"], front3d_openings)
 
     if args.mode == "front3d":
         assets_by_class = {}

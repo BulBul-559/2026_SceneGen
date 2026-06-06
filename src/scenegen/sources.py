@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .exporters import write_bistro_scene_files, write_front3d_scene_files, write_scene_files
-from .front3d import Front3DConfig, Front3DIndex, build_scene_from_front3d, choose_scene_ids
+from .front3d import Front3DConfig, Front3DIndex, build_scene_from_front3d
 from .geometry import load_bistro_base_scene
 from .models import Asset, BistroBaseScene, Front3DBaseScene, PlacedAsset, Rect2D, Room
 from .placement import build_bistro_scene_placements, build_scene_placements
@@ -130,13 +130,6 @@ class Front3DSceneSource:
         self._selection_rng = random.Random(args.seed)
         self._selection_cursor = 0
         self._rejected_scene_ids: set[str] = set()
-        self.selected_scene_ids = choose_scene_ids(
-            self.index.scene_ids,
-            config.scene_ids,
-            config.scene_selection,
-            args.scenes,
-            random.Random(args.seed),
-        )
 
     def next_scene_id(self) -> str:
         if self.config.scene_ids:

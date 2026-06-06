@@ -10,7 +10,7 @@ import numpy as np
 import trimesh
 from PIL import Image, ImageDraw, ImageFilter
 
-from .models import Front3DBaseScene, PlacedAsset, Rect2D
+from .models import Front3DBaseScene, Front3DOpeningConfig, PlacedAsset, Rect2D
 from .paths import portable_path
 
 
@@ -61,12 +61,7 @@ class FloorplanConfig:
     class_mask_enabled: bool
     class_mask_wall_dilation_m: float
     class_mask_furniture_dilation_m: float
-    class_mask_opening_mode: str
-    class_mask_opening_dilation_m: float
-    class_mask_opening_floor_tolerance_m: float
-    class_mask_opening_min_height_m: float
-    class_mask_include_doors_as_wall: bool
-    class_mask_include_windows_as_wall: bool
+    openings: Front3DOpeningConfig
     resolution_m_per_pixel: float
     height_mode: str
     heights_m: list[float]
@@ -82,41 +77,58 @@ class FloorplanConfig:
     fail_on_error: bool
 
     @classmethod
-    def from_mapping(cls, payload: dict[str, Any]) -> FloorplanConfig:
+    def from_mapping(cls, payload: dict[str, Any], openings: dict[str, Any] | Front3DOpeningConfig | None = None) -> FloorplanConfig:
+        geometry = payload["geometry"]
+        clean = geometry["clean"]
+        semantic = payload["semantic"]
+        class_mask = payload["class_mask"]
+        height = payload["height"]
+        sampling = payload["sampling"]
+        preview = payload["preview"]
         return cls(
             enabled=bool(payload["enabled"]),
-            geometry_enabled=bool(payload["geometry_enabled"]),
-            geometry_clean_enabled=bool(payload["geometry_clean_enabled"]),
-            geometry_clean_min_density=float(payload["geometry_clean_min_density"]),
-            geometry_clean_min_neighbors=int(payload["geometry_clean_min_neighbors"]),
-            geometry_clean_min_z_m=float(payload["geometry_clean_min_z_m"]),
-            geometry_clean_max_abs_normal_z=float(payload["geometry_clean_max_abs_normal_z"]),
-            geometry_clean_opening_px=int(payload["geometry_clean_opening_px"]),
-            geometry_clean_closing_px=int(payload["geometry_clean_closing_px"]),
-            semantic_enabled=bool(payload["semantic_enabled"]),
-            class_mask_enabled=bool(payload["class_mask_enabled"]),
-            class_mask_wall_dilation_m=float(payload["class_mask_wall_dilation_m"]),
-            class_mask_furniture_dilation_m=float(payload["class_mask_furniture_dilation_m"]),
-            class_mask_opening_mode=str(payload["class_mask_opening_mode"]),
-            class_mask_opening_dilation_m=float(payload["class_mask_opening_dilation_m"]),
-            class_mask_opening_floor_tolerance_m=float(payload["class_mask_opening_floor_tolerance_m"]),
-            class_mask_opening_min_height_m=float(payload["class_mask_opening_min_height_m"]),
-            class_mask_include_doors_as_wall=bool(payload["class_mask_include_doors_as_wall"]),
-            class_mask_include_windows_as_wall=bool(payload["class_mask_include_windows_as_wall"]),
-            resolution_m_per_pixel=float(payload["resolution_m_per_pixel"]),
-            height_mode=str(payload["height_mode"]),
-            heights_m=[float(height) for height in payload["heights_m"]],
-            step_m=float(payload["step_m"]),
-            top_z_m=None if payload["top_z_m"] is None else float(payload["top_z_m"]),
-            bottom_z_m=float(payload["bottom_z_m"]),
-            sample_density_scale=float(payload["sample_density_scale"]),
-            min_sample_points=int(payload["min_sample_points"]),
-            max_sample_points=int(payload["max_sample_points"]),
-            preview_tile_size_px=int(payload["preview_tile_size_px"]),
-            semantic_padding_m=float(payload["semantic_padding_m"]),
-            semantic_draw_labels=bool(payload["semantic_draw_labels"]),
+            geometry_enabled=bool(geometry["enabled"]),
+            geometry_clean_enabled=bool(clean["enabled"]),
+            geometry_clean_min_density=float(clean["min_density"]),
+            geometry_clean_min_neighbors=int(clean["min_neighbors"]),
+            geometry_clean_min_z_m=float(clean["min_z_m"]),
+            geometry_clean_max_abs_normal_z=float(clean["max_abs_normal_z"]),
+            geometry_clean_opening_px=int(clean["opening_px"]),
+            geometry_clean_closing_px=int(clean["closing_px"]),
+            semantic_enabled=bool(semantic["enabled"]),
+            class_mask_enabled=bool(class_mask["enabled"]),
+            class_mask_wall_dilation_m=float(class_mask["wall_dilation_m"]),
+            class_mask_furniture_dilation_m=float(class_mask["furniture_dilation_m"]),
+            openings=floorplan_opening_config_from_mapping(openings),
+            resolution_m_per_pixel=float(payload["resolution_m"]),
+            height_mode=str(height["mode"]),
+            heights_m=[float(height_value) for height_value in height["values_m"]],
+            step_m=float(height["step_m"]),
+            top_z_m=None if height["top_m"] is None else float(height["top_m"]),
+            bottom_z_m=float(height["bottom_m"]),
+            sample_density_scale=float(sampling["density_scale"]),
+            min_sample_points=int(sampling["min_points"]),
+            max_sample_points=int(sampling["max_points"]),
+            preview_tile_size_px=int(preview["tile_size_px"]),
+            semantic_padding_m=float(semantic["padding_m"]),
+            semantic_draw_labels=bool(semantic["draw_labels"]),
             fail_on_error=bool(payload["fail_on_error"]),
         )
+
+
+def floorplan_opening_config_from_mapping(payload: dict[str, Any] | Front3DOpeningConfig | None) -> Front3DOpeningConfig:
+    if payload is None:
+        return Front3DOpeningConfig()
+    if isinstance(payload, Front3DOpeningConfig):
+        return payload
+    return Front3DOpeningConfig(
+        mode=str(payload["mode"]),
+        dilation_m=float(payload["dilation_m"]),
+        floor_tolerance_m=float(payload["floor_tolerance_m"]),
+        min_height_m=float(payload["min_height_m"]),
+        include_doors_as_wall=bool(payload["include_doors_as_wall"]),
+        include_windows_as_wall=bool(payload["include_windows_as_wall"]),
+    )
 
 
 def generate_floorplan_for_scene(
@@ -215,12 +227,12 @@ def generate_floorplan_for_scene(
             resolution=config.resolution_m_per_pixel,
             wall_dilation_m=config.class_mask_wall_dilation_m,
             furniture_dilation_m=config.class_mask_furniture_dilation_m,
-            opening_mode=config.class_mask_opening_mode,
-            opening_dilation_m=config.class_mask_opening_dilation_m,
-            opening_floor_tolerance_m=config.class_mask_opening_floor_tolerance_m,
-            opening_min_height_m=config.class_mask_opening_min_height_m,
-            include_doors_as_wall=config.class_mask_include_doors_as_wall,
-            include_windows_as_wall=config.class_mask_include_windows_as_wall,
+            opening_mode=config.openings.mode,
+            opening_dilation_m=config.openings.dilation_m,
+            opening_floor_tolerance_m=config.openings.floor_tolerance_m,
+            opening_min_height_m=config.openings.min_height_m,
+            include_doors_as_wall=config.openings.include_doors_as_wall,
+            include_windows_as_wall=config.openings.include_windows_as_wall,
             path_root=path_root,
         )
         record["class_mask"] = class_mask

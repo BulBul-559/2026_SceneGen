@@ -37,8 +37,8 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 
 1. `DEFAULT_CONFIG`。
 2. 加载 `--config` 指定 YAML，默认是 `config/template.yaml`。
-3. 应用 CLI 覆盖。
-4. 归一化路径、类型和旧字段别名。
+3. 应用 CLI `--set key.path=value` 覆盖。
+4. 归一化路径和类型。
 5. 校验未知字段和值范围。
 6. 写出 `<run_dir>/effective_config.yaml`。
 
@@ -46,48 +46,47 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 
 - `config/` 目录只保留 `template.yaml`，它应与 `src/scenegen/config.py` 里的 `DEFAULT_CONFIG` 保持一致。
 - 需要实验配置时复制模板到其他位置，或通过 CLI 覆盖。
-- 旧字段 `assets.manifest` 和旧 CLI `--asset-manifest` 仍兼容，但最终写出为 `assets.catalog`。
-- YAML 写错字段会直接报错，不应静默忽略。
+- 配置 v2 不兼容旧 YAML 字段和旧显式 CLI 参数。
+- YAML 或 `--set` 写错字段会直接报错，不应静默忽略。
 
 ## 当前默认重点参数
 
 `floorplan` 默认用于训练输入的 raw 几何投影：
 
-- `resolution_m_per_pixel: 0.05`
-- `height_mode: heights`
-- `heights_m: [1.6]`
-- `sample_density_scale: 128.0`
-- `semantic_enabled: false`
-- `geometry_clean_enabled: false`
-- `class_mask_enabled: false`: 需要训练用四分类掩码时在 `front3d` 模式打开。输出 `floorplan/class_mask.png`、`class_mask_preview.png`、`class_mask.npy`、`class_mask.npz` 和 `class_mask_meta.json`，类别固定为 `0 outdoor`、`1 wall`、`2 free_space`、`3 furniture`。2.0.0 起默认 `class_mask_opening_mode: doors` 会把 3D-FRONT 原始 `Door/Hole/Pocket` 在墙体膨胀前标为 free space，不做膨胀后的门洞恢复；可切到 `windows` 或 `doors_and_windows`。
+- `floorplan.resolution_m: 0.05`
+- `floorplan.height.mode: heights`
+- `floorplan.height.values_m: [1.6]`
+- `floorplan.sampling.density_scale: 128.0`
+- `floorplan.semantic.enabled: false`
+- `floorplan.geometry.clean.enabled: false`
+- `floorplan.class_mask.enabled: false`: 需要训练用四分类掩码时在 `front3d` 模式打开。输出 `floorplan/class_mask.png`、`class_mask_preview.png`、`class_mask.npy`、`class_mask.npz` 和 `class_mask_meta.json`，类别固定为 `0 outdoor`、`1 wall`、`2 free_space`、`3 furniture`。开口策略由共享 `front3d.openings.mode` 控制，默认 `doors`。
 
 `front3d` 默认策略：
 
-- `variant: normalized`: 建筑结构用 phase1 的 Z-up normalized 结果。
+- `arch_variant: normalized`: 建筑结构用 phase1 的 Z-up normalized 结果。
 - `object_variant: raw`: 家具用 3D-FUTURE raw 模型，因为 3D-FRONT 原始位姿按 raw 尺寸设计。
-- `normalize_positive_xy: true`: 整体平移到 XY 正象限，floorplan 左下保持 `(0, 0)`。
-- `ground_objects: true`: 家具 bbox 低于地面时做轻量 Z 抬升。
-- `precheck_enabled: true`: 生成正式 label/floorplan 前先检查候选场景；家具过少、Z 范围异常或投影占比异常时跳过该 scene id 并自动补齐。
+- `positive_xy: true`: 整体平移到 XY 正象限，floorplan 左下保持 `(0, 0)`。
+- `ground: true`: 家具 bbox 低于地面时做轻量 Z 抬升。
+- `precheck.enabled: true`: 生成正式 label/floorplan 前先检查候选场景；家具过少、Z 范围异常或投影占比异常时跳过该 scene id 并自动补齐。
 
 `label` 默认策略：
 
-- `version: "1.1"`
-- `ue_height_m: 1.6`
-- `sampling_domain: global_floor`
-- `ue_strategy: free_space_grid`
-- `grid_resolution_m: 0.1`
-- `connected_area_enabled: true`
-- `batch_connected_area_enabled: [true]`
-- `obstacle_strategy: height_aware`
-- `bs_strategy: wall_or_corner`
-- `bs_count_strategy: fixed_per_room`
-- `bs_per_room: 4`
-- `bs_wall_clearance_m: 0.2`
-- `corridor_room_id: "__corridor__"`
-- `corridor_clearance_m: 0.2`
-- `overlay_enabled: true`
+- label 输出版本由代码固定为 `1.1`。
+- `ue.height_m: 1.6`
+- `ue.sampling_domain: global_floor`
+- `ue.variants.strategies: [walk]`
+- `ue.variants.grid_m: [0.1]`
+- `ue.variants.connected: [true]`
+- `ue.wall_clearance_m: 0.2`
+- `ue.obstacle_strategy: height_aware`
+- `ue.connected_area.room_id: "__corridor__"`
+- `bs.strategy: wall_or_corner`
+- `bs.count.strategy: fixed_per_room`
+- `bs.count.per_room: 4`
+- `bs.wall_clearance_m: 0.2`
+- `overlay.enabled: true`
 
-`sampling_domain: global_floor` + `connected_area_enabled: true` 是当前 front3d 推荐策略：`plane_grid` 和 `free_space_grid` 先在建筑 XY bbox 的全局矩形网格上采样，再扣 outdoor 和膨胀后的 wall，随后按 room floor mesh 分类，未归属点进入 `ConnectedArea` group。门洞使用原始 `Door/Hole/Pocket` 在墙体膨胀前标为 free space，不做膨胀后的门洞恢复，也不在采样前做 room 分类；窗户不作为 UE 采样开口。`batch_connected_area_enabled: [true, false]` 可同时生成 connected 和 room-only 两套 label。需要严格旧行为时切换为 `room_floor`。单基站定位实验可用 `bs_strategy: geometry_center`，它会在建筑几何中心附近搜索一个满足自由空间和 BS 离墙约束的 `BS0`。
+`label.ue.sampling_domain: global_floor` + `label.ue.variants.connected: [true]` 是当前 front3d 推荐策略：`panel` 和 `walk` 先在建筑 XY bbox 的全局矩形网格上采样，再扣 outdoor 和膨胀后的 wall，随后按 room floor mesh 分类，未归属点进入 `ConnectedArea` group。门洞/窗洞由 `front3d.openings` 统一控制。`label.ue.variants.connected: [true, false]` 可同时生成 connected 和 room-only 两套 label。需要严格旧行为时切换为 `room_floor`。单基站定位实验可用 `label.bs.strategy: geometry_center`，它会在建筑几何中心附近搜索一个满足自由空间和 BS 离墙约束的 `BS0`。
 
 ## 常用命令
 
@@ -113,19 +112,19 @@ uv run scenegen
 3D-FRONT 合成：
 
 ```bash
-uv run scenegen --mode front3d --scenes 3 --run-name front3d_preview --output-dir results
+uv run scenegen --set pipeline.mode=front3d --set pipeline.scenes=3 --set pipeline.run_name=front3d_preview
 ```
 
 快速 smoke，不生成 floorplan：
 
 ```bash
-uv run scenegen --mode generated --scenes 1 --run-name smoke_generated --output-dir results --no-floorplan
+uv run scenegen --set pipeline.mode=generated --set pipeline.scenes=1 --set pipeline.run_name=smoke_generated --set floorplan.enabled=false
 ```
 
 可选 Sionna XML 验证：
 
 ```bash
-uv run scenegen --scenes 1 --validate-sionna
+uv run scenegen --set pipeline.scenes=1 --set validation.sionna=true
 ```
 
 ## 标准输出结构
@@ -161,7 +160,7 @@ summary_floorplan_raw/
     meta.json
 ```
 
-如果 `floorplan.semantic_enabled: true`，还会生成 `floorplan/semantic.png` 和 `floorplan/semantic.json`。
+如果 `floorplan.semantic.enabled: true`，还会生成 `floorplan/semantic.png` 和 `floorplan/semantic.json`。
 
 ## 3D-FRONT 数据阶段
 

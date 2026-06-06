@@ -10,6 +10,16 @@ Vec3 = tuple[float, float, float]
 
 
 @dataclass(frozen=True)
+class Front3DOpeningConfig:
+    mode: str = "doors"
+    dilation_m: float = 0.0
+    floor_tolerance_m: float = 0.25
+    min_height_m: float = 1.6
+    include_doors_as_wall: bool = True
+    include_windows_as_wall: bool = True
+
+
+@dataclass(frozen=True)
 class Asset:
     name: str
     export_name: str

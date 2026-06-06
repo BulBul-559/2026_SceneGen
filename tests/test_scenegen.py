@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import random
+from argparse import Namespace
+from copy import deepcopy
 from pathlib import Path
 
 import numpy as np
@@ -52,6 +54,29 @@ def iter_json_strings(value: object) -> list[str]:
     if isinstance(value, str):
         return [value]
     return []
+
+
+def make_label_config(
+    *,
+    strategy: str | None = None,
+    grid_m: float | None = None,
+    connected: list[bool] | None = None,
+    **updates: object,
+) -> LabelConfig:
+    payload = deepcopy(DEFAULT_CONFIG["label"])
+    if strategy is not None:
+        payload["ue"]["variants"]["strategies"] = [strategy]
+    if grid_m is not None:
+        payload["ue"]["variants"]["grid_m"] = [grid_m]
+    if connected is not None:
+        payload["ue"]["variants"]["connected"] = connected
+    for key, value in updates.items():
+        target = payload
+        parts = key.split("__")
+        for part in parts[:-1]:
+            target = target[part]
+        target[parts[-1]] = value
+    return LabelConfig.from_mapping(payload, DEFAULT_CONFIG["front3d"]["openings"])
 
 
 def test_default_paths_point_to_packaged_data() -> None:
@@ -109,9 +134,9 @@ def test_unknown_config_field_is_rejected(tmp_path: Path) -> None:
 def test_invalid_config_value_is_rejected(tmp_path: Path) -> None:
     root = find_project_root()
     config_path = tmp_path / "bad_config.yaml"
-    config_path.write_text("floorplan:\n  sample_density_scale: 0\n", encoding="utf-8")
+    config_path.write_text("floorplan:\n  sampling:\n    density_scale: 0\n", encoding="utf-8")
 
-    with pytest.raises(ValueError, match="sample_density_scale"):
+    with pytest.raises(ValueError, match="floorplan.sampling.density_scale"):
         load_effective_config(config_path, root, parse_args([]))
 
 
@@ -125,18 +150,12 @@ def test_front3d_scene_selection_and_transform() -> None:
 
 
 def test_front3d_precheck_rejects_anomalous_statistics() -> None:
-    args = parse_args(
-        [
-            "--mode",
-            "front3d",
-            "--front3d-precheck",
-            "--front3d-precheck-min-placements",
-            "1",
-            "--front3d-precheck-max-z",
-            "8",
-            "--front3d-precheck-max-footprint-ratio",
-            "5",
-        ]
+    args = Namespace(
+        mode="front3d",
+        front3d_precheck_enabled=True,
+        front3d_precheck_min_placements=1,
+        front3d_precheck_max_z=8,
+        front3d_precheck_max_footprint_ratio=5,
     )
     ok = evaluate_front3d_precheck(
         args,
@@ -165,15 +184,7 @@ def test_front3d_precheck_rejects_anomalous_statistics() -> None:
 
 
 def test_label_plane_grid_respects_floor_domain_and_ignores_obstacles() -> None:
-    config = LabelConfig.from_mapping(
-        {
-            **DEFAULT_CONFIG["label"],
-            "ue_strategy": "plane_grid",
-            "grid_resolution_m": 1.0,
-            "wall_clearance_m": 0.5,
-            "ue_clearance_m": 0.0,
-        }
-    )
+    config = make_label_config(strategy="panel", grid_m=1.0, ue__wall_clearance_m=0.5, ue__furniture_clearance_m=0.0)
     tri = SupportTriangle(vertices=((0.0, 0.0, 0.0), (4.0, 0.0, 0.0), (0.0, 4.0, 0.0)), area=8.0, z=0.0)
     context = RoomLabelContext(
         room_index=0,
@@ -197,16 +208,13 @@ def test_label_plane_grid_respects_floor_domain_and_ignores_obstacles() -> None:
 
 
 def test_label_height_aware_obstacles_keep_points_above_low_objects() -> None:
-    config = LabelConfig.from_mapping(
-        {
-            **DEFAULT_CONFIG["label"],
-            "ue_height_m": 1.8,
-            "ue_strategy": "free_space_grid",
-            "grid_resolution_m": 1.0,
-            "wall_clearance_m": 0.0,
-            "ue_clearance_m": 0.0,
-            "obstacle_strategy": "height_aware",
-        }
+    config = make_label_config(
+        strategy="walk",
+        grid_m=1.0,
+        ue__height_m=1.8,
+        ue__wall_clearance_m=0.0,
+        ue__furniture_clearance_m=0.0,
+        ue__obstacle_strategy="height_aware",
     )
     tri = SupportTriangle(vertices=((0.0, 0.0, 0.0), (3.0, 0.0, 0.0), (0.0, 3.0, 0.0)), area=4.5, z=0.0)
     context = RoomLabelContext(
@@ -231,16 +239,13 @@ def test_label_height_aware_obstacles_keep_points_above_low_objects() -> None:
 
 
 def test_label_footprint_column_obstacles_block_points_above_low_objects() -> None:
-    config = LabelConfig.from_mapping(
-        {
-            **DEFAULT_CONFIG["label"],
-            "ue_height_m": 1.8,
-            "ue_strategy": "free_space_grid",
-            "grid_resolution_m": 1.0,
-            "wall_clearance_m": 0.0,
-            "ue_clearance_m": 0.0,
-            "obstacle_strategy": "footprint_column",
-        }
+    config = make_label_config(
+        strategy="walk",
+        grid_m=1.0,
+        ue__height_m=1.8,
+        ue__wall_clearance_m=0.0,
+        ue__furniture_clearance_m=0.0,
+        ue__obstacle_strategy="footprint_column",
     )
     tri = SupportTriangle(vertices=((0.0, 0.0, 0.0), (2.0, 0.0, 0.0), (0.0, 2.0, 0.0)), area=2.0, z=0.0)
     context = RoomLabelContext(
@@ -277,15 +282,12 @@ def make_square_room_context(size_m: float) -> RoomLabelContext:
 
 
 def test_label_area_adaptive_bs_count_scales_with_room_area() -> None:
-    config = LabelConfig.from_mapping(
-        {
-            **DEFAULT_CONFIG["label"],
-            "bs_count_strategy": "area_adaptive",
-            "bs_min_room_area_m2": 4.0,
-            "bs_area_per_point_m2": 10.0,
-            "bs_min_per_room": 1,
-            "bs_max_per_room": 8,
-        }
+    config = make_label_config(
+        bs__count__strategy="area_adaptive",
+        bs__count__min_room_area_m2=4.0,
+        bs__count__area_per_point_m2=10.0,
+        bs__count__min_per_room=1,
+        bs__count__max_per_room=8,
     )
 
     assert bs_count_for_room(make_square_room_context(1.5), config) == 0
@@ -295,16 +297,13 @@ def test_label_area_adaptive_bs_count_scales_with_room_area() -> None:
 
 
 def test_label_area_adaptive_bs_generation_uses_computed_count() -> None:
-    config = LabelConfig.from_mapping(
-        {
-            **DEFAULT_CONFIG["label"],
-            "bs_count_strategy": "area_adaptive",
-            "bs_min_room_area_m2": 4.0,
-            "bs_area_per_point_m2": 10.0,
-            "bs_min_per_room": 1,
-            "bs_max_per_room": 8,
-            "grid_resolution_m": 1.0,
-        }
+    config = make_label_config(
+        grid_m=1.0,
+        bs__count__strategy="area_adaptive",
+        bs__count__min_room_area_m2=4.0,
+        bs__count__area_per_point_m2=10.0,
+        bs__count__min_per_room=1,
+        bs__count__max_per_room=8,
     )
     context = make_square_room_context(8.0)
     free_points = [(float(x), float(y)) for x in range(1, 8) for y in range(1, 8)]
@@ -315,7 +314,7 @@ def test_label_area_adaptive_bs_generation_uses_computed_count() -> None:
 
 
 def test_global_floor_assignment_keeps_corridor_points() -> None:
-    config = LabelConfig.from_mapping(DEFAULT_CONFIG["label"])
+    config = make_label_config()
     room_context = make_square_room_context(1.0)
     global_context = make_square_room_context(3.0)
     corridor_context = corridor_context_from_global(global_context, config)
@@ -328,14 +327,11 @@ def test_global_floor_assignment_keeps_corridor_points() -> None:
 
 
 def test_label_variants_combine_strategy_resolution_and_connected_area() -> None:
-    config = LabelConfig.from_mapping(
-        {
-            **DEFAULT_CONFIG["label"],
-            "batch_strategies": ["plane_grid", "free_space_grid"],
-            "batch_grid_resolutions_m": [0.1],
-            "batch_connected_area_enabled": [True, False],
-        }
-    )
+    payload = deepcopy(DEFAULT_CONFIG["label"])
+    payload["ue"]["variants"]["strategies"] = ["panel", "walk"]
+    payload["ue"]["variants"]["grid_m"] = [0.1]
+    payload["ue"]["variants"]["connected"] = [True, False]
+    config = LabelConfig.from_mapping(payload, DEFAULT_CONFIG["front3d"]["openings"])
 
     variants = label_variants(config)
 
@@ -349,15 +345,12 @@ def test_label_variants_combine_strategy_resolution_and_connected_area() -> None
 
 
 def test_geometry_center_bs_selects_near_center_free_point() -> None:
-    config = LabelConfig.from_mapping(
-        {
-            **DEFAULT_CONFIG["label"],
-            "bs_strategy": "geometry_center",
-            "bs_wall_clearance_m": 0.2,
-            "bs_center_initial_radius_m": 0.2,
-            "bs_center_radius_step_m": 0.1,
-            "bs_center_max_radius_m": 1.0,
-        }
+    config = make_label_config(
+        bs__strategy="geometry_center",
+        bs__wall_clearance_m=0.2,
+        bs__center__initial_radius_m=0.2,
+        bs__center__radius_step_m=0.1,
+        bs__center__max_radius_m=1.0,
     )
     global_context = make_square_room_context(4.0)
     free_points = [(0.5, 0.5), (2.0, 2.0), (3.5, 3.5)]
@@ -459,17 +452,17 @@ def test_bistro_base_scene_detection() -> None:
 def test_partial_config_inherits_builtin_defaults(tmp_path: Path) -> None:
     root = find_project_root()
     config_path = tmp_path / "partial_config.yaml"
-    config_path.write_text("pipeline:\n  run_name: sparse\nplacement:\n  min_tables: 2\n  max_tables: 4\n", encoding="utf-8")
+    config_path.write_text("pipeline:\n  run_name: sparse\nplacement:\n  tables: [2, 4]\n", encoding="utf-8")
     effective, _overrides = load_effective_config(config_path, root, parse_args([]))
 
     assert effective["pipeline"]["run_name"] == "sparse"
     assert effective["assets"]["catalog"].endswith("data/catalogs/bistro.v1.json")
     assert "manifest" not in effective["assets"]
-    assert effective["bistro"]["forbidden_xy_rects"] == [[1.0, 11.0, 4.5, 16.0], [8.0, 8.0, 14.0, 10.0]]
-    assert effective["floorplan"]["semantic_enabled"] is False
+    assert effective["bistro"]["forbidden_xy"] == [[1.0, 11.0, 4.5, 16.0], [8.0, 8.0, 14.0, 10.0]]
+    assert effective["floorplan"]["semantic"]["enabled"] is False
 
 
-def test_legacy_assets_manifest_config_normalizes_to_catalog(tmp_path: Path) -> None:
+def test_legacy_assets_manifest_config_is_rejected(tmp_path: Path) -> None:
     root = find_project_root()
     config_path = tmp_path / "legacy_config.yaml"
     config_path.write_text(
@@ -477,10 +470,56 @@ def test_legacy_assets_manifest_config_normalizes_to_catalog(tmp_path: Path) -> 
         encoding="utf-8",
     )
 
-    effective, _overrides = load_effective_config(config_path, root, parse_args([]))
+    with pytest.raises(ValueError, match="assets.manifest"):
+        load_effective_config(config_path, root, parse_args([]))
 
-    assert effective["assets"]["catalog"].endswith("data/assets/manifest.json")
-    assert "manifest" not in effective["assets"]
+
+def test_cli_set_overrides_yaml_and_parses_types(tmp_path: Path) -> None:
+    root = find_project_root()
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("pipeline:\n  mode: bistro\n  scenes: 2\nlabel:\n  ue:\n    height_m: 1.6\n", encoding="utf-8")
+    args = parse_args(
+        [
+            "--config",
+            str(config_path),
+            "--set",
+            "pipeline.mode=front3d",
+            "--set",
+            "pipeline.scenes=5",
+            "--set",
+            "label.ue.height_m=1.8",
+            "--set",
+            "label.ue.variants.grid_m=[0.1,0.2,0.5]",
+            "--set",
+            "floorplan.enabled=false",
+        ]
+    )
+
+    effective, overrides = load_effective_config(config_path, root, args)
+
+    assert effective["pipeline"]["mode"] == "front3d"
+    assert effective["pipeline"]["scenes"] == 5
+    assert effective["label"]["ue"]["height_m"] == 1.8
+    assert effective["label"]["ue"]["variants"]["grid_m"] == [0.1, 0.2, 0.5]
+    assert effective["floorplan"]["enabled"] is False
+    assert overrides["pipeline"]["mode"] == "front3d"
+
+
+@pytest.mark.parametrize(
+    ("override", "field"),
+    [
+        ("label.wall_clearance_m=0.2", "label.wall_clearance_m"),
+        ("label.batch_strategies=[free_space_grid]", "label.batch_strategies"),
+        ("front3d.source_scene_dir=data/3D-Front/3D-FRONT", "front3d.source_scene_dir"),
+        ("floorplan.sample_density_scale=128", "floorplan.sample_density_scale"),
+    ],
+)
+def test_cli_set_unknown_field_is_rejected(override: str, field: str) -> None:
+    root = find_project_root()
+    args = parse_args(["--set", override])
+
+    with pytest.raises(ValueError, match=field):
+        load_effective_config(root / "config" / "template.yaml", root, args)
 
 
 def write_front3d_fixture_obj(path: Path, *, material: str, height_axis_y: bool = False) -> None:
@@ -656,18 +695,22 @@ def make_front3d_runtime_fixture(tmp_path: Path) -> Path:
                 },
                 "front3d": {
                     "manifest": str(manifest_path),
-                    "source_scene_dir": str(source_scene_dir),
-                    "variant": "normalized",
+                    "source_dir": str(source_scene_dir),
+                    "arch_variant": "normalized",
                     "scene_ids": [scene_id],
-                    "scene_selection": "random",
+                    "select": "random",
                     "use_replace_jid": True,
                     "skip_missing_objects": True,
                 },
                 "floorplan": {
-                    "class_mask_enabled": True,
-                    "sample_density_scale": 0.01,
-                    "min_sample_points": 1000,
-                    "max_sample_points": 2000,
+                    "class_mask": {
+                        "enabled": True,
+                    },
+                    "sampling": {
+                        "density_scale": 0.01,
+                        "min_points": 1000,
+                        "max_points": 2000,
+                    },
                 },
             },
             sort_keys=False,
@@ -797,10 +840,10 @@ def test_front3d_batch_label_outputs(tmp_path: Path) -> None:
         [
             "--config",
             str(config_path),
-            "--label-batch-strategies",
-            "plane_grid,free_space_grid",
-            "--label-batch-grid-resolutions",
-            "0.1,0.2",
+            "--set",
+            "label.ue.variants.strategies=[panel,walk]",
+            "--set",
+            "label.ue.variants.grid_m=[0.1,0.2]",
         ]
     )
 
@@ -870,14 +913,14 @@ def test_front3d_connected_area_batch_outputs_four_modes(tmp_path: Path) -> None
         [
             "--config",
             str(config_path),
-            "--label-batch-strategies",
-            "plane_grid,free_space_grid",
-            "--label-batch-grid-resolutions",
-            "0.1",
-            "--label-batch-connected-area-enabled",
-            "true,false",
-            "--label-bs-strategy",
-            "geometry_center",
+            "--set",
+            "label.ue.variants.strategies=[panel,walk]",
+            "--set",
+            "label.ue.variants.grid_m=[0.1]",
+            "--set",
+            "label.ue.variants.connected=[true,false]",
+            "--set",
+            "label.bs.strategy=geometry_center",
         ]
     )
 
@@ -929,31 +972,30 @@ def test_generated_scene_outputs_and_sionna_load(tmp_path: Path) -> None:
     output_dir = tmp_path / "out"
     exit_code = main(
         [
-            "--mode",
-            "generated",
-            "--scenes",
-            "1",
-            "--run-name",
-            "smoke_generated",
-            "--output-dir",
-            str(output_dir),
-            "--seed",
-            "123",
-            "--min-tables",
-            "1",
-            "--max-tables",
-            "1",
-            "--floor-extras",
-            "1",
-            "--max-attempts",
-            "20",
-            "--floorplan-sample-density-scale",
-            "0.01",
-            "--floorplan-min-sample-points",
-            "1000",
-            "--floorplan-max-sample-points",
-            "2000",
-            "--validate-sionna",
+            "--set",
+            "pipeline.mode=generated",
+            "--set",
+            "pipeline.scenes=1",
+            "--set",
+            "pipeline.run_name=smoke_generated",
+            "--set",
+            f"pipeline.output_dir={output_dir}",
+            "--set",
+            "pipeline.seed=123",
+            "--set",
+            "placement.tables=[1,1]",
+            "--set",
+            "placement.floor_extras=1",
+            "--set",
+            "placement.max_attempts=20",
+            "--set",
+            "floorplan.sampling.density_scale=0.01",
+            "--set",
+            "floorplan.sampling.min_points=1000",
+            "--set",
+            "floorplan.sampling.max_points=2000",
+            "--set",
+            "validation.sionna=true",
         ]
     )
 
@@ -1024,15 +1066,15 @@ def test_generated_scene_outputs_and_sionna_load(tmp_path: Path) -> None:
     assert effective_config["pipeline"]["seed"] == 123
     assert "catalog" in effective_config["assets"]
     assert "manifest" not in effective_config["assets"]
-    assert effective_config["floorplan"]["min_sample_points"] == 1000
-    assert effective_config["floorplan"]["geometry_clean_enabled"] is False
-    assert effective_config["floorplan"]["height_mode"] == "heights"
-    assert effective_config["floorplan"]["heights_m"] == [1.6]
-    assert effective_config["floorplan"]["semantic_enabled"] is False
+    assert effective_config["floorplan"]["sampling"]["min_points"] == 1000
+    assert effective_config["floorplan"]["geometry"]["clean"]["enabled"] is False
+    assert effective_config["floorplan"]["height"]["mode"] == "heights"
+    assert effective_config["floorplan"]["height"]["values_m"] == [1.6]
+    assert effective_config["floorplan"]["semantic"]["enabled"] is False
     assert effective_config["quality"]["enabled"] is True
     assert effective_config["label"]["enabled"] is True
-    assert effective_config["label"]["ue_strategy"] == "free_space_grid"
-    assert effective_config["label"]["obstacle_strategy"] == "height_aware"
+    assert effective_config["label"]["ue"]["variants"]["strategies"] == ["walk"]
+    assert effective_config["label"]["ue"]["obstacle_strategy"] == "height_aware"
 
     json_files = [
         output_dir / "smoke_generated" / "manifest.json",

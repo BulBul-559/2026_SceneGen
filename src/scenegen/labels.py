@@ -18,7 +18,16 @@ from .floorplan import (
 )
 from .front3d import apply_world_offset, read_json, scenegen_transform_for_child
 from .geometry import point_in_triangle_2d, transform_point_with_matrix, triangle_area_and_up_normal
-from .models import BistroBaseScene, Front3DBaseScene, PlacedAsset, Rect2D, Room, SupportTriangle, Vec3
+from .models import (
+    BistroBaseScene,
+    Front3DBaseScene,
+    Front3DOpeningConfig,
+    PlacedAsset,
+    Rect2D,
+    Room,
+    SupportTriangle,
+    Vec3,
+)
 from .paths import portable_path
 
 
@@ -58,45 +67,82 @@ class LabelConfig:
     corridor_clearance_m: float
     overlay_enabled: bool
     fail_on_error: bool
+    openings: Front3DOpeningConfig
 
     @classmethod
-    def from_mapping(cls, payload: dict[str, object]) -> LabelConfig:
+    def from_mapping(cls, payload: dict[str, Any], openings: dict[str, Any] | Front3DOpeningConfig | None = None) -> LabelConfig:
+        ue = payload["ue"]
+        bs = payload["bs"]
+        variants = ue["variants"]
+        count = bs["count"]
+        center = bs["center"]
+        connected_area = ue["connected_area"]
+        overlay = payload["overlay"]
+        opening_config = opening_config_from_mapping(openings)
+        batch_strategies = tuple(label_strategy_to_internal(value) for value in variants["strategies"])
+        batch_grid_resolutions_m = tuple(float(value) for value in variants["grid_m"])
+        batch_connected_area_enabled = tuple(bool(value) for value in variants["connected"])
         return cls(
             enabled=bool(payload["enabled"]),
-            version=str(payload["version"]),
-            ue_height_m=float(payload["ue_height_m"]),
-            sampling_domain=str(payload["sampling_domain"]),
-            ue_strategy=str(payload["ue_strategy"]),
-            grid_resolution_m=float(payload["grid_resolution_m"]),
-            batch_strategies=tuple(str(value) for value in payload["batch_strategies"]),  # type: ignore[union-attr]
-            batch_grid_resolutions_m=tuple(float(value) for value in payload["batch_grid_resolutions_m"]),  # type: ignore[union-attr]
-            connected_area_enabled=bool(payload["connected_area_enabled"]),
-            batch_connected_area_enabled=tuple(bool(value) for value in payload["batch_connected_area_enabled"]),  # type: ignore[union-attr]
-            ue_clearance_m=float(payload["ue_clearance_m"]),
-            obstacle_strategy=str(payload["obstacle_strategy"]),
-            walk_ignore_low_obstacles_below_m=float(payload["walk_ignore_low_obstacles_below_m"]),
-            walk_blocking_classes=tuple(str(value) for value in payload["walk_blocking_classes"]),  # type: ignore[union-attr]
-            walk_min_component_area_m2=float(payload["walk_min_component_area_m2"]),
-            bs_strategy=str(payload["bs_strategy"]),
-            bs_count_strategy=str(payload["bs_count_strategy"]),
-            bs_per_room=int(payload["bs_per_room"]),
-            bs_min_per_room=int(payload["bs_min_per_room"]),
-            bs_max_per_room=int(payload["bs_max_per_room"]),
-            bs_min_room_area_m2=float(payload["bs_min_room_area_m2"]),
-            bs_area_per_point_m2=float(payload["bs_area_per_point_m2"]),
-            bs_height_m=float(payload["bs_height_m"]),
-            bs_ceiling_margin_m=float(payload["bs_ceiling_margin_m"]),
-            bs_wall_clearance_m=float(payload["bs_wall_clearance_m"]),
-            bs_center_initial_radius_m=float(payload["bs_center_initial_radius_m"]),
-            bs_center_radius_step_m=float(payload["bs_center_radius_step_m"]),
-            bs_center_max_radius_m=float(payload["bs_center_max_radius_m"]),
-            wall_clearance_m=float(payload["wall_clearance_m"]),
-            corridor_room_id=str(payload["corridor_room_id"]),
-            corridor_room_type=str(payload["corridor_room_type"]),
-            corridor_clearance_m=float(payload["corridor_clearance_m"]),
-            overlay_enabled=bool(payload["overlay_enabled"]),
+            version="1.1",
+            ue_height_m=float(ue["height_m"]),
+            sampling_domain=str(ue["sampling_domain"]),
+            ue_strategy=batch_strategies[0],
+            grid_resolution_m=batch_grid_resolutions_m[0],
+            batch_strategies=batch_strategies,
+            batch_grid_resolutions_m=batch_grid_resolutions_m,
+            connected_area_enabled=batch_connected_area_enabled[0],
+            batch_connected_area_enabled=batch_connected_area_enabled,
+            ue_clearance_m=float(ue["furniture_clearance_m"]),
+            obstacle_strategy=str(ue["obstacle_strategy"]),
+            walk_ignore_low_obstacles_below_m=float(ue["ignore_low_obstacles_below_m"]),
+            walk_blocking_classes=tuple(str(value) for value in ue["blocking_classes"]),
+            walk_min_component_area_m2=float(ue["min_component_area_m2"]),
+            bs_strategy=str(bs["strategy"]),
+            bs_count_strategy=str(count["strategy"]),
+            bs_per_room=int(count["per_room"]),
+            bs_min_per_room=int(count["min_per_room"]),
+            bs_max_per_room=int(count["max_per_room"]),
+            bs_min_room_area_m2=float(count["min_room_area_m2"]),
+            bs_area_per_point_m2=float(count["area_per_point_m2"]),
+            bs_height_m=float(bs["height_m"]),
+            bs_ceiling_margin_m=float(bs["ceiling_margin_m"]),
+            bs_wall_clearance_m=float(bs["wall_clearance_m"]),
+            bs_center_initial_radius_m=float(center["initial_radius_m"]),
+            bs_center_radius_step_m=float(center["radius_step_m"]),
+            bs_center_max_radius_m=float(center["max_radius_m"]),
+            wall_clearance_m=float(ue["wall_clearance_m"]),
+            corridor_room_id=str(connected_area["room_id"]),
+            corridor_room_type=str(connected_area["room_type"]),
+            corridor_clearance_m=float(ue["wall_clearance_m"]),
+            overlay_enabled=bool(overlay["enabled"]),
             fail_on_error=bool(payload["fail_on_error"]),
+            openings=opening_config,
         )
+
+
+def label_strategy_to_internal(value: object) -> str:
+    strategy = str(value).strip()
+    if strategy == "panel":
+        return "plane_grid"
+    if strategy == "walk":
+        return "free_space_grid"
+    raise ValueError("label.ue.variants.strategies values must be 'panel' or 'walk'")
+
+
+def opening_config_from_mapping(payload: dict[str, Any] | Front3DOpeningConfig | None) -> Front3DOpeningConfig:
+    if payload is None:
+        return Front3DOpeningConfig()
+    if isinstance(payload, Front3DOpeningConfig):
+        return payload
+    return Front3DOpeningConfig(
+        mode=str(payload["mode"]),
+        dilation_m=float(payload["dilation_m"]),
+        floor_tolerance_m=float(payload["floor_tolerance_m"]),
+        min_height_m=float(payload["min_height_m"]),
+        include_doors_as_wall=bool(payload["include_doors_as_wall"]),
+        include_windows_as_wall=bool(payload["include_windows_as_wall"]),
+    )
 
 
 @dataclass(frozen=True)
@@ -901,10 +947,18 @@ def generate_bs_points_for_room(
         ((min_x + max_x) / 2.0, max_y - inset),
         (min_x + inset, (min_y + max_y) / 2.0),
     ]
-    selected_xy = nearest_unique_points(targets, free_points, bs_count)
     ceiling_z = context.ceiling_z if context.ceiling_z is not None else context.floor_z + config.bs_height_m + 1.0
     bs_z = min(config.bs_height_m, ceiling_z - config.bs_ceiling_margin_m)
     bs_z = max(context.floor_z + 0.3, bs_z)
+    bs_candidates = [
+        (x, y)
+        for x, y in free_points
+        if point_has_wall_clearance(x, y, context.floor_triangles, config.bs_wall_clearance_m)
+        and not point_in_obstacles(x, y, bs_z, context.obstacles, "footprint_column")
+    ]
+    if not bs_candidates:
+        return []
+    selected_xy = nearest_unique_points(targets, bs_candidates, bs_count)
     return [(x, y, bs_z) for x, y in selected_xy]
 
 
@@ -1230,9 +1284,9 @@ def generate_front3d_global_subtractive_points(
             mesh_type,
             variant=variant,
             base_scene=base_scene,
-            opening_mode="doors",
-            floor_tolerance_m=0.25,
-            min_height_m=max(1.0, config.ue_height_m - 0.1),
+            opening_mode=config.openings.mode,
+            floor_tolerance_m=config.openings.floor_tolerance_m,
+            min_height_m=config.openings.min_height_m,
         )
         if door_kind is not None:
             door_mesh_count += 1
@@ -1250,7 +1304,11 @@ def generate_front3d_global_subtractive_points(
         if "floor" in mesh_type.lower():
             target_draw = indoor_draw
             floor_mesh_count += 1
-        elif front3d_mesh_type_is_wall(mesh_type, include_doors_as_wall=False, include_windows_as_wall=True):
+        elif front3d_mesh_type_is_wall(
+            mesh_type,
+            include_doors_as_wall=config.openings.include_doors_as_wall,
+            include_windows_as_wall=config.openings.include_windows_as_wall,
+        ):
             target_draw = wall_draw
             wall_mesh_count += 1
         else:
@@ -1266,6 +1324,9 @@ def generate_front3d_global_subtractive_points(
             max_y=max_y,
             resolution=resolution,
         )
+
+    if config.openings.dilation_m > 0:
+        door_image = dilate_binary_image(door_image, config.openings.dilation_m, resolution)
 
     indoor_layer = np.asarray(indoor_image, dtype=np.uint8) > 0
     door_layer = np.asarray(door_image, dtype=np.uint8) > 0
@@ -1347,9 +1408,15 @@ def generate_front3d_global_subtractive_points(
         "output_bounds_clamped_count": output_bounds_clamped_count,
         "obstacle_rejected_count": obstacle_rejected_count,
         "kept_count": len(free_points),
-        "door_opening_mode": "doors",
+        "door_opening_mode": config.openings.mode,
+        "opening_mode": config.openings.mode,
+        "opening_dilation_m": config.openings.dilation_m,
+        "opening_floor_tolerance_m": config.openings.floor_tolerance_m,
+        "opening_min_height_m": config.openings.min_height_m,
+        "opening_include_doors_as_wall": config.openings.include_doors_as_wall,
+        "opening_include_windows_as_wall": config.openings.include_windows_as_wall,
         "door_marking_policy": "door_free_before_wall_dilation_no_restore",
-        "windows_used_as_openings": False,
+        "windows_used_as_openings": config.openings.mode in {"windows", "doors_and_windows"},
         "floor_mesh_count": floor_mesh_count,
         "wall_mesh_count": wall_mesh_count,
         "door_mesh_count": door_mesh_count,

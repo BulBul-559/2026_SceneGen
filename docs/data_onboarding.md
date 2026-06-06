@@ -58,8 +58,8 @@ catalog 是资产对象列表。每个资产对象只保留运行时真正需要
 
 `front3d` 默认还会执行两个轻量修正：
 
-- `normalize_positive_xy: true`: 将合成结果整体平移到 XY 正象限，保持 floorplan 左下角为 `(0, 0)`。
-- `ground_objects: true`: 对 bbox 低于地面的家具做 Z 方向抬升，避免模型局部原点导致物体沉入地面。
+- `front3d.positive_xy: true`: 将合成结果整体平移到 XY 正象限，保持 floorplan 左下角为 `(0, 0)`。
+- `front3d.ground: true`: 对 bbox 低于地面的家具做 Z 方向抬升，避免模型局部原点导致物体沉入地面。
 
 后续第二阶段如果要做“基于 3D-FRONT 资产池的随机生成”，可以继续复用第一阶段整理出的物体 JSON 和 manifest，但需要新增随机布局策略、支撑面规则和更严格的碰撞/可达性检查。
 
@@ -111,5 +111,5 @@ uv run python tools/prepare_front3d_phase1.py \
 整理完成后，可以用当前 `front3d` 模式合成已有组合场景：
 
 ```bash
-uv run scenegen --mode front3d --scenes 3 --run-name front3d_preview --output-dir results
+uv run scenegen --set pipeline.mode=front3d --set pipeline.scenes=3 --set pipeline.run_name=front3d_preview
 ```
