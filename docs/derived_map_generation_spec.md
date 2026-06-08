@@ -666,6 +666,36 @@ derived_maps/
 
 也可使用 `manifest.csv`，但 `jsonl` 更适合保留可扩展字段。
 
+SceneGen 当前第一版脚本使用更贴近训练输入的 compact dataset 结构：
+
+```text
+front3d_0000/
+  floorplan.png
+  mask.npy
+  mask.png
+  mask_preview.png
+  geometry.npz
+  propagation.npz
+  label_bs.json
+  metadata.json
+manifest.jsonl
+summary.json
+build_report.json
+```
+
+如果主生产任务和补跑任务分别构建了 compact dataset，可以用合并脚本重编号并补齐目标数量：
+
+```bash
+uv run python scripts/merge_vision_datasets.py \
+  /path/to/primary_vision_dataset \
+  /path/to/supplement_vision_dataset \
+  /path/to/final_vision_dataset \
+  --target-count 3000 \
+  --overwrite
+```
+
+合并结果保持一级 scene 目录，例如 `front3d_0000` 到 `front3d_2999`。每个 scene 的 `metadata.json` 会增加 `merged_dataset` 字段，记录 `source_dataset_dir`、`source_scene_key`、`source_scene_id` 和 `source_role`，便于从最终数据集反查来源。
+
 ## 9. 推荐 NPZ Schema
 
 ### 9.1 Geometry NPZ

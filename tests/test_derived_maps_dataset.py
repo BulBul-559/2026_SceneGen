@@ -27,6 +27,7 @@ def load_script(name: str) -> Any:
 
 derived = load_script("generate_derived_maps")
 dataset = load_script("build_vision_dataset")
+merge = load_script("merge_vision_datasets")
 
 
 def write_json(path: Path, payload: object) -> None:
@@ -173,3 +174,100 @@ def test_generate_maps_and_build_dataset_copy_only_training_files(tmp_path: Path
     label_bs = json.loads((target / "label_bs.json").read_text(encoding="utf-8"))
     assert label_bs["bs_count"] == 1
     assert label_bs["bs_points"][0]["label"] == "BS_A"
+
+
+def write_compact_dataset_scene(dataset_dir: Path, scene_key: str, scene_id: str) -> None:
+    scene_dir = dataset_dir / scene_key
+    scene_dir.mkdir(parents=True)
+    for name in [
+        "floorplan.png",
+        "mask.npy",
+        "mask.png",
+        "mask_preview.png",
+        "geometry.npz",
+        "propagation.npz",
+    ]:
+        (scene_dir / name).write_bytes(f"{scene_key}:{name}".encode("utf-8"))
+    write_json(
+        scene_dir / "label_bs.json",
+        {
+            "schema_version": "scenegen.vision_dataset.label_bs.v1",
+            "scene_key": scene_key,
+            "scene_id": scene_id,
+            "bs_count": 1,
+            "bs_positions": [[0.0, 0.0, 2.4]],
+            "bs_points": [{"label": "BS_CENTER", "position_m": [0.0, 0.0, 2.4]}],
+        },
+    )
+    write_json(
+        scene_dir / "metadata.json",
+        {
+            "schema_version": "scenegen.vision_dataset.scene.v1",
+            "scene_key": scene_key,
+            "scene_id": scene_id,
+            "grid_shape": [4, 5],
+            "resolution_m_per_pixel": 0.05,
+        },
+    )
+
+
+def append_manifest_record(dataset_dir: Path, scene_key: str, scene_id: str) -> None:
+    record = {
+        "status": "copied",
+        "scene_key": scene_key,
+        "scene_id": scene_id,
+        "target_scene_dir": scene_key,
+        "height": 4,
+        "width": 5,
+        "meter_per_pixel": 0.05,
+        "bs_count": 1,
+        "files": {
+            "floorplan": "floorplan.png",
+            "mask_npy": "mask.npy",
+            "mask_png": "mask.png",
+            "mask_preview": "mask_preview.png",
+            "geometry": "geometry.npz",
+            "propagation": "propagation.npz",
+            "label_bs": "label_bs.json",
+        },
+    }
+    with (dataset_dir / "manifest.jsonl").open("a", encoding="utf-8") as file:
+        file.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+
+
+def make_compact_dataset(dataset_dir: Path, scenes: list[tuple[str, str]]) -> None:
+    dataset_dir.mkdir(parents=True)
+    (dataset_dir / "manifest.jsonl").write_text("", encoding="utf-8")
+    for scene_key, scene_id in scenes:
+        write_compact_dataset_scene(dataset_dir, scene_key, scene_id)
+        append_manifest_record(dataset_dir, scene_key, scene_id)
+
+
+def test_merge_vision_datasets_prefers_primary_and_renumbers(tmp_path: Path) -> None:
+    primary = tmp_path / "primary"
+    supplement = tmp_path / "supplement"
+    output = tmp_path / "merged"
+    make_compact_dataset(primary, [("front3d_0000", "scene-a"), ("front3d_0001", "scene-b")])
+    make_compact_dataset(supplement, [("front3d_3000", "scene-c"), ("front3d_3001", "scene-d")])
+
+    summary = merge.merge_datasets(
+        primary,
+        supplement,
+        output,
+        target_count=3,
+        overwrite=False,
+        skip_duplicate_scene_ids=True,
+        log_every=0,
+    )
+
+    assert summary["scene_count"] == 3
+    assert summary["role_counts"] == {"primary": 2, "supplement": 1}
+    assert sorted(path.name for path in output.glob("front3d_*")) == ["front3d_0000", "front3d_0001", "front3d_0002"]
+    metadata = json.loads((output / "front3d_0002" / "metadata.json").read_text(encoding="utf-8"))
+    label = json.loads((output / "front3d_0002" / "label_bs.json").read_text(encoding="utf-8"))
+    assert metadata["scene_key"] == "front3d_0002"
+    assert metadata["merged_dataset"]["source_scene_key"] == "front3d_3000"
+    assert metadata["merged_dataset"]["source_role"] == "supplement"
+    assert label["scene_key"] == "front3d_0002"
+    manifest_records = [json.loads(line) for line in (output / "manifest.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [record["scene_key"] for record in manifest_records] == ["front3d_0000", "front3d_0001", "front3d_0002"]
