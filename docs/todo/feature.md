@@ -9,10 +9,11 @@
 | 1 | FEAT-LABEL-002 | 增加 LoS/NLoS 点位验证 | 对 BS/UE 点位做轻量 ray test 或 map 级统计，辅助定位实验筛选。 |
 | 2 | FEAT-FRONT3D-001 | 基于 3D-FRONT 资产池随机生成场景 | 从复现原始组合扩展到可控随机布局。 |
 | 3 | FEAT-LABEL-001 | 扩展 BS 布点策略 | 增加 ceiling AP、wall-mounted AP、覆盖优化等策略。 |
-| 4 | FEAT-MAT-001 | 精细化电磁材质标注 | 利用 category、material、texture 信息提高 Sionna 材质置信度。 |
-| 5 | FEAT-GEO-001 | 实现真实 top-down ray casting backend | 引入稳定 ray/BVH backend，支持逐像素 XY column 查询。 |
-| 6 | FEAT-GEO-002 | 实现保守栅格化 | 降低细墙、斜墙、小三角在投影中的漏检概率。 |
-| 7 | FEAT-DATASET-001 | 增加数据集划分脚本 | 为训练集生成 train/val/test split，保持和场景生成解耦。 |
+| 4 | FEAT-RF-001 | 增加 RF proxy 派生监督图 | 在 LoS/wall-count 之外生成 wall thickness、proxy pathloss、material mask 等可选监督。 |
+| 5 | FEAT-MAT-001 | 精细化电磁材质标注 | 利用 category、material、texture 信息提高 Sionna 材质置信度。 |
+| 6 | FEAT-GEO-001 | 实现真实 top-down ray casting backend | 引入稳定 ray/BVH backend，支持逐像素 XY column 查询。 |
+| 7 | FEAT-GEO-002 | 实现保守栅格化 | 降低细墙、斜墙、小三角在投影中的漏检概率。 |
+| 8 | FEAT-DATASET-001 | 增加数据集划分脚本 | 为训练集生成 train/val/test split，保持和场景生成解耦。 |
 
 ## Details
 
@@ -20,7 +21,7 @@
 
 Goal: 为 label 中的 BS/UE 点位增加传播可见性统计，例如 LoS/NLoS 比例、每个 BS 覆盖的有效 UE 数量、跨房间可见性等。
 
-Affected modules: `src/scenegen/labels.py`、`scripts/generate_derived_maps.py`、未来主系统 map stage。
+Affected modules: `src/scenegen/labels.py`、`src/scenegen/postprocess/derived_maps.py`、`scripts/generate_derived_maps.py`。
 
 Acceptance: 生成结果中能记录每个场景、每个 BS 或每个 label variant 的 LoS/NLoS 摘要；验证失败不应默认中断生成，但应进入质量报告。
 
@@ -45,6 +46,16 @@ Affected modules: label 生成模块、配置模板、label overlay 可视化。
 Acceptance: 支持 ceiling AP、wall-mounted AP、按房间功能布点、按覆盖半径或几何中心优化布点；各策略可以和 `BS_CENTER` 同时启用。
 
 Notes: 策略输出应保持 `bs_points`、`bs_positions` 和稳定 label 名称。
+
+### FEAT-RF-001: 增加 RF proxy 派生监督图
+
+Goal: 在当前 `geometry.npz` / `propagation.npz` 的 SDF、LoS、wall-count 之外，增加更接近无线传播规律的可选 proxy 监督。
+
+Affected modules: `src/scenegen/postprocess/derived_maps.py`、class mask / material mask 输出、视觉数据集 schema。
+
+Acceptance: 可配置生成 `wall_thickness_map`、`proxy_pathloss_map`、`material_mask` 等新 map；默认关闭，不破坏现有 compact dataset schema；metadata 记录 map 参数和类别/材质映射。
+
+Notes: 第一版可以继续不调用 Sionna，基于 class mask、墙体厚度估计、BS 距离和材质类别构造轻量近似监督。
 
 ### FEAT-MAT-001: 精细化电磁材质标注
 

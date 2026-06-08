@@ -267,10 +267,6 @@ uv run python tools/prepare_front3d_phase1.py \
 - semantic floorplan 和 geometry clean 已移除；当前主训练输入优先使用高密度几何高度层投影和可选 class mask。
 - 3D-FRONT 的电磁材质目前主要靠类别/材质名映射，低置信度结果需要后续抽样校正。
 
-## 后续可能方向
+## 后续方向
 
-- 基于 3D-FRONT 资产池做随机生成模式，而不只是复现已有组合场景。
-- 更严格的 transmitter / receiver 采样策略。
-- 数据集划分、批量生成 manifest 和训练集索引。
-- 更细的电磁材质标注审核流程。
-- 对 front3d 房间做更精确的可用区域、拥挤度和可达性检查。
+活跃 TODO 统一维护在 `docs/todo/README.md`。当前优先方向包括统一 label/class mask 中间结果、完善 dataset merge/quality filtering、增加 LoS/NLoS 统计和 RF proxy maps、基于 3D-FRONT 资产池随机生成场景，以及更细的材质标注审核。
