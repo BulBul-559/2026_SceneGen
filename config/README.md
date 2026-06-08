@@ -36,6 +36,7 @@ uv run scenegen \
 | `output_dir` | path | `results` | run 输出根目录。 |
 | `run_name` | string / `null` | `null` | run 目录名；为 `null` 时使用时间戳。 |
 | `clean` | boolean | `false` | 生成前是否清理 `output_dir` 下已有内容。 |
+| `index_start` | integer, `>=0` | `0` | 输出场景编号起点；例如设为 `3000` 时生成 `front3d_3000` 起的目录。 |
 
 ## assets
 
@@ -60,6 +61,7 @@ uv run scenegen \
 | `object_variant` | `raw` / `normalized` | `raw` | 室内物体使用的整理版本。 |
 | `scene_ids` | list of string | `[]` | 指定合成 scene id；为空时按 `select` 选择。 |
 | `select` | `random` / `sequential` | `random` | 自动选场景策略。 |
+| `start_index` | integer, `>=0` | `0` | `select: sequential` 时从 manifest 第几个 scene id 开始选择；用于补跑时避免和前一批重复。 |
 | `use_replace_jid` | boolean | `true` | child 有 `replace_jid` 时优先使用 replacement 模型。 |
 | `skip_missing_objects` | boolean | `true` | 缺失家具模型时跳过并记录。 |
 | `positive_xy` | boolean | `true` | 将合成场景整体平移到 XY 正象限。 |

@@ -18,6 +18,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "output_dir": "results",
         "run_name": None,
         "clean": False,
+        "index_start": 0,
     },
     "assets": {
         "catalog": "data/catalogs/bistro.v1.json",
@@ -36,6 +37,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "object_variant": "raw",
         "scene_ids": [],
         "select": "random",
+        "start_index": 0,
         "use_replace_jid": True,
         "skip_missing_objects": True,
         "positive_xy": True,
@@ -316,6 +318,7 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     pipeline["scenes"] = int(pipeline["scenes"])
     pipeline["seed"] = int(pipeline["seed"])
     pipeline["clean"] = as_bool(pipeline["clean"], "pipeline.clean")
+    pipeline["index_start"] = int(pipeline["index_start"])
 
     assets = normalized["assets"]
     assets["catalog"] = str(resolve_path(repo_root, assets["catalog"]))
@@ -331,6 +334,7 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     front3d["object_variant"] = str(front3d["object_variant"])
     front3d["scene_ids"] = parse_string_sequence(front3d.get("scene_ids"), "front3d.scene_ids") if front3d.get("scene_ids") else []
     front3d["select"] = str(front3d["select"])
+    front3d["start_index"] = int(front3d["start_index"])
     front3d["use_replace_jid"] = as_bool(front3d["use_replace_jid"], "front3d.use_replace_jid")
     front3d["skip_missing_objects"] = as_bool(front3d["skip_missing_objects"], "front3d.skip_missing_objects")
     front3d["positive_xy"] = as_bool(front3d["positive_xy"], "front3d.positive_xy")
@@ -442,6 +446,8 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("pipeline.mode must be 'generated', 'bistro', or 'front3d'")
     if pipeline["scenes"] < 1:
         raise ValueError("pipeline.scenes must be at least 1")
+    if pipeline["index_start"] < 0:
+        raise ValueError("pipeline.index_start must be non-negative")
     run_name = pipeline.get("run_name")
     if run_name is not None:
         run_name = str(run_name)
@@ -477,6 +483,8 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("front3d.object_variant must be 'raw' or 'normalized'")
     if front3d["select"] not in {"random", "sequential"}:
         raise ValueError("front3d.select must be 'random' or 'sequential'")
+    if front3d["start_index"] < 0:
+        raise ValueError("front3d.start_index must be non-negative")
     precheck = front3d["precheck"]
     if precheck["max_attempts_per_scene"] < 1:
         raise ValueError("front3d.precheck.max_attempts_per_scene must be at least 1")
@@ -645,6 +653,7 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         output_dir=Path(pipeline["output_dir"]),
         run_name=pipeline["run_name"],
         clean=pipeline["clean"],
+        scene_index_start=pipeline["index_start"],
         asset_catalog=Path(assets["catalog"]),
         bistro_base_dir=Path(bistro["base_dir"]),
         forbidden_xy_rects=parse_forbidden_rects(bistro.get("forbidden_xy")),
@@ -654,6 +663,7 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         front3d_object_variant=front3d["object_variant"],
         front3d_scene_ids=front3d["scene_ids"],
         front3d_scene_selection=front3d["select"],
+        front3d_start_index=front3d["start_index"],
         front3d_use_replace_jid=front3d["use_replace_jid"],
         front3d_skip_missing_objects=front3d["skip_missing_objects"],
         front3d_normalize_positive_xy=front3d["positive_xy"],

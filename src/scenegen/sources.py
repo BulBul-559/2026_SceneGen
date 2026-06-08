@@ -120,6 +120,7 @@ class Front3DSceneSource:
             object_variant=args.front3d_object_variant,
             scene_ids=tuple(args.front3d_scene_ids),
             scene_selection=args.front3d_scene_selection,
+            start_index=args.front3d_start_index,
             use_replace_jid=args.front3d_use_replace_jid,
             skip_missing_objects=args.front3d_skip_missing_objects,
             normalize_positive_xy=args.front3d_normalize_positive_xy,
@@ -128,7 +129,7 @@ class Front3DSceneSource:
         self.index = Front3DIndex(config)
         self.config = config
         self._selection_rng = random.Random(args.seed)
-        self._selection_cursor = 0
+        self._selection_cursor = int(config.start_index) if not config.scene_ids else 0
         self._rejected_scene_ids: set[str] = set()
 
     def next_scene_id(self) -> str:

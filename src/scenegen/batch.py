@@ -152,6 +152,7 @@ def plan_tasks(effective_config: dict[str, Any], workers: int) -> list[dict[str,
         object_variant=str(front3d["object_variant"]),
         scene_ids=tuple(front3d["scene_ids"]),
         scene_selection=str(front3d["select"]),
+        start_index=int(front3d["start_index"]),
         use_replace_jid=bool(front3d["use_replace_jid"]),
         skip_missing_objects=bool(front3d["skip_missing_objects"]),
         normalize_positive_xy=bool(front3d["positive_xy"]),
@@ -160,19 +161,29 @@ def plan_tasks(effective_config: dict[str, Any], workers: int) -> list[dict[str,
     index = Front3DIndex(config)
     count = int(effective_config["pipeline"]["scenes"])
     seed = int(effective_config["pipeline"]["seed"])
-    scene_ids = choose_scene_ids(index.scene_ids, config.scene_ids, config.scene_selection, count, random.Random(seed))
+    output_index_start = int(effective_config["pipeline"]["index_start"])
+    scene_ids = choose_scene_ids(
+        index.scene_ids,
+        config.scene_ids,
+        config.scene_selection,
+        count,
+        random.Random(seed),
+        start_index=config.start_index,
+    )
     seed_rng = random.Random(seed)
     tasks: list[dict[str, Any]] = []
-    for target_index, scene_id in enumerate(scene_ids):
+    for plan_index, scene_id in enumerate(scene_ids):
+        target_index = output_index_start + plan_index
         scene_key = f"front3d_{target_index:04d}"
         tasks.append(
             {
                 "task_id": scene_key,
+                "plan_index": plan_index,
                 "target_index": target_index,
                 "scene_key": scene_key,
                 "scene_id": scene_id,
                 "scene_seed": seed_rng.randrange(1, 2**31),
-                "shard_id": target_index % workers,
+                "shard_id": plan_index % workers,
                 "status_initial": "pending",
             }
         )
@@ -203,10 +214,12 @@ def command_for_task(
         f"pipeline.output_dir={worker_output_dir}",
         f"pipeline.run_name={task['task_id']}",
         "pipeline.scenes=1",
+        "pipeline.index_start=0",
         "pipeline.clean=false",
         f"pipeline.seed={int(task['scene_seed'])}",
         f"front3d.scene_ids={json.dumps([task['scene_id']])}",
         "front3d.select=sequential",
+        "front3d.start_index=0",
     ]
     command = [sys.executable, "-m", "scenegen.cli", "--config", str(config_path)]
     for value in set_values:

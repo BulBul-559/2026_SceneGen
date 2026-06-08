@@ -42,6 +42,7 @@ class Front3DConfig:
     object_variant: str
     scene_ids: tuple[str, ...]
     scene_selection: str
+    start_index: int
     use_replace_jid: bool
     skip_missing_objects: bool
     normalize_positive_xy: bool
@@ -282,6 +283,7 @@ def choose_scene_ids(
     selection: str,
     count: int,
     rng: random.Random,
+    start_index: int = 0,
 ) -> list[str]:
     if explicit_scene_ids:
         missing = [scene_id for scene_id in explicit_scene_ids if scene_id not in available_scene_ids]
@@ -291,7 +293,7 @@ def choose_scene_ids(
     if not available_scene_ids:
         raise ValueError("3D-FRONT manifest does not contain any scene ids.")
     if selection == "sequential":
-        return [available_scene_ids[index % len(available_scene_ids)] for index in range(count)]
+        return [available_scene_ids[(start_index + index) % len(available_scene_ids)] for index in range(count)]
     if selection != "random":
         raise ValueError("front3d.scene_selection must be 'random' or 'sequential'")
     return [rng.choice(available_scene_ids) for _ in range(count)]

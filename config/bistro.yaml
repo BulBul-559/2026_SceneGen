@@ -5,6 +5,7 @@ pipeline:
   output_dir: results
   run_name: null
   clean: false
+  index_start: 0
 
 assets:
   catalog: data/catalogs/bistro.v1.json

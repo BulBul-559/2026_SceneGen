@@ -181,7 +181,7 @@ def main(argv: list[str] | None = None) -> int:
     precheck_failed = False
     stop_generation = False
     while len(scene_records) < args.scenes and not stop_generation:
-        scene_index = len(scene_records)
+        scene_index = int(args.scene_index_start) + len(scene_records)
         max_attempts = (
             int(args.front3d_precheck_max_attempts_per_scene)
             if args.mode == "front3d" and bool(args.front3d_precheck_enabled)
