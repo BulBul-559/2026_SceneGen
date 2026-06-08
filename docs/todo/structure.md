@@ -6,24 +6,23 @@
 
 | Rank | ID | TODO | Summary |
 |---:|---|---|---|
-| 1 | STR-MAPDATA-001 | 将派生 map 和视觉数据集构建接入主系统 | 把当前独立脚本升级为 SceneGen 可配置生产阶段。 |
-| 2 | STR-MASK-001 | 统一 label 与 class mask 的中间 mask | 让 indoor、wall、furniture、opening、free-space 判定共享同一套结果。 |
-| 3 | STR-DATASET-001 | 增加正式数据集合并与重编号流程 | 合并主任务和 continue 任务，形成真实数量的数据集。 |
-| 4 | STR-GEO-001 | 拆分 floorplan 分层投影 | 输出 architecture、wall、floor、furniture 等可复用层。 |
-| 5 | STR-QUALITY-001 | 建立数据质量分级 | 在 precheck 之外输出 usable、needs_review、bad_* 等等级。 |
-| 6 | STR-TEST-001 | 增加 floorplan/label 回归基准 | 用 fixture 和小 golden image/hash 防止重构改变语义。 |
+| 1 | STR-MASK-001 | 统一 label 与 class mask 的中间 mask | 让 indoor、wall、furniture、opening、free-space 判定共享同一套结果。 |
+| 2 | STR-DATASET-001 | 增加正式数据集合并与重编号流程 | 合并主任务和 continue 任务，形成真实数量的数据集。 |
+| 3 | STR-GEO-001 | 拆分 floorplan 分层投影 | 输出 architecture、wall、floor、furniture 等可复用层。 |
+| 4 | STR-QUALITY-001 | 建立数据质量分级 | 在 precheck 之外输出 usable、needs_review、bad_* 等等级。 |
+| 5 | STR-TEST-001 | 增加 floorplan/label 回归基准 | 用 fixture 和小 golden image/hash 防止重构改变语义。 |
 
 ## Details
 
 ### STR-MAPDATA-001: 将派生 map 和视觉数据集构建接入主系统
 
-Goal: 把当前独立的 `scripts/generate_derived_maps.py`、`scripts/build_vision_dataset.py` 和 `scripts/visualize_derived_maps.py` 能力整合进 SceneGen 主生产系统。
+Status: Completed in the batch path. `scenegen-batch` now supports configurable `postprocess.maps` and `postprocess.dataset` stages; standalone scripts remain as thin/debug-friendly entrypoints.
 
-Affected modules: `src/scenegen/batch.py`、`src/scenegen/cli.py`、配置模板、生产日志系统、`scripts/` 数据集工具。
+Affected modules: `src/scenegen/batch.py`、`src/scenegen/postprocess/`、配置模板、生产日志系统、`scripts/` 数据集工具。
 
-Acceptance: 主系统支持可配置阶段，例如 `scenes -> derived_maps -> vision_dataset -> merge_dataset`；每个阶段都有 manifest、JSONL event log、resume 状态、失败队列和耗时统计；可以在一个任务中完成场景生成、map 生成、数据集构建，或从已有 run 恢复继续处理。
+Delivered: 主系统支持 `scenes -> derived_maps -> vision_dataset`；后处理阶段有 `postprocess_state.json`、`postprocess_events.jsonl`、`postprocess_failures.jsonl`、`postprocess_report.json` 和独立 log；maps 阶段支持多 worker 和 resume；dataset 阶段构建 compact vision dataset。
 
-Notes: 当前 3000 主任务和 320 continue 任务的后处理仍依赖独立脚本。主系统整合时要保留脚本入口，方便离线修复和单独调试。
+Remaining: 跨 run 的 `merge_dataset` 仍保留为独立脚本，后续由 `STR-DATASET-001` 继续跟踪。
 
 ### STR-MASK-001: 统一 label 与 class mask 的中间 mask
 

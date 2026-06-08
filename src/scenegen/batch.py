@@ -21,6 +21,7 @@ from .config import load_effective_config, save_effective_config
 from .exporters import collect_label_floorplans, collect_raw_floorplans, collect_scene_objs, make_timestamp
 from .front3d import Front3DConfig, Front3DIndex, choose_scene_ids
 from .paths import find_project_root, portable_path
+from .postprocess.pipeline import run_batch_postprocess
 from .quality import aggregate_run_statistics, write_json_report
 from .runlog import append_jsonl, atomic_write_json
 
@@ -518,9 +519,13 @@ def build_final_manifest(
         },
         "scenes": records,
     }
+    write_manifest_files(paths, manifest)
+    return manifest
+
+
+def write_manifest_files(paths: BatchPaths, manifest: dict[str, Any]) -> None:
     for name in ("manifest.json", "manifest_front3d.json", "manifest_batch.json"):
         (paths.run_dir / name).write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-    return manifest
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -619,12 +624,52 @@ def main(argv: list[str] | None = None) -> int:
         max_retries=args.max_retries,
     )
     failed_count = int(manifest["failed_scenes"])
+    try:
+        postprocess_report = run_batch_postprocess(
+            run_dir=paths.run_dir,
+            effective_config=effective_config,
+            batch_workers=args.workers,
+        )
+    except Exception as exc:
+        state["status"] = "failed"
+        state["succeeded"] = len(records)
+        state["failed"] = failed_count
+        state["postprocess_status"] = "failed"
+        state["postprocess_error_type"] = type(exc).__name__
+        state["postprocess_error"] = str(exc)
+        state["completed_at"] = now_iso()
+        write_state(paths, state)
+        event(paths, "batch_failed", status=state["status"], reason="postprocess_failed", error_type=type(exc).__name__, error=str(exc))
+        print(f"batch manifest: {paths.run_dir / 'manifest_batch.json'}")
+        print(f"postprocess failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+
+    if postprocess_report.get("enabled"):
+        manifest["postprocess"] = {
+            "status": postprocess_report.get("status"),
+            "report": "batch/postprocess_report.json",
+            "state": "batch/postprocess_state.json",
+            "events": "batch/postprocess_events.jsonl",
+            "failures": "batch/postprocess_failures.jsonl",
+            "stages": postprocess_report.get("stages") or {},
+            "files": postprocess_report.get("files") or {},
+        }
+        write_manifest_files(paths, manifest)
+
     state["status"] = "completed" if failed_count == 0 else "failed"
     state["succeeded"] = len(records)
     state["failed"] = failed_count
+    state["postprocess_status"] = postprocess_report.get("status")
     state["completed_at"] = now_iso()
     write_state(paths, state)
-    event(paths, "batch_completed", status=state["status"], succeeded=len(records), failed=failed_count)
+    event(
+        paths,
+        "batch_completed",
+        status=state["status"],
+        succeeded=len(records),
+        failed=failed_count,
+        postprocess_status=postprocess_report.get("status"),
+    )
     print(f"batch manifest: {paths.run_dir / 'manifest_batch.json'}")
     return 0 if failed_count == 0 else 1
 

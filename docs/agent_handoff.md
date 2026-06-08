@@ -129,6 +129,23 @@ uv run scenegen-batch \
   --set pipeline.run_name=front3d_production_2000
 ```
 
+正式生产时也可以在 batch 末尾自动生成 derived maps 和 compact vision dataset：
+
+```bash
+uv run scenegen-batch \
+  --config config/tasks/front3d_full_simulation.yaml \
+  --workers 8 \
+  --max-retries 1 \
+  --set pipeline.scenes=2000 \
+  --set pipeline.run_name=front3d_production_2000 \
+  --set postprocess.maps.enabled=true \
+  --set postprocess.dataset.enabled=true \
+  --set postprocess.maps.bs_label.mode=name \
+  --set postprocess.maps.bs_label.name=label_panel_0p1
+```
+
+`postprocess` 是 batch-only 配置，默认关闭。`maps.bs_label.name=label_panel_0p1` 是当前正式视觉数据集推荐的 BS 来源，避免把不同 UE 采样密度和策略的 label variant 中的 BS 重复合并。
+
 同名任务恢复：
 
 ```bash
@@ -200,6 +217,10 @@ summary/
 batch/
   scene_plan.jsonl
   state.json
+  postprocess_state.json
+  postprocess_events.jsonl
+  postprocess_failures.jsonl
+  postprocess_report.json
   logs/events.jsonl
   logs/timings.jsonl
   logs/workers/worker_*.log
@@ -210,6 +231,8 @@ batch/
   worker_runs/
 manifest_batch.json
 ```
+
+开启 `postprocess.maps.enabled` 后，每个 scene 下会有 `maps/geometry.npz`、`maps/propagation.npz`、`maps/metadata.json`。开启 `postprocess.dataset.enabled` 后，默认输出 `datasets/<run_name>_vision/`，每个样本只保留 `floorplan.png`、`mask.npy/png`、`mask_preview.png`、`geometry.npz`、`propagation.npz`、`label_bs.json` 和 `metadata.json`。
 
 ## 3D-FRONT 数据阶段
 

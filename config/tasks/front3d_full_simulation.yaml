@@ -107,3 +107,24 @@ floorplan:
     max_points: 25000000
   preview:
     tile_size_px: 360
+
+postprocess:
+  maps:
+    enabled: false
+    workers: null
+    scene_glob: front3d_*
+    overwrite: false
+    r_max_m: 3.0
+    los_stride_px: 4
+    snap_radius_m: 0.25
+    bs_label:
+      mode: name
+      name: label_panel_0p1
+      glob: null
+  dataset:
+    enabled: false
+    output_dir: datasets
+    name: null
+    scene_glob: front3d_*
+    require_maps: true
+    overwrite: false

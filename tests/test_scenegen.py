@@ -774,6 +774,14 @@ def test_cli_set_overrides_yaml_and_parses_types(tmp_path: Path) -> None:
             "label.ue.sampling.grid_m=[0.1,0.2,0.5]",
             "--set",
             "floorplan.enabled=false",
+            "--set",
+            "postprocess.maps.enabled=true",
+            "--set",
+            "postprocess.maps.workers=2",
+            "--set",
+            "postprocess.maps.bs_label.mode=name",
+            "--set",
+            "postprocess.maps.bs_label.name=label_panel_0p1",
         ]
     )
 
@@ -784,7 +792,36 @@ def test_cli_set_overrides_yaml_and_parses_types(tmp_path: Path) -> None:
     assert effective["label"]["ue"]["height_m"] == 1.8
     assert effective["label"]["ue"]["sampling"]["grid_m"] == [0.1, 0.2, 0.5]
     assert effective["floorplan"]["enabled"] is False
+    assert effective["postprocess"]["maps"]["enabled"] is True
+    assert effective["postprocess"]["maps"]["workers"] == 2
+    assert effective["postprocess"]["maps"]["bs_label"]["mode"] == "name"
+    assert effective["postprocess"]["maps"]["bs_label"]["name"] == "label_panel_0p1"
     assert overrides["pipeline"]["mode"] == "front3d"
+
+
+def test_postprocess_defaults_are_disabled() -> None:
+    root = find_project_root()
+    effective, _overrides = load_effective_config(root / "config" / "front3d.yaml", root, parse_args([]))
+
+    assert effective["postprocess"]["maps"]["enabled"] is False
+    assert effective["postprocess"]["dataset"]["enabled"] is False
+    assert effective["postprocess"]["maps"]["bs_label"]["mode"] == "first"
+
+
+def test_postprocess_named_bs_label_requires_name(tmp_path: Path) -> None:
+    root = find_project_root()
+    config_path = tmp_path / "bad_config.yaml"
+    config_path.write_text(
+        "postprocess:\n"
+        "  maps:\n"
+        "    enabled: true\n"
+        "    bs_label:\n"
+        "      mode: name\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="postprocess.maps.bs_label.name"):
+        load_effective_config(config_path, root, parse_args([]))
 
 
 @pytest.mark.parametrize(
@@ -794,6 +831,7 @@ def test_cli_set_overrides_yaml_and_parses_types(tmp_path: Path) -> None:
         ("label.batch_strategies=[free_space_grid]", "label.batch_strategies"),
         ("front3d.source_scene_dir=data/3D-Front/3D-FRONT", "front3d.source_scene_dir"),
         ("floorplan.sample_density_scale=128", "floorplan.sample_density_scale"),
+        ("postprocess.maps.los_stride_pixels=4", "postprocess.maps.los_stride_pixels"),
     ],
 )
 def test_cli_set_unknown_field_is_rejected(override: str, field: str) -> None:

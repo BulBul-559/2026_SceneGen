@@ -194,6 +194,23 @@ uv run scenegen --config config/tasks/front3d_full_simulation.yaml --set pipelin
 
 该模板打开 label、geometry sampling floorplan、class mask 和 mesh furniture mask，`label.ue.sampling.strategies` 默认包含 `[panel, walk]`，`label.ue.sampling.grid_m` 默认包含 `[0.1, 0.2, 0.4, 0.5]`。
 
+如果要在同一个 batch 中同步生成 derived maps 并整理 compact vision dataset，开启 `postprocess`：
+
+```bash
+uv run scenegen-batch \
+  --config config/tasks/front3d_full_simulation.yaml \
+  --workers 8 \
+  --max-retries 1 \
+  --set pipeline.scenes=2000 \
+  --set pipeline.run_name=front3d_production_2000 \
+  --set postprocess.maps.enabled=true \
+  --set postprocess.dataset.enabled=true \
+  --set postprocess.maps.bs_label.mode=name \
+  --set postprocess.maps.bs_label.name=label_panel_0p1
+```
+
+`postprocess` 默认关闭，只在 `scenegen-batch` 中执行；普通 `scenegen` 单场景入口不会触发。
+
 ## 生产运行与日志
 
 普通 `scenegen` run 会在 run 目录下写入轻量诊断日志：
@@ -237,6 +254,10 @@ batch run 额外输出：
 batch/
   scene_plan.jsonl
   state.json
+  postprocess_state.json
+  postprocess_events.jsonl
+  postprocess_failures.jsonl
+  postprocess_report.json
   logs/events.jsonl
   logs/timings.jsonl
   logs/workers/worker_*.log
@@ -247,6 +268,8 @@ batch/
   logs/scenes/<task>/attempt_*/task.traceback.*
   worker_runs/
 ```
+
+开启 `postprocess.maps.enabled` 后，每个成功 scene 会额外得到 `maps/geometry.npz`、`maps/propagation.npz` 和 `maps/metadata.json`。开启 `postprocess.dataset.enabled` 后，默认会在 `datasets/<run_name>_vision/` 下构建 compact vision dataset，只保留训练需要的 floorplan、mask、derived maps、BS label 和 metadata。
 
 `manifest_batch.json`、`manifest_front3d.json` 和 `manifest.json` 会在 batch 完成后统一汇总最终发布到 run 根目录的 `front3d_0000/`、`front3d_0001/` 等标准场景目录。
 

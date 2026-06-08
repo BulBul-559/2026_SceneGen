@@ -468,6 +468,22 @@ uv run python scripts/generate_derived_maps.py <run_dir> \
 
 如果某些历史数据命名不同，也可以依赖默认的“第一个 label JSON”行为，或用 `--bs-label-glob` 指定其他匹配规则。最终 `maps/metadata.json` 会记录 `parameters.bs_label_filter`，用于追溯 BS 来源。
 
+现在也可以通过 `scenegen-batch` 的 `postprocess` 配置在主生产流程末尾自动执行：
+
+```bash
+uv run scenegen-batch \
+  --config config/tasks/front3d_full_simulation.yaml \
+  --workers 8 \
+  --set pipeline.scenes=2000 \
+  --set pipeline.run_name=front3d_production_2000 \
+  --set postprocess.maps.enabled=true \
+  --set postprocess.dataset.enabled=true \
+  --set postprocess.maps.bs_label.mode=name \
+  --set postprocess.maps.bs_label.name=label_panel_0p1
+```
+
+这个入口会在 run 目录写出 `batch/postprocess_state.json`、`batch/postprocess_events.jsonl`、`batch/postprocess_failures.jsonl` 和 `batch/postprocess_report.json`；独立脚本仍保留，适合离线修复和调试。
+
 ## 7. BS Condition Maps
 
 ### 7.1 定义

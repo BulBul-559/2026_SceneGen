@@ -4,7 +4,7 @@
 
 每次运行都会在 run 目录写出 `effective_config.yaml`，它记录最终真正生效的配置。
 
-`config/tasks/front3d_full_simulation.yaml` 是后续大规模 front3d 仿真的任务模板，默认打开 label、geometry sampling floorplan、class mask 和 mesh furniture mask；`label.ue.sampling.strategies` 使用 `[panel, walk]`，`label.ue.sampling.grid_m` 使用 `[0.1, 0.2, 0.4, 0.5]` 四档。
+`config/tasks/front3d_full_simulation.yaml` 是后续大规模 front3d 仿真的任务模板，默认打开 label、geometry sampling floorplan、class mask 和 mesh furniture mask；`label.ue.sampling.strategies` 使用 `[panel, walk]`，`label.ue.sampling.grid_m` 使用 `[0.1, 0.2, 0.4, 0.5]` 四档。它还包含 batch-only 的 `postprocess` 段，默认关闭，需要时可生成 derived maps 并构建 compact vision dataset。
 
 ## 合并规则
 
@@ -107,6 +107,41 @@ uv run scenegen \
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `sionna` | boolean | `false` | 是否用 `sionna.rt.load_scene()` 验证 `scene.xml`。 |
+
+## postprocess
+
+`postprocess` 只由 `scenegen-batch` 使用；普通 `scenegen` 单场景入口不会执行这部分。默认全部关闭，因此不会改变原来的主生成流程。
+
+### postprocess.maps
+
+| 字段 | 可选值 / 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `enabled` | boolean | `false` | 是否在 batch 场景生成后为成功 scene 生成 `maps/geometry.npz`、`maps/propagation.npz` 和 `maps/metadata.json`。 |
+| `workers` | integer / `null` | `null` | maps 阶段 worker 数；为 `null` 时继承 `scenegen-batch --workers`。 |
+| `scene_glob` | glob string | `front3d_*` | 在 run 目录中选择 scene 目录。 |
+| `overwrite` | boolean | `false` | 已有完整 `maps/` 时是否重新生成；`false` 可用于 resume。 |
+| `r_max_m` | float, `>0` | `3.0` | SDF 裁剪半径。 |
+| `los_stride_px` | integer, `>=1` | `4` | LoS / wall-count 监督图的 UE 网格下采样步长。 |
+| `snap_radius_m` | float, `>=0` | `0.25` | BS 落到非 free-like 像素时，吸附到最近有效像素的最大半径。 |
+
+### postprocess.maps.bs_label
+
+| 字段 | 可选值 / 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `mode` | `first` / `name` / `glob` | `first` | 选择哪个 label 文件作为 BS 来源。正式数据集建议用 `name`。 |
+| `name` | string / `null` | `null` | `mode: name` 时使用的 label 文件名或 stem，例如 `label_panel_0p1`。 |
+| `glob` | string / `null` | `null` | `mode: glob` 时的匹配模式，例如 `label_panel_*.json`。 |
+
+### postprocess.dataset
+
+| 字段 | 可选值 / 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `enabled` | boolean | `false` | 是否把 run 结果整理成 compact vision dataset。 |
+| `output_dir` | path | `datasets` | dataset 输出根目录。 |
+| `name` | string / `null` | `null` | dataset 目录名；为 `null` 时使用 `<run_name>_vision`。 |
+| `scene_glob` | glob string | `front3d_*` | 参与 dataset 构建的 scene 目录。 |
+| `require_maps` | boolean | `true` | 是否要求每个 scene 已有 `maps/geometry.npz` 和 `maps/propagation.npz`。 |
+| `overwrite` | boolean | `false` | dataset 中已有同名 scene 目录时是否覆盖。 |
 
 ## quality
 
@@ -309,3 +344,20 @@ uv run scenegen-batch \
 ```
 
 `scenegen-batch` 不是新的 YAML 字段，而是生产管理入口。它会复用同一份配置和 `--set` 语法，并在 run 目录写出 `batch/scene_plan.jsonl`、`batch/state.json`、worker 日志、失败队列、重试队列和 `manifest_batch.json`。
+
+在同一次 batch 后自动生成 maps 和 compact vision dataset：
+
+```bash
+uv run scenegen-batch \
+  --config config/tasks/front3d_full_simulation.yaml \
+  --workers 8 \
+  --max-retries 1 \
+  --set pipeline.scenes=2000 \
+  --set pipeline.run_name=front3d_production_2000 \
+  --set postprocess.maps.enabled=true \
+  --set postprocess.dataset.enabled=true \
+  --set postprocess.maps.bs_label.mode=name \
+  --set postprocess.maps.bs_label.name=label_panel_0p1
+```
+
+开启后，run 目录会额外写出 `derived_maps_manifest.jsonl`、`derived_maps_report.json`、`batch/postprocess_state.json`、`batch/postprocess_events.jsonl`、`batch/postprocess_failures.jsonl` 和 `batch/postprocess_report.json`；dataset 默认输出到 `datasets/<run_name>_vision/`。

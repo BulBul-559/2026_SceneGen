@@ -16,11 +16,11 @@
 
 Goal: 让 derived maps 和 vision dataset 构建在大规模 run 上可预测、可恢复、可观测。
 
-Affected modules: `scripts/generate_derived_maps.py`、`scripts/build_vision_dataset.py`、未来主系统生产管理层。
+Affected modules: `src/scenegen/postprocess/`、`src/scenegen/batch.py`、`scripts/generate_derived_maps.py`、`scripts/build_vision_dataset.py`。
 
 Acceptance: 明确 worker 建议、I/O 压力指标、resume 行为、失败重试策略和耗时统计；生成和 build 阶段都能在日志中看到进度和 ETA 所需字段。
 
-Notes: 当前已经支持多 worker derived maps，但还没有完全整合进主系统调度。
+Notes: 当前 batch 已支持可配置 postprocess、derived maps 多 worker、resume 和阶段日志；后续重点是 worker 建议、I/O 压力指标、ETA 和大规模性能报告。
 
 ### PERF-GEO-001: 增加几何投影空间加速
 

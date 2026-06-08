@@ -153,6 +153,30 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "tile_size_px": 360,
         },
     },
+    "postprocess": {
+        "maps": {
+            "enabled": False,
+            "workers": None,
+            "scene_glob": "front3d_*",
+            "overwrite": False,
+            "r_max_m": 3.0,
+            "los_stride_px": 4,
+            "snap_radius_m": 0.25,
+            "bs_label": {
+                "mode": "first",
+                "name": None,
+                "glob": None,
+            },
+        },
+        "dataset": {
+            "enabled": False,
+            "output_dir": "datasets",
+            "name": None,
+            "scene_glob": "front3d_*",
+            "require_maps": True,
+            "overwrite": False,
+        },
+    },
 }
 
 
@@ -307,6 +331,19 @@ def normalize_label_strategy(value: Any, key: str) -> str:
     raise ValueError(f"{key} values must be 'panel' or 'walk'")
 
 
+def normalize_optional_int(value: Any, key: str) -> int | None:
+    if value is None:
+        return None
+    return int(value)
+
+
+def normalize_optional_string(value: Any, key: str) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
 def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_path: Path) -> dict[str, Any]:
     normalized = deepcopy(config)
     normalized.setdefault("runtime", {})
@@ -436,6 +473,28 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     sampling["min_points"] = int(sampling["min_points"])
     sampling["max_points"] = int(sampling["max_points"])
     floorplan["preview"]["tile_size_px"] = int(floorplan["preview"]["tile_size_px"])
+
+    postprocess = normalized["postprocess"]
+    maps = postprocess["maps"]
+    maps["enabled"] = as_bool(maps["enabled"], "postprocess.maps.enabled")
+    maps["workers"] = normalize_optional_int(maps["workers"], "postprocess.maps.workers")
+    maps["scene_glob"] = str(maps["scene_glob"])
+    maps["overwrite"] = as_bool(maps["overwrite"], "postprocess.maps.overwrite")
+    maps["r_max_m"] = float(maps["r_max_m"])
+    maps["los_stride_px"] = int(maps["los_stride_px"])
+    maps["snap_radius_m"] = float(maps["snap_radius_m"])
+    bs_label = maps["bs_label"]
+    bs_label["mode"] = str(bs_label["mode"])
+    bs_label["name"] = normalize_optional_string(bs_label["name"], "postprocess.maps.bs_label.name")
+    bs_label["glob"] = normalize_optional_string(bs_label["glob"], "postprocess.maps.bs_label.glob")
+
+    dataset = postprocess["dataset"]
+    dataset["enabled"] = as_bool(dataset["enabled"], "postprocess.dataset.enabled")
+    dataset["output_dir"] = str(resolve_path(repo_root, dataset["output_dir"]))
+    dataset["name"] = normalize_optional_string(dataset["name"], "postprocess.dataset.name")
+    dataset["scene_glob"] = str(dataset["scene_glob"])
+    dataset["require_maps"] = as_bool(dataset["require_maps"], "postprocess.dataset.require_maps")
+    dataset["overwrite"] = as_bool(dataset["overwrite"], "postprocess.dataset.overwrite")
     return normalized
 
 
@@ -607,6 +666,32 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("floorplan.sampling.max_points must be greater than or equal to floorplan.sampling.min_points")
     if floorplan["preview"]["tile_size_px"] < 1:
         raise ValueError("floorplan.preview.tile_size_px must be positive")
+
+    postprocess = config["postprocess"]
+    maps = postprocess["maps"]
+    if maps["workers"] is not None and maps["workers"] < 1:
+        raise ValueError("postprocess.maps.workers must be null or at least 1")
+    if not maps["scene_glob"].strip():
+        raise ValueError("postprocess.maps.scene_glob must not be empty")
+    if maps["r_max_m"] <= 0:
+        raise ValueError("postprocess.maps.r_max_m must be positive")
+    if maps["los_stride_px"] < 1:
+        raise ValueError("postprocess.maps.los_stride_px must be at least 1")
+    if maps["snap_radius_m"] < 0:
+        raise ValueError("postprocess.maps.snap_radius_m must be non-negative")
+    bs_label = maps["bs_label"]
+    if bs_label["mode"] not in {"first", "name", "glob"}:
+        raise ValueError("postprocess.maps.bs_label.mode must be 'first', 'name', or 'glob'")
+    if bs_label["mode"] == "name" and not bs_label["name"]:
+        raise ValueError("postprocess.maps.bs_label.name must be set when mode is 'name'")
+    if bs_label["mode"] == "glob" and not bs_label["glob"]:
+        raise ValueError("postprocess.maps.bs_label.glob must be set when mode is 'glob'")
+
+    dataset = postprocess["dataset"]
+    if not dataset["scene_glob"].strip():
+        raise ValueError("postprocess.dataset.scene_glob must not be empty")
+    if dataset["name"] is not None and ("/" in dataset["name"] or "\\" in dataset["name"]):
+        raise ValueError("postprocess.dataset.name must be a directory name, not a path")
 
 
 def save_effective_config(path: Path, config: dict[str, Any]) -> None:

@@ -10,6 +10,11 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from scenegen.config import DEFAULT_CONFIG
+from scenegen.postprocess import derived_maps as derived
+from scenegen.postprocess import vision_dataset as dataset
+from scenegen.postprocess.pipeline import PostprocessStageError, run_batch_postprocess
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -25,8 +30,6 @@ def load_script(name: str) -> Any:
     return module
 
 
-derived = load_script("generate_derived_maps")
-dataset = load_script("build_vision_dataset")
 merge = load_script("merge_vision_datasets")
 
 
@@ -214,6 +217,76 @@ def test_generate_maps_and_build_dataset_copy_only_training_files(tmp_path: Path
     label_bs = json.loads((target / "label_bs.json").read_text(encoding="utf-8"))
     assert label_bs["bs_count"] == 1
     assert label_bs["bs_points"][0]["label"] == "BS_A"
+
+
+def test_derived_maps_resume_skips_existing_maps(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    make_scene_fixture(run_dir)
+    first = derived.run_derived_maps(run_dir, log_every=0)
+    second = derived.run_derived_maps(run_dir, log_every=0)
+
+    assert first["status_counts"]["generated"] == 1
+    assert second["status_counts"]["skipped"] == 1
+    assert second["records"][0]["reason"] == "maps_already_exist"
+
+
+def postprocess_config(tmp_path: Path, *, bs_label_name: str = "label_panel_0p1") -> dict[str, Any]:
+    config = json.loads(json.dumps(DEFAULT_CONFIG))
+    config["pipeline"]["run_name"] = "postprocess_fixture"
+    config["postprocess"]["maps"] = {
+        "enabled": True,
+        "workers": 1,
+        "scene_glob": "front3d_*",
+        "overwrite": False,
+        "r_max_m": 3.0,
+        "los_stride_px": 4,
+        "snap_radius_m": 0.25,
+        "bs_label": {
+            "mode": "name",
+            "name": bs_label_name,
+            "glob": None,
+        },
+    }
+    config["postprocess"]["dataset"] = {
+        "enabled": True,
+        "output_dir": str(tmp_path / "datasets"),
+        "name": "postprocess_fixture_vision",
+        "scene_glob": "front3d_*",
+        "require_maps": True,
+        "overwrite": False,
+    }
+    return config
+
+
+def test_batch_postprocess_generates_maps_dataset_and_logs(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run" / "postprocess_fixture"
+    make_scene_fixture(run_dir)
+
+    report = run_batch_postprocess(run_dir=run_dir, effective_config=postprocess_config(tmp_path), batch_workers=2)
+
+    dataset_dir = tmp_path / "datasets" / "postprocess_fixture_vision"
+    assert report["status"] == "completed"
+    assert (run_dir / "front3d_0000" / "maps" / "geometry.npz").is_file()
+    assert (dataset_dir / "front3d_0000" / "propagation.npz").is_file()
+    assert (run_dir / "batch" / "postprocess_state.json").is_file()
+    assert (run_dir / "batch" / "postprocess_events.jsonl").is_file()
+    assert (run_dir / "batch" / "postprocess_failures.jsonl").is_file()
+    assert (run_dir.parent / "_logs" / "postprocess_fixture" / "postprocess.log").is_file()
+
+
+def test_batch_postprocess_missing_bs_label_name_fails_stage(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run" / "postprocess_fixture"
+    make_scene_fixture(run_dir)
+
+    with pytest.raises(PostprocessStageError, match="maps stage"):
+        run_batch_postprocess(
+            run_dir=run_dir,
+            effective_config=postprocess_config(tmp_path, bs_label_name="missing_label"),
+            batch_workers=1,
+        )
+
+    failures = (run_dir / "batch" / "postprocess_failures.jsonl").read_text(encoding="utf-8")
+    assert "missing_label" in failures
 
 
 def write_compact_dataset_scene(dataset_dir: Path, scene_key: str, scene_id: str) -> None:
