@@ -160,12 +160,48 @@ def extract_position(point: dict[str, Any]) -> tuple[float, float, float] | None
     return None
 
 
-def load_bs_points(scene_dir: Path) -> list[BsPoint]:
+def resolve_bs_label_files(scene_dir: Path, bs_label_name: str | None, bs_label_glob: str | None) -> tuple[list[Path], dict[str, Any]]:
     label_dir = scene_dir / "label"
     if not label_dir.is_dir():
-        return []
+        return [], {
+            "mode": "missing_label_dir",
+            "value": None,
+            "candidate_count": 0,
+            "selected_files": [],
+        }
+    if bs_label_name and bs_label_glob:
+        raise ValueError("--bs-label-name and --bs-label-glob cannot be used together")
+    candidates = sorted(path for path in label_dir.glob("*.json") if path.is_file())
+    if bs_label_name:
+        label_name = bs_label_name if bs_label_name.endswith(".json") else f"{bs_label_name}.json"
+        label_file = label_dir / label_name
+        if not label_file.is_file():
+            raise FileNotFoundError(f"requested BS label file does not exist: label/{label_name}")
+        selected = [label_file]
+        mode = "name"
+        value = bs_label_name
+    elif bs_label_glob:
+        selected = sorted(path for path in label_dir.glob(bs_label_glob) if path.is_file())
+        if not selected:
+            raise FileNotFoundError(f"requested BS label glob did not match any files: label/{bs_label_glob}")
+        mode = "glob"
+        value = bs_label_glob
+    else:
+        selected = candidates[:1]
+        mode = "first"
+        value = None
+    return selected, {
+        "mode": mode,
+        "value": value,
+        "candidate_count": len(candidates),
+        "selected_files": [f"label/{path.name}" for path in selected],
+    }
+
+
+def load_bs_points(scene_dir: Path, bs_label_name: str | None = None, bs_label_glob: str | None = None) -> tuple[list[BsPoint], dict[str, Any]]:
+    label_files, selection = resolve_bs_label_files(scene_dir, bs_label_name, bs_label_glob)
     by_position: dict[tuple[float, float, float], dict[str, Any]] = {}
-    for label_file in sorted(label_dir.glob("*.json")):
+    for label_file in label_files:
         payload = read_json(label_file)
         for point in payload.get("bs_points") or []:
             if not isinstance(point, dict):
@@ -192,7 +228,7 @@ def load_bs_points(scene_dir: Path) -> list[BsPoint]:
                 source_label_files=tuple(sorted(record["source_label_files"])),
             )
         )
-    return bs_points
+    return bs_points, selection
 
 
 def nearest_valid_pixel(
@@ -370,6 +406,8 @@ def generate_maps_for_scene(
     r_max_m: float,
     los_stride_pixels: int,
     snap_radius_m: float,
+    bs_label_name: str | None = None,
+    bs_label_glob: str | None = None,
     overwrite: bool,
 ) -> dict[str, Any]:
     maps_dir = scene_dir / "maps"
@@ -392,7 +430,7 @@ def generate_maps_for_scene(
     free_like_mask = (class_mask == CLASS_FREE_SPACE) | (class_mask == CLASS_FURNITURE)
     wall_mask = class_mask == CLASS_WALL
 
-    bs_points = load_bs_points(scene_dir)
+    bs_points, bs_label_filter = load_bs_points(scene_dir, bs_label_name, bs_label_glob)
     snapped_bs, skipped_bs = snap_bs_points(bs_points, free_like_mask, origin_xy_m, extent_xy_m, resolution, snap_radius_m)
     if not snapped_bs:
         raise ValueError("no valid BS points after snapping")
@@ -454,6 +492,7 @@ def generate_maps_for_scene(
             "furniture_as_free": True,
             "snap_radius_m": snap_radius_m,
             "sdf_storage": "float16_normalized",
+            "bs_label_filter": bs_label_filter,
         },
         "bs_points": [
             {
@@ -528,6 +567,8 @@ def process_scene_job(job: dict[str, Any]) -> dict[str, Any]:
             r_max_m=float(job["r_max_m"]),
             los_stride_pixels=int(job["los_stride_pixels"]),
             snap_radius_m=float(job["snap_radius_m"]),
+            bs_label_name=job.get("bs_label_name"),
+            bs_label_glob=job.get("bs_label_glob"),
             overwrite=bool(job["overwrite"]),
         )
     except Exception as exc:  # noqa: BLE001 - keep batch post-processing robust.
@@ -565,6 +606,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--los-stride-pixels", type=int, default=4, help="LoS/wall-count UE grid stride in pixels.")
     parser.add_argument("--r-max-m", type=float, default=3.0, help="SDF clipping radius in meters.")
     parser.add_argument("--snap-radius-m", type=float, default=0.25, help="Max radius for snapping BS to free-like pixels.")
+    parser.add_argument(
+        "--bs-label-name",
+        default=None,
+        help=(
+            "Read BS points from one exact label JSON name or stem, e.g. label_panel_0p1. "
+            "Default reads the first sorted label JSON; for official Front3D vision datasets, "
+            "label_panel_0p1 is the recommended stable source when present."
+        ),
+    )
+    parser.add_argument(
+        "--bs-label-glob",
+        default=None,
+        help="Read BS points from label files matching this glob under each scene label/ directory.",
+    )
     parser.add_argument("--overwrite", action="store_true", help="Regenerate scene maps even if maps files already exist.")
     parser.add_argument("--log-every", type=int, default=25, help="Print progress every N generated/skipped scenes. 0 disables.")
     parser.add_argument("--workers", type=int, default=1, help="Number of parallel scene workers. Default keeps legacy sequential mode.")
@@ -589,6 +644,8 @@ def main() -> int:
             "r_max_m": args.r_max_m,
             "los_stride_pixels": args.los_stride_pixels,
             "snap_radius_m": args.snap_radius_m,
+            "bs_label_name": args.bs_label_name,
+            "bs_label_glob": args.bs_label_glob,
             "overwrite": args.overwrite,
         }
         for index, scene_dir in enumerate(candidates, start=1)
@@ -629,6 +686,8 @@ def main() -> int:
             "r_max_m": args.r_max_m,
             "los_stride_pixels": args.los_stride_pixels,
             "snap_radius_m": args.snap_radius_m,
+            "bs_label_name": args.bs_label_name,
+            "bs_label_glob": args.bs_label_glob,
             "furniture_as_free": True,
             "workers": args.workers,
         },

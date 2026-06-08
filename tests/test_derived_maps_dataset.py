@@ -87,6 +87,23 @@ def make_scene_fixture(run_dir: Path) -> Path:
     return scene_dir
 
 
+def add_bs_label(scene_dir: Path, label_name: str, bs_label: str, position: list[float]) -> None:
+    write_json(
+        scene_dir / "label" / f"{label_name}.json",
+        {
+            "bs_points": [
+                {
+                    "label": bs_label,
+                    "position": position,
+                    "room_id": "room-1",
+                    "strategy": "fixture",
+                }
+            ],
+            "bs_positions": [position],
+        },
+    )
+
+
 def test_sdf_uses_scenegen_class_ids_and_ignores_outdoor() -> None:
     if derived.ndimage is None:
         pytest.skip("scipy is not available")
@@ -136,6 +153,29 @@ def test_bs_world_to_pixel_conversion_and_snap() -> None:
     assert not skipped
     assert snapped[0].pixel_xy == (2, 2)
     assert snapped[0].snapped is False
+
+
+def test_default_bs_label_source_uses_first_sorted_label(tmp_path: Path) -> None:
+    scene_dir = make_scene_fixture(tmp_path / "run")
+    add_bs_label(scene_dir, "label_walk_0p1", "BS_WALK", [0.15, 0.3, 2.4])
+
+    points, selection = derived.load_bs_points(scene_dir)
+
+    assert selection["mode"] == "first"
+    assert selection["candidate_count"] == 2
+    assert selection["selected_files"] == ["label/label_panel_0p1.json"]
+    assert [point.label for point in points] == ["BS_A"]
+
+
+def test_named_bs_label_source_can_select_specific_variant(tmp_path: Path) -> None:
+    scene_dir = make_scene_fixture(tmp_path / "run")
+    add_bs_label(scene_dir, "label_walk_0p1", "BS_WALK", [0.15, 0.3, 2.4])
+
+    points, selection = derived.load_bs_points(scene_dir, bs_label_name="label_walk_0p1")
+
+    assert selection["mode"] == "name"
+    assert selection["selected_files"] == ["label/label_walk_0p1.json"]
+    assert [point.label for point in points] == ["BS_WALK"]
 
 
 def test_generate_maps_and_build_dataset_copy_only_training_files(tmp_path: Path) -> None:

@@ -457,6 +457,17 @@ bs_coords_px[k] = (x_px, y_px)
 bs_coords_m[k] = (x_px * meter_per_pixel, y_px * meter_per_pixel)
 ```
 
+SceneGen 当前 derived map 脚本不再合并所有 label variant 的 BS。默认行为是读取每个场景 `label/` 目录中排序后的第一个 label JSON，避免把不同 UE 采样密度或 `panel/walk` 策略下的重复 BS 全部累加到 propagation target。
+
+正式 Front3D 视觉数据集建议显式指定稳定来源：
+
+```bash
+uv run python scripts/generate_derived_maps.py <run_dir> \
+  --bs-label-name label_panel_0p1
+```
+
+如果某些历史数据命名不同，也可以依赖默认的“第一个 label JSON”行为，或用 `--bs-label-glob` 指定其他匹配规则。最终 `maps/metadata.json` 会记录 `parameters.bs_label_filter`，用于追溯 BS 来源。
+
 ## 7. BS Condition Maps
 
 ### 7.1 定义
