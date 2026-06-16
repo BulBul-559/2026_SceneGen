@@ -800,6 +800,15 @@ def point_has_wall_clearance(x: float, y: float, triangles: tuple[SupportTriangl
     return all(point_in_triangles(px, py, triangles) for px, py in checks)
 
 
+def point_in_rect_xy(x: float, y: float, bounds: Rect2D, padding: float = 0.0) -> bool:
+    min_x, min_y, max_x, max_y = bounds
+    return min_x - padding <= x <= max_x + padding and min_y - padding <= y <= max_y + padding
+
+
+def free_points_satisfy_bs_wall_clearance(context: RoomLabelContext, config: LabelConfig) -> bool:
+    return config.sampling_domain == "global_floor" and config.bs_wall_clearance_m <= context.boundary_clearance_m + 1e-9
+
+
 def frange_grid(min_value: float, max_value: float, step: float) -> list[float]:
     start = math.ceil((min_value - 1e-9) / step) * step
     values: list[float] = []
@@ -948,14 +957,21 @@ def nearest_unique_points(
     selected: list[tuple[float, float]] = []
     used: set[tuple[float, float]] = set()
     for target in targets:
-        ranked = sorted(candidates, key=lambda point: (point[0] - target[0]) ** 2 + (point[1] - target[1]) ** 2)
-        for point in ranked:
+        best_point: tuple[float, float] | None = None
+        best_key: tuple[float, float] | None = None
+        best_distance = math.inf
+        for point in candidates:
             key = (round(point[0], 6), round(point[1], 6))
             if key in used:
                 continue
-            used.add(key)
-            selected.append(point)
-            break
+            distance = (point[0] - target[0]) ** 2 + (point[1] - target[1]) ** 2
+            if distance < best_distance:
+                best_distance = distance
+                best_point = point
+                best_key = key
+        if best_point is not None and best_key is not None:
+            used.add(best_key)
+            selected.append(best_point)
         if len(selected) >= limit:
             break
     return selected
@@ -998,10 +1014,11 @@ def generate_bs_points_for_room(
     ceiling_z = context.ceiling_z if context.ceiling_z is not None else context.floor_z + config.bs_height_m + 1.0
     bs_z = min(config.bs_height_m, ceiling_z - config.bs_ceiling_margin_m)
     bs_z = max(context.floor_z + 0.3, bs_z)
+    needs_wall_clearance_check = not free_points_satisfy_bs_wall_clearance(context, config)
     bs_candidates = [
         (x, y)
         for x, y in free_points
-        if point_has_wall_clearance(x, y, context.floor_triangles, config.bs_wall_clearance_m)
+        if (not needs_wall_clearance_check or point_has_wall_clearance(x, y, context.floor_triangles, config.bs_wall_clearance_m))
         and not point_in_obstacles(x, y, bs_z, context.obstacles, "footprint_column")
     ]
     if not bs_candidates:
@@ -1025,6 +1042,7 @@ def choose_geometry_center_bs(
     center = ((min_x + max_x) / 2.0, (min_y + max_y) / 2.0)
     all_candidates: list[tuple[float, float, RoomLabelContext]] = []
     seen: set[tuple[float, float]] = set()
+    needs_wall_clearance_check = not free_points_satisfy_bs_wall_clearance(global_context, config)
     for context, points in grouped_free_points:
         for x, y in points:
             key = (round(x, 6), round(y, 6))
@@ -1032,7 +1050,12 @@ def choose_geometry_center_bs(
                 continue
             seen.add(key)
             point_z = context.floor_z + config.ue_height_m
-            if not point_has_wall_clearance(x, y, global_context.floor_triangles, config.bs_wall_clearance_m):
+            if needs_wall_clearance_check and not point_has_wall_clearance(
+                x,
+                y,
+                global_context.floor_triangles,
+                config.bs_wall_clearance_m,
+            ):
                 continue
             if point_in_obstacles(x, y, point_z, global_context.obstacles, "footprint_column"):
                 continue
@@ -1051,24 +1074,16 @@ def choose_geometry_center_bs(
             },
         )
 
-    radius = max(0.0, config.bs_center_initial_radius_m)
-    selected: tuple[float, float, RoomLabelContext] | None = None
-    selected_radius = radius
-    while radius <= config.bs_center_max_radius_m + 1e-9:
-        in_radius = [
-            candidate
-            for candidate in all_candidates
-            if (candidate[0] - center[0]) ** 2 + (candidate[1] - center[1]) ** 2 <= radius * radius + 1e-9
-        ]
-        if in_radius:
-            selected = min(in_radius, key=lambda candidate: (candidate[0] - center[0]) ** 2 + (candidate[1] - center[1]) ** 2)
-            selected_radius = radius
-            break
-        radius += config.bs_center_radius_step_m
-
-    if selected is None:
-        selected = min(all_candidates, key=lambda candidate: (candidate[0] - center[0]) ** 2 + (candidate[1] - center[1]) ** 2)
-        selected_radius = math.sqrt((selected[0] - center[0]) ** 2 + (selected[1] - center[1]) ** 2)
+    selected = min(all_candidates, key=lambda candidate: (candidate[0] - center[0]) ** 2 + (candidate[1] - center[1]) ** 2)
+    selected_distance = math.sqrt((selected[0] - center[0]) ** 2 + (selected[1] - center[1]) ** 2)
+    selected_radius = selected_distance
+    initial_radius = max(0.0, config.bs_center_initial_radius_m)
+    radius_step = config.bs_center_radius_step_m
+    if selected_distance <= config.bs_center_max_radius_m + 1e-9:
+        if selected_distance <= initial_radius:
+            selected_radius = initial_radius
+        else:
+            selected_radius = initial_radius + math.ceil((selected_distance - initial_radius) / radius_step) * radius_step
 
     x, y, context = selected
     bs_xyz = (x, y, bs_height_for_context(context, config))
@@ -1234,7 +1249,15 @@ def assign_global_free_points(
     context_by_id = {context.room_id: context for context in room_contexts}
     context_by_id[corridor_context.room_id] = corridor_context
     for x, y in points:
-        owner = next((context for context in room_contexts if point_in_triangles(x, y, context.floor_triangles)), None)
+        owner = next(
+            (
+                context
+                for context in room_contexts
+                if point_in_rect_xy(x, y, context.bounds_xy, padding=1e-6)
+                and point_in_triangles(x, y, context.floor_triangles)
+            ),
+            None,
+        )
         room_id = owner.room_id if owner is not None else corridor_context.room_id
         assignments[room_id].append((x, y))
     grouped = [(context, assignments[context.room_id]) for context in room_contexts]
@@ -1622,13 +1645,14 @@ def validate_front3d_room_points(
     warnings: list[str] = []
     min_x, min_y, min_z = base_scene.bbox_min
     max_x, max_y, max_z = base_scene.bbox_max
+    skip_floor_membership_check = config.sampling_domain == "global_floor"
     for point in ue_points:
         x, y, z = point_position(point)
         if not (min_x - 1e-6 <= x <= max_x + 1e-6 and min_y - 1e-6 <= y <= max_y + 1e-6):
             errors.append(f"{point['label']}: outside architecture bbox")
         if not (min_z - 1e-6 <= z <= max_z + 1e-6):
             errors.append(f"{point['label']}: invalid height")
-        if context.is_corridor and config.sampling_domain == "global_floor":
+        if skip_floor_membership_check:
             pass
         elif not point_in_triangles(x, y, context.floor_triangles):
             errors.append(f"{point['label']}: outside room floor mesh")
@@ -1646,7 +1670,7 @@ def validate_front3d_room_points(
         x, y, z = point_position(point)
         if not (min_x - 1e-6 <= x <= max_x + 1e-6 and min_y - 1e-6 <= y <= max_y + 1e-6):
             errors.append(f"{point['label']}: outside architecture bbox")
-        if context.is_corridor and config.sampling_domain == "global_floor":
+        if skip_floor_membership_check:
             pass
         elif not point_in_triangles(x, y, context.floor_triangles):
             errors.append(f"{point['label']}: outside room floor mesh")

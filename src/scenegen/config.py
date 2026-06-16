@@ -148,7 +148,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "sampling": {
             "density_scale": 128.0,
             "min_points": 100_000,
-            "max_points": 25_000_000,
+            "max_points": 4_000_000,
         },
         "preview": {
             "tile_size_px": 360,

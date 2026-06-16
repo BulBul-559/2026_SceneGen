@@ -717,7 +717,9 @@ def process_scene(
 ) -> dict[str, object]:
     if projection_mode not in {"sampling", "ray_height_filtered"}:
         raise ValueError("projection_mode must be 'sampling' or 'ray_height_filtered'")
+    timings_s: dict[str, float] = {}
     output_dir.mkdir(parents=True, exist_ok=True)
+    stage_start = time.perf_counter()
     mesh_path, conversion_meta = prepare_mesh_path(input_path, output_dir)
     path_root = input_path.parent
     mesh = load_as_mesh(mesh_path)
@@ -727,10 +729,12 @@ def process_scene(
     reorder = [axis for axis in range(3) if axis != vertical_axis] + [vertical_axis]
     oriented_vertices = vertices[:, reorder]
     oriented_mesh = trimesh.Trimesh(vertices=oriented_vertices, faces=mesh.faces, process=False)
+    timings_s["load_orient_mesh"] = round(time.perf_counter() - stage_start, 6)
 
     sampled_points: np.ndarray | None = None
     sample_meta: dict[str, object] | None = None
     if projection_mode == "sampling":
+        stage_start = time.perf_counter()
         sampled_points, _sampled_normals, sample_meta = sample_surface_points(
             oriented_mesh,
             resolution,
@@ -739,15 +743,21 @@ def process_scene(
             max_sample_points,
             include_normals=False,
         )
+        timings_s["sample_surface"] = round(time.perf_counter() - stage_start, 6)
+        stage_start = time.perf_counter()
         all_points = np.vstack([oriented_vertices, sampled_points]).astype(np.float32, copy=False)
+        timings_s["combine_points"] = round(time.perf_counter() - stage_start, 6)
     else:
         all_points = oriented_vertices.astype(np.float32, copy=True)
 
+    stage_start = time.perf_counter()
     effective_bottom, effective_top, hist_meta = detect_effective_height_range(
         z_values=all_points[:, 2],
         bin_size=min(DEFAULT_BIN_SIZE, max(0.02, step / 2.0)),
     )
+    timings_s["detect_height_range"] = round(time.perf_counter() - stage_start, 6)
 
+    stage_start = time.perf_counter()
     shifted_vertices = oriented_vertices.copy()
     shifted_vertices[:, 2] -= effective_bottom
     shifted_points = all_points
@@ -761,7 +771,9 @@ def process_scene(
     width = int(np.ceil((xy_max[0] - xy_min[0]) / resolution)) + 1
     height = int(np.ceil((xy_max[1] - xy_min[1]) / resolution)) + 1
     shape = (height, width)
+    timings_s["prepare_bounds"] = round(time.perf_counter() - stage_start, 6)
 
+    stage_start = time.perf_counter()
     detected_top_z = max(0.0, float(effective_top - effective_bottom))
     if height_mode == "layers":
         scan_top = float(manual_top_z) if manual_top_z is not None else detected_top_z
@@ -772,7 +784,9 @@ def process_scene(
         scan_top = max(z_levels)
     else:
         raise ValueError("height_mode must be 'layers' or 'heights'")
+    timings_s["build_z_levels"] = round(time.perf_counter() - stage_start, 6)
 
+    stage_start = time.perf_counter()
     side_view = render_side_projection(
         points=shifted_points,
         resolution=resolution,
@@ -782,17 +796,23 @@ def process_scene(
         z_max=float(max(scan_top, float(shifted_points[:, 2].max()))),
     )
     side_view.save(side_view_output_path)
+    timings_s["side_view"] = round(time.perf_counter() - stage_start, 6)
 
     if projection_mode == "sampling":
         assert sample_meta is not None
+        stage_start = time.perf_counter()
         rows, cols, z_vals = rasterize_points(
             points=shifted_points,
             origin_xy=xy_min,
             resolution=resolution,
             shape=shape,
         )
+        timings_s["rasterize_points"] = round(time.perf_counter() - stage_start, 6)
+        stage_start = time.perf_counter()
         pixel_min_z = build_pixel_min_height_map_from_raster(rows=rows, cols=cols, z_vals=z_vals, shape=shape)
         valid_projection = np.isfinite(pixel_min_z)
+        timings_s["pixel_min_height"] = round(time.perf_counter() - stage_start, 6)
+        stage_start = time.perf_counter()
         projection_output = build_sampling_projection_output(
             rows=rows,
             cols=cols,
@@ -802,11 +822,13 @@ def process_scene(
             output_dir=output_dir,
             path_root=path_root,
         )
+        timings_s["build_projection"] = round(time.perf_counter() - stage_start, 6)
         stack = projection_output["stack"]
         projection_stats = projection_output["projection_stats"]
         soft_plain_images_by_index = projection_output["images_by_index"]
         projection_backend_meta: dict[str, object] = {"sampling": sample_meta}
     else:
+        stage_start = time.perf_counter()
         projection_output = build_height_filtered_projection_output(
             mesh=oriented_mesh,
             vertices=shifted_vertices,
@@ -818,6 +840,7 @@ def process_scene(
             output_dir=output_dir,
             path_root=path_root,
         )
+        timings_s["build_projection"] = round(time.perf_counter() - stage_start, 6)
         stack = projection_output["stack"]
         pixel_min_z = projection_output["pixel_min_z"]
         valid_projection = np.isfinite(pixel_min_z)
@@ -830,6 +853,7 @@ def process_scene(
     soft_plain_panels = [(f"z<={level:.2f}", soft_plain_images_by_index[index]) for index, level in enumerate(z_levels)]
     primary_layer_path = output_dir / floorplan_layer_filename(float(z_levels[0]))
 
+    stage_start = time.perf_counter()
     np.savez_compressed(
         output_dir / "stack.npz",
         stack=stack,
@@ -838,13 +862,16 @@ def process_scene(
         origin_xy_m=np.asarray([float(xy_min[0]), float(xy_min[1])], dtype=np.float32),
         pixel_min_z_m=np.where(valid_projection, pixel_min_z, -1.0).astype(np.float32),
     )
+    timings_s["write_stack"] = round(time.perf_counter() - stage_start, 6)
 
+    stage_start = time.perf_counter()
     soft_plain_preview = build_contact_sheet(
         soft_plain_panels,
         title=f"scene: {input_path.name}",
         tile_size=preview_tile_size,
     )
     soft_plain_preview.save(preview_output_path)
+    timings_s["write_preview"] = round(time.perf_counter() - stage_start, 6)
 
     meta = {
         "approach": "height_sweep_projection",
@@ -874,6 +901,7 @@ def process_scene(
         "primary_layer": portable_path(primary_layer_path, path_root),
         "conversion": conversion_meta,
         "projection_stats": projection_stats,
+        "timings_s": timings_s,
     }
     (output_dir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     return {
@@ -888,6 +916,7 @@ def process_scene(
         "projection_mode": projection_mode,
         "z_levels_m": [float(level) for level in z_levels],
         "raw": portable_path(primary_layer_path, path_root),
+        "timings_s": timings_s,
     }
 
 

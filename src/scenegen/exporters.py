@@ -5,6 +5,7 @@ import json
 import math
 import re
 import shutil
+import time
 from pathlib import Path
 from xml.dom import minidom
 from xml.etree import ElementTree as ET
@@ -495,9 +496,15 @@ def write_front3d_scene_files(
     seed: int,
     rng: object,
 ) -> dict[str, object]:
+    timings_s: dict[str, float] = {}
     output_dir.mkdir(parents=True, exist_ok=True)
+    started = time.perf_counter()
     write_front3d_obj(output_dir / "scene.obj", base_scene, placements)
+    timings_s["write_scene_obj"] = round(time.perf_counter() - started, 6)
+    started = time.perf_counter()
     sionna_assets = write_front3d_sionna_scene_assets(output_dir, base_scene, placements)
+    timings_s["write_sionna_assets"] = round(time.perf_counter() - started, 6)
+    started = time.perf_counter()
     placement_payload = {
         "scene_index": scene_index,
         "seed": seed,
@@ -512,11 +519,13 @@ def write_front3d_scene_files(
         "placements": [placement_to_json(placement, output_dir) for placement in placements],
     }
     (output_dir / "placements.json").write_text(json.dumps(placement_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    timings_s["write_placements_json"] = round(time.perf_counter() - started, 6)
     record = scene_record(output_dir, scene_index, seed, sionna_assets, placements)
     record["front3d_scene_id"] = base_scene.scene_id
     record["source_scene"] = portable_path(base_scene.source_scene_json, output_dir.parent)
     record["skipped_object_count"] = len(skipped_objects)
     record["skipped_objects"] = skipped_objects
+    record["build_timings_s"] = timings_s
     return record
 
 

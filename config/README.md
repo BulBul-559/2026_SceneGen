@@ -288,7 +288,7 @@ uv run scenegen \
 | --- | --- | --- | --- |
 | `density_scale` | float, `>0` | `128.0` | 表面采样密度倍率。 |
 | `min_points` | integer, `>=1` | `100000` | 表面采样点数量下限。 |
-| `max_points` | integer, `>= min_points` | `25000000` | 表面采样点数量上限。 |
+| `max_points` | integer, `>= min_points` | `4000000` | 表面采样点数量上限。 |
 
 ### floorplan.preview
 

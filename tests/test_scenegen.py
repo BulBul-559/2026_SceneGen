@@ -760,6 +760,7 @@ def test_partial_config_inherits_builtin_defaults(tmp_path: Path) -> None:
     assert effective["bistro"]["forbidden_xy"] == [[1.0, 11.0, 4.5, 16.0], [8.0, 8.0, 14.0, 10.0]]
     assert effective["floorplan"]["geometry"]["height"]["values_m"] == [1.6]
     assert effective["label"]["ue"]["sampling"]["mask_resolution_m"] == 0.05
+    assert effective["floorplan"]["sampling"]["max_points"] == 4_000_000
 
 
 def test_legacy_assets_manifest_config_is_rejected(tmp_path: Path) -> None:
@@ -1327,6 +1328,8 @@ def test_front3d_ray_height_filtered_floorplan_smoke(tmp_path: Path) -> None:
     meta = json.loads((scene_dir / "floorplan" / "meta.json").read_text(encoding="utf-8"))
     assert meta["projection_mode"] == "ray_height_filtered"
     assert meta["deterministic"] is True
+    assert "timings_s" in meta
+    assert "build_projection" in meta["timings_s"]
     assert meta["projection_stats"][0]["occupied_pixels"] > 0
     manifest = json.loads((output_dir / "smoke_front3d" / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["floorplan_geometry_projection"] == "ray_height_filtered"

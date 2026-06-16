@@ -89,6 +89,6 @@ floorplan:
   sampling:
     density_scale: 128.0
     min_points: 100000
-    max_points: 25000000
+    max_points: 4000000
   preview:
     tile_size_px: 360

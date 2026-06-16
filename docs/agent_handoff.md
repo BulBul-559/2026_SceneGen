@@ -62,6 +62,7 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 - `floorplan.geometry.height.mode: heights`
 - `floorplan.geometry.height.values_m: [1.6]`
 - `floorplan.sampling.density_scale: 128.0`
+- `floorplan.sampling.max_points: 4000000`
 - `floorplan.class_mask.enabled: false`: 需要训练用四分类掩码时在 `front3d` 模式打开。输出 `floorplan/class_mask.png`、`class_mask_preview.png`、`class_mask.npy`、`class_mask.npz` 和 `class_mask_meta.json`，类别固定为 `0 outdoor`、`1 wall`、`2 free_space`、`3 furniture`。开口策略由共享 `front3d.openings.mode` 控制，默认 `doors`。家具层支持 `floorplan.class_mask.furniture_mode: bbox | mesh`，`mesh` 会加载家具 OBJ 并应用实例 transform 生成像素级 footprint。
 - `floorplan.geometry.projection: ray_height_filtered`: 可选确定性高度过滤投影，不依赖随机表面采样密度，适合生成更稳定的像素级几何占据图。
 
