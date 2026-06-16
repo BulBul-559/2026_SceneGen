@@ -832,6 +832,36 @@ def point_in_walk_obstacles(x: float, y: float, z: float, obstacles: tuple[Label
     )
 
 
+def vectorized_obstacle_block_mask(
+    xs: np.ndarray,
+    ys: np.ndarray,
+    z: float,
+    obstacles: tuple[LabelObstacle, ...],
+    strategy: str,
+    min_block_height_m: float = 0.0,
+) -> np.ndarray:
+    blocked = np.zeros(xs.shape, dtype=bool)
+    if not obstacles:
+        return blocked
+    lower_z = max(0.0, min_block_height_m)
+    for obstacle in obstacles:
+        if strategy == "footprint_column":
+            z_blocks = True
+        elif strategy == "below_ue_column":
+            z_blocks = obstacle.max_z + 1e-6 >= lower_z and obstacle.min_z - 1e-6 <= z
+        else:
+            z_blocks = obstacle.min_z - 1e-6 <= z <= obstacle.max_z + 1e-6
+        if not z_blocks:
+            continue
+        blocked |= (
+            (xs >= obstacle.min_x)
+            & (xs <= obstacle.max_x)
+            & (ys >= obstacle.min_y)
+            & (ys <= obstacle.max_y)
+        )
+    return blocked
+
+
 def point_has_wall_clearance(x: float, y: float, triangles: tuple[SupportTriangle, ...], clearance: float) -> bool:
     if clearance <= 0:
         return True
@@ -1583,56 +1613,71 @@ def generate_front3d_global_subtractive_points(
     obstacle_rejected_count = 0
     point_z = context.floor_z + config.ue_height_m
     sample_start = time.perf_counter()
-    for sample_row in range(sample_height):
-        y = max_y - sample_row * resolution
-        for sample_col in range(sample_width):
-            x = min_x + sample_col * resolution
-            in_indoor = mask_value_at(mask.indoor_layer, mask, x, y)
-            if in_indoor:
-                indoor_candidate_count += 1
-            else:
-                outdoor_rejected_count += 1
-                continue
-            in_door = mask_value_at(mask.door_layer, mask, x, y)
-            if in_door:
-                door_candidate_count += 1
-            in_wall = mask_value_at(mask.wall_layer, mask, x, y)
-            if in_wall:
-                wall_rejected_count += 1
-            in_panel = mask_value_at(mask.panel_layer, mask, x, y)
-            if in_door and in_panel:
-                door_after_wall_clearance_count += 1
-            if not in_panel:
-                continue
-            panel_candidate_count += 1
-            if not (
-                base_scene.bbox_min[0] - 1e-6 <= x <= base_scene.bbox_max[0] + 1e-6
-                and base_scene.bbox_min[1] - 1e-6 <= y <= base_scene.bbox_max[1] + 1e-6
-            ):
-                bounds_rejected_count += 1
-                continue
-            if config.ue_strategy == "free_space_grid":
-                blocked = any(
-                    point_in_obstacles(
-                        x,
-                        y,
-                        point_z,
-                        (obstacle,),
-                        config.obstacle_strategy,
-                        min_block_height_m=config.walk_ignore_low_obstacles_below_m,
-                    )
-                    for obstacle in walk_blockers
-                )
-            else:
-                blocked = False
-            if blocked:
-                obstacle_rejected_count += 1
-                continue
-            safe_x = clamp_coordinate_for_label_output(x, base_scene.bbox_min[0], base_scene.bbox_max[0])
-            safe_y = clamp_coordinate_for_label_output(y, base_scene.bbox_min[1], base_scene.bbox_max[1])
-            if safe_x != round(x, 6) or safe_y != round(y, 6):
-                output_bounds_clamped_count += 1
-            free_points.append((safe_x, safe_y))
+    sample_rows = np.repeat(np.arange(sample_height, dtype=np.int32), sample_width)
+    sample_cols = np.tile(np.arange(sample_width, dtype=np.int32), sample_height)
+    xs = min_x + sample_cols.astype(np.float64) * resolution
+    ys = max_y - sample_rows.astype(np.float64) * resolution
+
+    mask_rows = np.rint((mask.max_y - ys) / mask.resolution_m).astype(np.int32)
+    mask_cols = np.rint((xs - mask.min_x) / mask.resolution_m).astype(np.int32)
+    mask_valid = (mask_rows >= 0) & (mask_rows < mask.height_px) & (mask_cols >= 0) & (mask_cols < mask.width_px)
+
+    in_indoor = np.zeros(rectangular_candidate_count, dtype=bool)
+    in_door = np.zeros(rectangular_candidate_count, dtype=bool)
+    in_wall = np.zeros(rectangular_candidate_count, dtype=bool)
+    in_panel = np.zeros(rectangular_candidate_count, dtype=bool)
+    if np.any(mask_valid):
+        valid_rows = mask_rows[mask_valid]
+        valid_cols = mask_cols[mask_valid]
+        in_indoor[mask_valid] = mask.indoor_layer[valid_rows, valid_cols]
+        in_door[mask_valid] = mask.door_layer[valid_rows, valid_cols]
+        in_wall[mask_valid] = mask.wall_layer[valid_rows, valid_cols]
+        in_panel[mask_valid] = mask.panel_layer[valid_rows, valid_cols]
+
+    indoor_candidate_count = int(in_indoor.sum())
+    outdoor_rejected_count = rectangular_candidate_count - indoor_candidate_count
+    door_candidate_count = int((in_indoor & in_door).sum())
+    wall_rejected_count = int((in_indoor & in_wall).sum())
+    door_after_wall_clearance_count = int((in_door & in_panel).sum())
+    panel_candidate_count = int(in_panel.sum())
+
+    in_bounds = (
+        (xs >= base_scene.bbox_min[0] - 1e-6)
+        & (xs <= base_scene.bbox_max[0] + 1e-6)
+        & (ys >= base_scene.bbox_min[1] - 1e-6)
+        & (ys <= base_scene.bbox_max[1] + 1e-6)
+    )
+    bounds_rejected_count = int((in_panel & ~in_bounds).sum())
+    keep_mask = in_panel & in_bounds
+
+    if config.ue_strategy == "free_space_grid":
+        blocked_mask = vectorized_obstacle_block_mask(
+            xs,
+            ys,
+            point_z,
+            walk_blockers,
+            config.obstacle_strategy,
+            min_block_height_m=config.walk_ignore_low_obstacles_below_m,
+        )
+        obstacle_rejected_count = int((keep_mask & blocked_mask).sum())
+        keep_mask &= ~blocked_mask
+
+    kept_indices = np.flatnonzero(keep_mask)
+    if kept_indices.size:
+        kept_xs = xs[kept_indices]
+        kept_ys = ys[kept_indices]
+        free_points = [
+            (
+                clamp_coordinate_for_label_output(float(x), base_scene.bbox_min[0], base_scene.bbox_max[0]),
+                clamp_coordinate_for_label_output(float(y), base_scene.bbox_min[1], base_scene.bbox_max[1]),
+            )
+            for x, y in zip(kept_xs, kept_ys, strict=False)
+        ]
+        output_bounds_clamped_count = sum(
+            1
+            for (safe_x, safe_y), x, y in zip(free_points, kept_xs, kept_ys, strict=False)
+            if safe_x != round(float(x), 6) or safe_y != round(float(y), 6)
+        )
     sample_grid_duration_s = elapsed_s(sample_start)
 
     component_stats: dict[str, object] = {}
