@@ -877,14 +877,19 @@ def process_scene(
         )
         timings_s["sample_surface"] = round(time.perf_counter() - stage_start, 6)
         stage_start = time.perf_counter()
-        all_points = np.vstack([oriented_vertices, sampled_points]).astype(np.float32, copy=False)
+        height_range_z_values = np.concatenate(
+            [
+                oriented_vertices[:, 2].astype(np.float32, copy=False),
+                sampled_points[:, 2].astype(np.float32, copy=False),
+            ]
+        )
         timings_s["combine_points"] = round(time.perf_counter() - stage_start, 6)
     else:
-        all_points = oriented_vertices.astype(np.float32, copy=True)
+        height_range_z_values = oriented_vertices[:, 2]
 
     stage_start = time.perf_counter()
     effective_bottom, effective_top, hist_meta = detect_effective_height_range(
-        z_values=all_points[:, 2],
+        z_values=height_range_z_values,
         bin_size=min(DEFAULT_BIN_SIZE, max(0.02, step / 2.0)),
     )
     timings_s["detect_height_range"] = round(time.perf_counter() - stage_start, 6)
@@ -892,8 +897,10 @@ def process_scene(
     stage_start = time.perf_counter()
     shifted_vertices = oriented_vertices.copy()
     shifted_vertices[:, 2] -= effective_bottom
-    shifted_points = all_points
-    shifted_points[:, 2] -= effective_bottom
+    shifted_sampled_points: np.ndarray | None = None
+    if sampled_points is not None:
+        shifted_sampled_points = sampled_points
+        shifted_sampled_points[:, 2] -= effective_bottom
 
     xy_min, xy_max, origin_clipping_warning = compute_projection_bounds(
         points_xy=shifted_vertices[:, :2],
@@ -919,23 +926,30 @@ def process_scene(
     timings_s["build_z_levels"] = round(time.perf_counter() - stage_start, 6)
 
     stage_start = time.perf_counter()
-    side_view_points = limit_points_for_preview(shifted_points, SIDE_VIEW_MAX_POINTS)
+    point_parts = (
+        (shifted_vertices.astype(np.float32, copy=False), shifted_sampled_points)
+        if shifted_sampled_points is not None
+        else (shifted_vertices.astype(np.float32, copy=False),)
+    )
+    side_view_points = limit_point_parts_for_preview(point_parts, SIDE_VIEW_MAX_POINTS)
+    max_shifted_z = max(float(points[:, 2].max()) for points in point_parts if points is not None and points.size)
     side_view = render_side_projection(
         points=side_view_points,
         resolution=resolution,
         x_min=float(xy_min[0]),
         x_max=float(xy_max[0]),
         z_min=0.0,
-        z_max=float(max(scan_top, float(shifted_points[:, 2].max()))),
+        z_max=float(max(scan_top, max_shifted_z)),
     )
     side_view.save(side_view_output_path)
     timings_s["side_view"] = round(time.perf_counter() - stage_start, 6)
 
     if projection_mode == "sampling":
         assert sample_meta is not None
+        assert shifted_sampled_points is not None
         stage_start = time.perf_counter()
-        rows, cols, z_vals = rasterize_points(
-            points=shifted_points,
+        rows, cols, z_vals = rasterize_point_parts(
+            point_parts=(shifted_vertices, shifted_sampled_points),
             origin_xy=xy_min,
             resolution=resolution,
             shape=shape,
@@ -1616,11 +1630,41 @@ def rasterize_points(
     return rows[valid], cols[valid], points[valid, 2].astype(np.float32, copy=False)
 
 
+def rasterize_point_parts(
+    point_parts: tuple[np.ndarray, ...],
+    origin_xy: np.ndarray,
+    resolution: float,
+    shape: tuple[int, int],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    raster_parts = [rasterize_points(points, origin_xy, resolution, shape) for points in point_parts if points.size]
+    if not raster_parts:
+        return (
+            np.zeros((0,), dtype=np.int32),
+            np.zeros((0,), dtype=np.int32),
+            np.zeros((0,), dtype=np.float32),
+        )
+    rows = np.concatenate([part[0] for part in raster_parts])
+    cols = np.concatenate([part[1] for part in raster_parts])
+    z_vals = np.concatenate([part[2] for part in raster_parts])
+    return rows, cols, z_vals
+
+
 def limit_points_for_preview(points: np.ndarray, max_points: int) -> np.ndarray:
     if max_points <= 0 or points.shape[0] <= max_points:
         return points
     step = int(math.ceil(points.shape[0] / max_points))
     return points[::step]
+
+
+def limit_point_parts_for_preview(point_parts: tuple[np.ndarray | None, ...], max_points: int) -> np.ndarray:
+    valid_parts = [points for points in point_parts if points is not None and points.size]
+    if not valid_parts:
+        return np.zeros((0, 3), dtype=np.float32)
+    total_count = sum(int(points.shape[0]) for points in valid_parts)
+    if max_points <= 0 or total_count <= max_points:
+        return np.concatenate([points.astype(np.float32, copy=False) for points in valid_parts], axis=0)
+    step = int(math.ceil(total_count / max_points))
+    return np.concatenate([points[::step].astype(np.float32, copy=False) for points in valid_parts], axis=0)
 
 
 def density_from_indices(rows: np.ndarray, cols: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
