@@ -213,6 +213,8 @@ summary/
     meta.json
 ```
 
+`front3d` 的 `placements.json` 中 `sionna_assets.timings_s` 会记录 Sionna XML 资产导出的细分耗时，包括建筑拆分、家具资产拆分和 XML 写入，用于定位 `build_scene` 阶段瓶颈。
+
 `scenegen-batch` 额外输出：
 
 ```text
