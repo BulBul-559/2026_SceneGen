@@ -2202,6 +2202,7 @@ def generate_label_batch_for_scene(
 
 OVERLAY_RENDER_SCALE = 4
 OVERLAY_STYLE = "scientific_v1"
+OVERLAY_PNG_COMPRESS_LEVEL = 1
 
 
 def image_pixel_for_point(
@@ -2347,7 +2348,7 @@ def write_label_overlay(
     output_dir = floorplan_dir if output_dir is None else output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"{output_name}.png"
-    image.save(output_path)
+    image.save(output_path, compress_level=OVERLAY_PNG_COMPRESS_LEVEL)
     timings_s["resize_save"] = elapsed_s(started)
     return {
         "ok": True,
@@ -2357,6 +2358,7 @@ def write_label_overlay(
         "bs_drawn": bs_count,
         "style": OVERLAY_STYLE,
         "render_scale": render_scale,
+        "png_compress_level": OVERLAY_PNG_COMPRESS_LEVEL,
         "ue_radius_px": round(ue_radius_px, 3),
         "bs_radius_px": round(bs_radius_px, 3),
         "timings_s": timings_s,
