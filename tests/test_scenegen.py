@@ -1317,6 +1317,8 @@ def test_front3d_batch_runner_writes_plan_state_and_worker_logs(tmp_path: Path, 
     assert manifest["succeeded_scenes"] == 2
     assert manifest["failed_scenes"] == 0
     assert all("batch_publish_s" in scene for scene in manifest["scenes"])
+    assert all("batch_child_run_timings_s" in scene for scene in manifest["scenes"])
+    assert all("batch_subprocess_overhead_s" in scene for scene in manifest["scenes"])
     assert any(json.loads(line)["stage"] == "publish_scene" for line in (run_dir / "batch" / "logs" / "timings.jsonl").read_text().splitlines())
 
 

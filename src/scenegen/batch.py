@@ -247,6 +247,7 @@ def load_task_scene_record(worker_run_dir: Path, final_scene_key: str, target_in
     record["scene_index"] = int(target_index)
     record["batch_task_id"] = final_scene_key
     record["batch_worker_run"] = str(worker_run_dir)
+    record["batch_child_run_timings_s"] = manifest.get("run_timings_s") or {}
     return record
 
 
@@ -347,6 +348,9 @@ def run_task(
     record["batch_duration_s"] = duration_s
     record["batch_publish_s"] = publish_duration_s
     record["batch_total_duration_s"] = round(duration_s + publish_duration_s, 6)
+    child_total_run = (record.get("batch_child_run_timings_s") or {}).get("total_run")
+    if isinstance(child_total_run, int | float):
+        record["batch_subprocess_overhead_s"] = round(duration_s - float(child_total_run), 6)
     append_jsonl(
         worker_jsonl,
         {
