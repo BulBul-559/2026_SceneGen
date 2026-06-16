@@ -19,6 +19,7 @@ from .paths import portable_path
 SUPPORTED_INPUTS = {".glb", ".gltf", ".obj", ".ply", ".stl"}
 DEFAULT_BIN_SIZE = 0.05
 FIXED_ORIGIN_XY = np.array([0.0, 0.0], dtype=np.float64)
+SIDE_VIEW_MAX_POINTS = 750_000
 CLASS_MASK_LABELS: dict[int, str] = {
     0: "outdoor",
     1: "wall",
@@ -905,8 +906,9 @@ def process_scene(
     timings_s["build_z_levels"] = round(time.perf_counter() - stage_start, 6)
 
     stage_start = time.perf_counter()
+    side_view_points = limit_points_for_preview(shifted_points, SIDE_VIEW_MAX_POINTS)
     side_view = render_side_projection(
-        points=shifted_points,
+        points=side_view_points,
         resolution=resolution,
         x_min=float(xy_min[0]),
         x_max=float(xy_max[0]),
@@ -1017,6 +1019,8 @@ def process_scene(
         "z_levels_m": [float(level) for level in z_levels],
         "origin_clipping_warning": origin_clipping_warning,
         "height_histogram": hist_meta,
+        "side_view_point_count": int(side_view_points.shape[0]),
+        "side_view_point_limit": int(SIDE_VIEW_MAX_POINTS),
         **projection_backend_meta,
         "primary_layer": portable_path(primary_layer_path, path_root),
         "conversion": conversion_meta,
@@ -1599,6 +1603,21 @@ def rasterize_points(
     return rows[valid], cols[valid], points[valid, 2].astype(np.float32, copy=False)
 
 
+def limit_points_for_preview(points: np.ndarray, max_points: int) -> np.ndarray:
+    if max_points <= 0 or points.shape[0] <= max_points:
+        return points
+    step = int(math.ceil(points.shape[0] / max_points))
+    return points[::step]
+
+
+def density_from_indices(rows: np.ndarray, cols: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
+    if rows.size == 0:
+        return np.zeros(shape, dtype=np.float32)
+    flat = rows.astype(np.int64, copy=False) * int(shape[1]) + cols.astype(np.int64, copy=False)
+    density = np.bincount(flat, minlength=int(shape[0]) * int(shape[1]))
+    return density.reshape(shape).astype(np.float32, copy=False)
+
+
 def render_projection_stack(
     rows: np.ndarray,
     cols: np.ndarray,
@@ -1644,10 +1663,8 @@ def render_soft_projection_stack(
 
     if len(z_levels) == 1:
         level = float(z_levels[0])
-        density = np.zeros(shape, dtype=np.float32)
         hits = z_vals <= level
-        if np.any(hits):
-            np.add.at(density, (rows[hits], cols[hits]), 1.0)
+        density = density_from_indices(rows[hits], cols[hits], shape) if np.any(hits) else np.zeros(shape, dtype=np.float32)
         image = render_density_projection(density, max_alpha=max_alpha, foreground_color=foreground_color)
         image.save(output_dir / floorplan_layer_filename(level))
         return {0: image}
@@ -1664,7 +1681,7 @@ def render_soft_projection_stack(
     for level, original_index in ascending_levels:
         next_cursor = int(np.searchsorted(z_sorted, level, side="right"))
         if next_cursor > cursor:
-            np.add.at(density, (rows_sorted[cursor:next_cursor], cols_sorted[cursor:next_cursor]), 1.0)
+            density += density_from_indices(rows_sorted[cursor:next_cursor], cols_sorted[cursor:next_cursor], shape)
             cursor = next_cursor
         image = render_density_projection(density, max_alpha=max_alpha, foreground_color=foreground_color)
         image.save(output_dir / floorplan_layer_filename(level))
@@ -1699,9 +1716,10 @@ def render_side_projection(
     rows = np.floor((points[:, 2] - z_min) / resolution).astype(np.int32)
     valid = (rows >= 0) & (rows < height) & (cols >= 0) & (cols < width)
 
-    density = np.zeros((height, width), dtype=np.float32)
     if np.any(valid):
-        np.add.at(density, (rows[valid], cols[valid]), 1.0)
+        density = density_from_indices(rows[valid], cols[valid], (height, width))
+    else:
+        density = np.zeros((height, width), dtype=np.float32)
 
     return render_density_projection(
         density=density,

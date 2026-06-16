@@ -5,6 +5,7 @@ import math
 import random
 import time
 from dataclasses import dataclass, replace
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -2119,6 +2120,29 @@ def scientific_overlay_base(base_path: Path) -> Image.Image:
     return Image.blend(white, base_rgb, 0.72).convert("RGBA")
 
 
+def scientific_overlay_canvas(base_path: Path, render_scale: int) -> Image.Image:
+    stat = base_path.stat()
+    return _scientific_overlay_canvas_cached(
+        str(base_path.expanduser().resolve()),
+        int(stat.st_mtime_ns),
+        int(stat.st_size),
+        int(render_scale),
+    )
+
+
+@lru_cache(maxsize=32)
+def _scientific_overlay_canvas_cached(
+    base_path_text: str,
+    _mtime_ns: int,
+    _size: int,
+    render_scale: int,
+) -> Image.Image:
+    base = scientific_overlay_base(Path(base_path_text))
+    width, height = base.size
+    resample = getattr(Image, "Resampling", Image).BICUBIC
+    return base.resize((width * render_scale, height * render_scale), resample=resample)
+
+
 def scaled_point(x: float, y: float, scale: int) -> tuple[float, float]:
     return x * scale, y * scale
 
@@ -2167,11 +2191,10 @@ def write_label_overlay(
     label_payload = json.loads(label_path.read_text(encoding="utf-8"))
     origin_x, origin_y = (float(value) for value in meta["origin_xy_m"])
     resolution = float(meta["resolution_m_per_pixel"])
-    image = scientific_overlay_base(base_path)
-    width, height = image.size
     render_scale = OVERLAY_RENDER_SCALE
-    resample = getattr(Image, "Resampling", Image).BICUBIC
-    canvas = image.resize((width * render_scale, height * render_scale), resample=resample)
+    canvas = scientific_overlay_canvas(base_path, render_scale).copy()
+    width = canvas.width // render_scale
+    height = canvas.height // render_scale
     draw = ImageDraw.Draw(canvas, "RGBA")
     ue_radius_px = max(0.35, min(0.9, 0.02 / max(resolution, 1e-9)))
     bs_radius_px = max(3.0, min(5.5, 0.12 / max(resolution, 1e-9)))
