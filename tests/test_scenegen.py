@@ -15,6 +15,7 @@ from PIL import Image
 from scenegen import __version__
 from scenegen.assets import AssetSpec, group_assets_by_class, legacy_item_to_spec, load_assets, resolve_obj_file
 from scenegen.batch import main as batch_main
+from scenegen.batch import parse_args as parse_batch_args
 from scenegen.cli import evaluate_front3d_precheck, main, parse_args, prepare_run_dir
 from scenegen.config import DEFAULT_CONFIG, load_effective_config
 from scenegen.exporters import write_clean_obj_full_from_source
@@ -1266,7 +1267,13 @@ def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
         assert not [value for value in iter_json_strings(payload) if value.startswith("/")]
 
 
-@pytest.mark.parametrize("scheduler", ["static", "dynamic"])
+def test_front3d_batch_scheduler_defaults_to_hybrid(tmp_path: Path) -> None:
+    args = parse_batch_args(["--config", str(tmp_path / "front3d.yaml")])
+
+    assert args.scheduler == "hybrid"
+
+
+@pytest.mark.parametrize("scheduler", ["static", "dynamic", "hybrid"])
 def test_front3d_batch_runner_writes_plan_state_and_worker_logs(tmp_path: Path, scheduler: str) -> None:
     pytest.importorskip("trimesh")
     config_path = make_front3d_runtime_fixture(tmp_path)

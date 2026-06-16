@@ -55,7 +55,47 @@ All runs produced around `1.4G` total output and `77M` under `batch/worker_runs`
 
 ## Recommendation
 
-- Use `--workers 16 --scheduler static` as the stable production default when sharing the machine with other heavy jobs.
-- Use `--workers 24 --scheduler static` as the current maximum-throughput setting when the machine is not under severe memory or I/O pressure.
-- Keep dynamic scheduling as an optional strategy, especially for medium worker counts or mixed-duration scene queues, but do not make it the default based on this test.
+- For the 30-scene pilot, use `--workers 16 --scheduler static` as a conservative low-risk setting when sharing the machine with other heavy jobs.
+- For the 30-scene pilot, `--workers 24 --scheduler static` was the fastest observed setting.
+- A longer 90-scene follow-up below shows that the pilot was too short to judge dynamic or hybrid scheduling at higher worker counts.
 - Re-run a smaller pilot before very large production jobs if the template, machine load, or label/floorplan settings change materially.
+
+## 90-Scene Follow-Up
+
+The 30-scene run was too short for workers above 16 because each worker received only one or two scenes. A second sweep used 90 scenes from the same sequential Front3D queue and the same config.
+
+| Scheduler | Workers | Wall Time (s) | Success / Fail | Success/min | Task Mean (s) | Task P95 (s) | Worker Max (s) | Worker Imbalance (s) | Task Range | Stolen Tasks |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: |
+| static | 8 | 162.62 | 79 / 11 | 29.15 | 12.27 | 19.38 | 157.31 | 38.56 | 11-12 | 0 |
+| static | 16 | 111.15 | 79 / 11 | 42.65 | 13.86 | 22.19 | 105.29 | 51.60 | 5-6 | 0 |
+| static | 24 | 95.05 | 79 / 11 | 49.87 | 17.28 | 27.20 | 90.32 | 51.54 | 3-4 | 0 |
+| static | 32 | 88.80 | 79 / 11 | 53.38 | 18.90 | 28.17 | 81.40 | 57.69 | 2-3 | 0 |
+| dynamic | 8 | 130.94 | 79 / 11 | 36.20 | 10.30 | 17.41 | 124.91 | 14.70 | 10-13 | 0 |
+| dynamic | 16 | 95.26 | 79 / 11 | 49.76 | 13.94 | 24.41 | 89.86 | 17.42 | 4-7 | 0 |
+| dynamic | 24 | 90.33 | 79 / 11 | 52.47 | 18.02 | 27.29 | 84.69 | 31.10 | 2-5 | 0 |
+| dynamic | 32 | 76.62 | 79 / 11 | 61.86 | 18.08 | 29.15 | 64.53 | 28.55 | 1-4 | 0 |
+| hybrid | 8 | 121.59 | 79 / 11 | 38.98 | 10.07 | 16.07 | 117.56 | 8.33 | 9-13 | 5 |
+| hybrid | 16 | 98.33 | 79 / 11 | 48.21 | 14.38 | 23.94 | 91.79 | 17.53 | 4-7 | 7 |
+| hybrid | 24 | 82.27 | 79 / 11 | 57.62 | 17.80 | 28.14 | 74.72 | 16.41 | 2-5 | 8 |
+| hybrid | 32 | 74.06 | 79 / 11 | 64.00 | 18.57 | 31.25 | 67.58 | 29.56 | 1-4 | 6 |
+
+The 11 failed scenes were identical across all 90-scene runs: `front3d_0020`, `front3d_0026`, `front3d_0027`, `front3d_0034`, `front3d_0042`, `front3d_0047`, `front3d_0050`, `front3d_0059`, `front3d_0071`, `front3d_0076`, and `front3d_0084`. This indicates the failures were data/precheck issues rather than worker-count instability.
+
+## Hybrid Scheduler
+
+Hybrid scheduling keeps the initial static sharding, then switches to work stealing only at the tail:
+
+1. Each worker first consumes its own fixed shard queue.
+2. When a worker's own queue is empty, it checks whether any other worker queue still has pending tasks.
+3. If so, it steals one task from the queue with the largest remaining size.
+4. Each stolen claim is recorded in `batch/logs/events.jsonl` as `task_claimed` with `stolen: true` and `source_worker_id`.
+
+This made the long-queue case faster than both static and dynamic in the 90-scene sweep. `--scheduler hybrid` is therefore the default batch scheduler after this test.
+
+Updated recommendation:
+
+- Stable production setting: `--workers 24 --scheduler hybrid`.
+- Maximum-throughput setting observed in this sweep: `--workers 32 --scheduler hybrid`.
+- Conservative setting for shared/high-load machines: `--workers 16 --scheduler hybrid`.
+- Keep `static` for strict reproducibility/debugging of fixed shard assignment.
+- Keep `dynamic` for comparison and for queues where full shared scheduling is desired from the start.

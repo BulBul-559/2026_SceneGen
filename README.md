@@ -232,7 +232,7 @@ logs/
 uv run scenegen-batch \
   --config config/tasks/front3d_full_simulation.yaml \
   --workers 4 \
-  --scheduler static \
+  --scheduler hybrid \
   --max-retries 1 \
   --set pipeline.scenes=2000 \
   --set pipeline.run_name=front3d_production_2000
@@ -274,7 +274,7 @@ batch/
 
 `manifest_batch.json`、`manifest_front3d.json` 和 `manifest.json` 会在 batch 完成后统一汇总最终发布到 run 根目录的 `front3d_0000/`、`front3d_0001/` 等标准场景目录。
 
-`--scheduler static` 是默认调度策略，保持固定分片，资源占用更保守；`--scheduler dynamic` 会让空闲 worker 继续领取下一个 scene，可能减少长尾，但也可能在高负载机器上增加 CPU/IO 争用。正式大批量前建议先用 30 个 scene 对比两种策略。batch 子进程会跳过自己的 `summary/` 汇总复制，最终只由 batch 顶层统一生成 summary；成功 scene 会从 `batch/worker_runs` 直接 move 到 run 根目录，`batch/worker_runs` 主要保留 worker 子 run 的日志、配置和失败场景调试信息，不再保存成功场景的完整重复副本。
+`--scheduler hybrid` 是默认调度策略：先按固定分片运行，只有当某个 worker 自己队列清空且其他队列仍有待处理任务时，才从剩余任务最多的队列偷取尾部任务。`--scheduler static` 会严格保持固定分片，资源占用更保守但容易出现尾部空等；`--scheduler dynamic` 使用共享任务队列，空闲 worker 会继续领取下一个 scene。正式大批量前建议用 30-90 个 scene 对比调度策略和 worker 数。batch 子进程会跳过自己的 `summary/` 汇总复制，最终只由 batch 顶层统一生成 summary；成功 scene 会从 `batch/worker_runs` 直接 move 到 run 根目录，`batch/worker_runs` 主要保留 worker 子 run 的日志、配置和失败场景调试信息，不再保存成功场景的完整重复副本。
 
 ## 输出结构
 

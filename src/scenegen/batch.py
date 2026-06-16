@@ -49,9 +49,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--workers", type=int, default=1, help="Number of worker subprocess lanes.")
     parser.add_argument(
         "--scheduler",
-        choices=("dynamic", "static"),
-        default="static",
-        help="Worker scheduling policy. static keeps legacy shard assignment; dynamic lets idle workers claim the next task.",
+        choices=("dynamic", "hybrid", "static"),
+        default="hybrid",
+        help=(
+            "Worker scheduling policy. static keeps fixed shard assignment; dynamic uses one shared queue; "
+            "hybrid starts with fixed shards and lets idle workers steal tail tasks."
+        ),
     )
     parser.add_argument("--resume", action="store_true", help="Resume an existing batch run with the same run_name.")
     parser.add_argument("--max-retries", type=int, default=1, help="Retries per scene task after subprocess failure.")
@@ -402,6 +405,7 @@ def worker_loop(
     *,
     worker_index: int,
     task_queue: queue.Queue[dict[str, Any]],
+    steal_queues: list[queue.Queue[dict[str, Any]]] | None,
     total_tasks: int,
     scheduler: str,
     config_path: Path,
@@ -416,12 +420,43 @@ def worker_loop(
     records: list[dict[str, Any]] = []
     event(paths, "worker_started", worker_id=worker_id, scheduler=scheduler, total_task_count=total_tasks)
     while True:
+        task_source_queue = task_queue
+        stolen = False
+        source_worker_id = None
         try:
             task = task_queue.get_nowait()
         except queue.Empty:
-            break
+            if scheduler != "hybrid" or steal_queues is None:
+                break
+            candidates = [
+                (other_queue.qsize(), other_index, other_queue)
+                for other_index, other_queue in enumerate(steal_queues)
+                if other_index != worker_index and other_queue.qsize() > 0
+            ]
+            if not candidates:
+                break
+            task = None
+            for _size, source_index, other_queue in sorted(candidates, reverse=True):
+                try:
+                    task = other_queue.get_nowait()
+                except queue.Empty:
+                    continue
+                task_source_queue = other_queue
+                stolen = True
+                source_worker_id = f"worker_{source_index:03d}"
+                break
+            if task is None:
+                break
         task_id = str(task["task_id"])
-        event(paths, "task_claimed", worker_id=worker_id, task_id=task_id, queued_remaining=task_queue.qsize())
+        event(
+            paths,
+            "task_claimed",
+            worker_id=worker_id,
+            task_id=task_id,
+            queued_remaining=task_source_queue.qsize(),
+            stolen=stolen,
+            source_worker_id=source_worker_id,
+        )
         try:
             with state_lock:
                 status = state["tasks"].get(task_id, {}).get("status")
@@ -505,7 +540,7 @@ def worker_loop(
                         write_state(paths, state)
                     break
         finally:
-            task_queue.task_done()
+            task_source_queue.task_done()
     event(paths, "worker_stopped", worker_id=worker_id, scheduler=scheduler, completed_count=len(records))
     return records
 
@@ -635,7 +670,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     worker_queues: list[queue.Queue[dict[str, Any]]]
-    if args.scheduler == "static":
+    if args.scheduler in {"static", "hybrid"}:
         worker_queues = [queue.Queue() for _ in range(args.workers)]
         for task in tasks:
             worker_queues[int(task["shard_id"])].put(task)
@@ -652,6 +687,7 @@ def main(argv: list[str] | None = None) -> int:
                 worker_loop,
                 worker_index=worker_index,
                 task_queue=worker_queues[worker_index],
+                steal_queues=worker_queues if args.scheduler == "hybrid" else None,
                 total_tasks=len(tasks),
                 scheduler=args.scheduler,
                 config_path=config_path.resolve(),
