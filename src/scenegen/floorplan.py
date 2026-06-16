@@ -20,6 +20,7 @@ SUPPORTED_INPUTS = {".glb", ".gltf", ".obj", ".ply", ".stl"}
 DEFAULT_BIN_SIZE = 0.05
 FIXED_ORIGIN_XY = np.array([0.0, 0.0], dtype=np.float64)
 SIDE_VIEW_MAX_POINTS = 750_000
+SURFACE_SAMPLE_CHUNK_SIZE = 500_000
 CLASS_MASK_LABELS: dict[int, str] = {
     0: "outdoor",
     1: "wall",
@@ -1501,6 +1502,7 @@ def sample_surface_points(
         "min_sample_points": int(min_sample_points),
         "max_sample_points": int(max_sample_points),
         "sampler": "numpy_area_weighted",
+        "chunk_size": int(SURFACE_SAMPLE_CHUNK_SIZE),
     }
 
 
@@ -1516,19 +1518,27 @@ def sample_surface_points_numpy(mesh: trimesh.Trimesh, count: int) -> tuple[np.n
         raise RuntimeError("Cannot sample a mesh with zero surface area.")
     cumulative_area = np.cumsum(face_areas)
     rng = np.random.default_rng()
-    face_indices = np.searchsorted(cumulative_area, rng.random(count) * total_area, side="right")
-    face_indices = np.minimum(face_indices, len(faces) - 1).astype(np.int64, copy=False)
     vertices = np.asarray(mesh.vertices, dtype=np.float32)
-    triangles = vertices[faces[face_indices]]
-    u = rng.random(count, dtype=np.float32)
-    v = rng.random(count, dtype=np.float32)
-    flip = u + v > 1.0
-    u[flip] = 1.0 - u[flip]
-    v[flip] = 1.0 - v[flip]
-    samples = triangles[:, 0] + u[:, None] * (triangles[:, 1] - triangles[:, 0]) + v[:, None] * (
-        triangles[:, 2] - triangles[:, 0]
-    )
-    return samples.astype(np.float32, copy=False), face_indices
+    samples = np.empty((count, 3), dtype=np.float32)
+    face_indices = np.empty((count,), dtype=np.int64)
+
+    cursor = 0
+    while cursor < count:
+        chunk_count = min(SURFACE_SAMPLE_CHUNK_SIZE, count - cursor)
+        chunk_faces = np.searchsorted(cumulative_area, rng.random(chunk_count) * total_area, side="right")
+        chunk_faces = np.minimum(chunk_faces, len(faces) - 1).astype(np.int64, copy=False)
+        triangles = vertices[faces[chunk_faces]]
+        u = rng.random(chunk_count, dtype=np.float32)
+        v = rng.random(chunk_count, dtype=np.float32)
+        flip = u + v > 1.0
+        u[flip] = 1.0 - u[flip]
+        v[flip] = 1.0 - v[flip]
+        samples[cursor : cursor + chunk_count] = triangles[:, 0] + u[:, None] * (
+            triangles[:, 1] - triangles[:, 0]
+        ) + v[:, None] * (triangles[:, 2] - triangles[:, 0])
+        face_indices[cursor : cursor + chunk_count] = chunk_faces
+        cursor += chunk_count
+    return samples, face_indices
 
 
 def detect_effective_height_range(z_values: np.ndarray, bin_size: float) -> tuple[float, float, dict[str, object]]:
