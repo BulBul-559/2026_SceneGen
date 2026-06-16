@@ -6,6 +6,7 @@ import math
 import re
 import shutil
 import time
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 from xml.dom import minidom
 from xml.etree import ElementTree as ET
@@ -53,7 +54,7 @@ def relative_posix(path: Path, root: Path) -> str:
     return path.relative_to(root).as_posix()
 
 
-def obj_vertex_lines(vertices: list[tuple[float, float, float]]) -> list[str]:
+def obj_vertex_lines(vertices: Iterable[Sequence[float]]) -> list[str]:
     return [f"v {x:.6f} {y:.6f} {z:.6f}\n" for x, y, z in vertices]
 
 
@@ -156,6 +157,23 @@ def transform_matrix_for_placement(placed: PlacedAsset) -> tuple[float, ...]:
         0.0,
         1.0,
     )
+
+
+def transform_vertices_array(mesh: ObjMesh, placed: PlacedAsset) -> np.ndarray:
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    if vertices.size == 0:
+        return vertices.reshape((0, 3))
+    if placed.transform_matrix_4x4_row_major is not None:
+        matrix = np.asarray(placed.transform_matrix_4x4_row_major, dtype=np.float64).reshape((4, 4))
+        return vertices @ matrix[:3, :3].T + matrix[:3, 3]
+
+    cos_yaw = math.cos(placed.yaw)
+    sin_yaw = math.sin(placed.yaw)
+    transformed = np.empty_like(vertices)
+    transformed[:, 0] = placed.x + cos_yaw * vertices[:, 0] - sin_yaw * vertices[:, 1]
+    transformed[:, 1] = placed.y + sin_yaw * vertices[:, 0] + cos_yaw * vertices[:, 1]
+    transformed[:, 2] = placed.z + vertices[:, 2]
+    return transformed
 
 
 def export_sionna_asset_parts(
@@ -451,7 +469,7 @@ def write_front3d_obj(
     path.parent.mkdir(parents=True, exist_ok=True)
     base_mesh = load_obj_mesh(base_scene.scene_obj)
     mesh_cache: dict[Path, ObjMesh] = {}
-    vertex_chunks: list[list[tuple[float, float, float]]] = []
+    vertex_chunks: list[np.ndarray] = []
     triangle_chunks: list[list[tuple[int, int, int]]] = []
     vertex_offset = 0
     with path.open("w", encoding="utf-8", newline="\n") as handle:
@@ -462,8 +480,13 @@ def write_front3d_obj(
             ]
         )
         offset_x, offset_y, offset_z = base_scene.world_offset
-        base_vertices = [(x + offset_x, y + offset_y, z + offset_z) for x, y, z in base_mesh.vertices]
-        handle.writelines(obj_vertex_lines(base_vertices))
+        base_vertices = np.asarray(base_mesh.vertices, dtype=np.float64)
+        if base_vertices.size:
+            base_vertices = base_vertices.copy()
+            base_vertices[:, 0] += offset_x
+            base_vertices[:, 1] += offset_y
+            base_vertices[:, 2] += offset_z
+        handle.writelines(obj_vertex_lines(base_vertices.tolist()))
         handle.writelines(obj_face_lines(base_mesh.faces, vertex_offset))
         if collect_mesh_arrays:
             vertex_chunks.append(base_vertices)
@@ -473,8 +496,8 @@ def write_front3d_obj(
         for placed in placements:
             mesh = mesh_cache.setdefault(placed.asset.obj_file, load_obj_mesh(placed.asset.obj_file))
             handle.write(f"o {placed.instance_name}\n")
-            transformed_vertices = transform_vertices(mesh, placed)
-            handle.writelines(obj_vertex_lines(transformed_vertices))
+            transformed_vertices = transform_vertices_array(mesh, placed)
+            handle.writelines(obj_vertex_lines(transformed_vertices.tolist()))
             handle.writelines(obj_face_lines(mesh.faces, vertex_offset))
             if collect_mesh_arrays:
                 vertex_chunks.append(transformed_vertices)
