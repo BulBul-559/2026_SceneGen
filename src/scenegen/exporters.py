@@ -316,8 +316,11 @@ def write_front3d_sionna_scene_assets(
     base_scene: Front3DBaseScene,
     placements: list[PlacedAsset],
 ) -> dict[str, object]:
+    timings_s: dict[str, float] = {}
     assets_dir = output_dir / "assets"
+    started = time.perf_counter()
     base_parts = export_front3d_base_parts(output_dir, assets_dir, base_scene)
+    timings_s["export_base_parts"] = round(time.perf_counter() - started, 6)
     shapes = [
         SionnaXmlShape(
             shape_id=f"empty_scene_{index:04d}_{sionna_material_itu_type(part.material_name)}",
@@ -328,6 +331,7 @@ def write_front3d_sionna_scene_assets(
     ]
     asset_cache: dict[Path, list[SionnaAssetPart]] = {}
     placement_asset_parts: list[dict[str, object]] = []
+    started = time.perf_counter()
     for placed in placements:
         parts = export_sionna_asset_parts(output_dir, assets_dir, placed.asset, asset_cache)
         transform = transform_matrix_for_placement(placed)
@@ -359,8 +363,11 @@ def write_front3d_sionna_scene_assets(
                 "parts": placement_parts,
             }
         )
+    timings_s["export_object_parts"] = round(time.perf_counter() - started, 6)
 
+    started = time.perf_counter()
     (output_dir / "scene.xml").write_text(build_sionna_scene_xml(shapes), encoding="utf-8")
+    timings_s["write_xml"] = round(time.perf_counter() - started, 6)
     return {
         "assets_dir": portable_path(assets_dir, output_dir),
         "empty_scene_obj": portable_path(base_scene.scene_obj, output_dir),
@@ -378,6 +385,7 @@ def write_front3d_sionna_scene_assets(
             for part in base_parts
         ],
         "placements": placement_asset_parts,
+        "timings_s": timings_s,
     }
 
 
