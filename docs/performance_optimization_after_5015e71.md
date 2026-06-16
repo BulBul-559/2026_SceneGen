@@ -1,33 +1,34 @@
-# Performance Optimization Summary After `5015e71`
+# `5015e71` 之后的性能优化复盘
 
-This document preserves the performance work done after commit `5015e71d4e1f1165ce73672ab3337eb23c63d699` (`Refresh project TODO backlog`). It is intentionally self-contained because many intermediate `results/` runs are temporary and may be cleaned.
+本文记录 commit `5015e71d4e1f1165ce73672ab3337eb23c63d699`（`Refresh project TODO backlog`）之后完成的性能优化工作。它是一个可长期保留的复盘文档，因为中间产生的大量 `results/` 调试目录后续可能会被清理。
 
-## Scope And Benchmark
+## 范围与基准
 
-The primary single-scene benchmark uses the same Front3D scene as the original timing probe:
+单场景主基准使用最初性能探针里的同一个 3D-FRONT 场景：
 
-- Scene id: `fff98d42-99a4-43fc-9639-5761cb4f87df`
-- Mode: `front3d`
-- Label variants: `panel` and `walk` at grid sizes `0.1`, `0.2`, `0.4`, `0.5`
-- Label mask resolution: `0.05m`
-- Floorplan: geometry `sampling`, `resolution_m=0.05`, `height=1.6m`
-- Class mask: enabled, furniture mode `mesh`
+- scene id: `fff98d42-99a4-43fc-9639-5761cb4f87df`
+- mode: `front3d`
+- label variants: `panel` 和 `walk`
+- label grid: `0.1`、`0.2`、`0.4`、`0.5`
+- label mask resolution: `0.05m`
+- floorplan: geometry `sampling`，`resolution_m=0.05`，高度 `1.6m`
+- class mask: enabled，家具模式 `mesh`
 
-Baseline run:
+初始基准 run：
 
-- Run: `debug_label_subtiming_0p05_visual_6812_20260616`
-- Total: `63.11s`
-- Key bottleneck: `label=40.37s`, especially `center_bs=29.28s`
+- run: `debug_label_subtiming_0p05_visual_6812_20260616`
+- 总耗时：`63.11s`
+- 主要瓶颈：`label=40.37s`，其中 `center_bs=29.28s`
 
-Current comparison run:
+当前对比 run：
 
-- Run: `perf_doc_current_6812_20260616`
-- Total: `6.75s`
-- Same scene and same 8 label variants
+- run: `perf_doc_current_6812_20260616`
+- 总耗时：`6.75s`
+- 使用同一 scene 和同样 8 个 label variant
 
-## Executive Summary
+## 总览
 
-| Stage | Baseline (s) | Current (s) | Speedup | Reduction |
+| 阶段 | 基线 (s) | 当前 (s) | 加速比 | 降幅 |
 | --- | ---: | ---: | ---: | ---: |
 | total_run | 63.11 | 6.75 | 9.35x | 89.3% |
 | build_scene | 3.16 | 2.48 | 1.27x | 21.5% |
@@ -37,29 +38,29 @@ Current comparison run:
 | class_mask | n/a | 0.58 | n/a | n/a |
 | label_overlay | 0.64 | 0.35 | 1.81x | 44.6% |
 
-The largest wins were:
+最大的收益来自：
 
-1. Replacing repeated per-variant label work with cached/global vectorized sampling and fast point assignment.
-2. Reusing generated scene mesh arrays and capping/chunking floorplan sampling.
-3. Vectorizing class mask and furniture mask rendering.
-4. Reducing PNG compression overhead.
-5. Adding batch-level worker scheduling, move-based publishing, skipped child summaries, and hybrid work stealing.
+1. 把重复的逐 variant label 工作改为缓存化、全局化、向量化的采样和分配。
+2. 复用生成场景时已经得到的 mesh arrays，并限制 floorplan 采样上限。
+3. 向量化 class mask 和家具 mesh mask 渲染。
+4. 降低 PNG 压缩等级，减少写图耗时。
+5. 增加 batch 级 worker 调度、move 发布、跳过 child summary、hybrid work stealing。
 
-## Stage 1: Instrumentation And Baseline
+## 阶段一：计时探针与基线定位
 
-The first important change was not optimization but observability.
+第一步不是直接优化，而是补全观测能力。
 
-What was recorded:
+新增或强化的记录包括：
 
-- Scene-level `timings_s`
-- Label substage timings across variants
-- Floorplan/class-mask timings
-- Build-scene timings for OBJ/Sionna asset export
-- Batch child subprocess overhead and publish time
+- scene 级 `timings_s`
+- label 各 variant 和子阶段耗时
+- floorplan/class mask 内部耗时
+- build scene 中 OBJ/Sionna asset 输出耗时
+- batch child subprocess overhead 和 publish time
 
-Baseline label substage table:
+初始 label 子阶段耗时：
 
-| Label Substage | Baseline (s) |
+| Label 子阶段 | 基线 (s) |
 | --- | ---: |
 | build_contexts | 0.84 |
 | global_sampling | 0.46 |
@@ -69,22 +70,22 @@ Baseline label substage table:
 | write_outputs | 0.43 |
 | total_variant | 40.34 |
 
-This made it clear that `center_bs` and point assignment were the immediate label bottlenecks, while floorplan geometry was the second major bottleneck.
+这个基线明确说明：label 的核心瓶颈是 `center_bs` 和点位分配；第二大瓶颈是 floorplan geometry。
 
-## Stage 2: Label Pipeline
+## 阶段二：Label 管线优化
 
-Main optimizations:
+主要优化：
 
-- Built a fixed-resolution global sampling mask once per scene/config and reused it across all label variants.
-- Vectorized global candidate generation and mask lookups.
-- Replaced repeated room assignment scans with cached/vectorized point assignment.
-- Optimized `center_bs` selection so it no longer rescans the full dense point set for every variant.
-- Reduced duplicated label payload/report work.
-- Kept `panel` and `walk` variants separate while sharing common upstream masks.
+- 每个 scene/config 只构建一次固定分辨率 global sampling mask，所有 label variant 复用。
+- 全局候选点生成和 mask 查询改成向量化。
+- 房间归属和点位分配从重复扫描改成缓存化、向量化分配。
+- 优化 `center_bs`，避免每个 variant 重复扫描完整高密度点集。
+- 减少重复 label payload 和 report 构造。
+- 保留 `panel`/`walk` 区分，但共享上游 mask 和基础计算。
 
-Label substage result:
+label 子阶段优化结果：
 
-| Label Substage | Baseline (s) | Current (s) | Speedup | Reduction |
+| Label 子阶段 | 基线 (s) | 当前 (s) | 加速比 | 降幅 |
 | --- | ---: | ---: | ---: | ---: |
 | build_contexts | 0.842 | 0.089 | 9.5x | 89.5% |
 | global_sampling | 0.460 | 0.254 | 1.8x | 44.7% |
@@ -94,9 +95,9 @@ Label substage result:
 | write_outputs | 0.426 | 0.097 | 4.4x | 77.3% |
 | total_variant | 40.342 | 0.861 | 46.8x | 97.9% |
 
-Representative per-variant current timings:
+当前各 label variant 的代表耗时：
 
-| Variant | Current (s) |
+| Variant | 当前 (s) |
 | --- | ---: |
 | label_panel_0p1 | 0.481 |
 | label_panel_0p2 | 0.076 |
@@ -107,14 +108,14 @@ Representative per-variant current timings:
 | label_walk_0p4 | 0.013 |
 | label_walk_0p5 | 0.009 |
 
-Interpretation:
+解释：
 
-- Dense `0.1m` variants still dominate label time, but they are now below one second.
-- `walk` became cheaper than `panel_0p1` in this scene because the expensive global mask and BS work are shared, and the obstacle filtering is vectorized.
+- 高密度 `0.1m` variant 仍然是 label 里最重的部分，但已经降到 1 秒以内。
+- 在这个场景中，`walk` 比 `panel_0p1` 更快，因为 expensive 的 global mask 和 BS 工作已经共享，障碍物过滤也已向量化。
 
-## Stage 3: Floorplan Geometry
+## 阶段三：Floorplan Geometry 优化
 
-Current production default:
+当前生产默认配置：
 
 ```yaml
 floorplan:
@@ -130,19 +131,19 @@ floorplan:
     max_points: 4000000
 ```
 
-Main optimizations:
+主要优化：
 
-- Removed unnecessary default outputs such as semantic floorplan, clean geometry, and `geometry_raw.png`.
-- Defaulted to a single explicit height layer, `floorplan_1p60.png`.
-- Reused in-memory `SceneMeshArrays` generated while writing `scene.obj`, avoiding a second full OBJ parse.
-- Capped high-density sampling at `4,000,000` points for the default template.
-- Replaced slower surface sampling code with numpy area-weighted chunked sampling.
-- Vectorized rasterization and pixel minimum-height map construction.
-- Reduced PNG compression level for floorplan images.
+- 删除/关闭默认不再需要的输出，例如 semantic floorplan、clean geometry、`geometry_raw.png`。
+- 默认只生成一个显式高度层：`floorplan_1p60.png`。
+- 复用写 `scene.obj` 时产生的内存态 `SceneMeshArrays`，避免第二次完整解析 OBJ。
+- 默认模板下将高密度采样上限限制到 `4,000,000` 点。
+- 用 numpy 面积加权、分块采样替代较慢的表面采样路径。
+- 向量化 rasterize 和 pixel minimum-height map 构建。
+- 降低 floorplan PNG 压缩等级，减少写图耗时。
 
-Current floorplan geometry internals for the benchmark scene:
+当前 benchmark scene 的 floorplan geometry 内部耗时：
 
-| Substage | Current (s) |
+| 子阶段 | 当前 (s) |
 | --- | ---: |
 | load_orient_mesh | 0.044 |
 | sample_surface | 1.490 |
@@ -157,11 +158,14 @@ Current floorplan geometry internals for the benchmark scene:
 | write_preview | 0.020 |
 | floorplan_geometry total | 2.067 |
 
-The optional `ray_height_filtered` projection was implemented and tested, but it is not the current production default. The default remains high-density `sampling` because it is visually acceptable, fast enough after optimization, and compatible with existing downstream expectations.
+说明：
 
-## Stage 4: Class Mask And Furniture Mesh Mask
+- `ray_height_filtered` 投影已经实现并测试过，但不是当前生产默认策略。
+- 当前默认仍是高密度 `sampling`，因为优化后速度可接受、视觉效果稳定，并且兼容已有下游流程。
 
-Current default:
+## 阶段四：Class Mask 与家具 Mesh Mask
+
+当前默认配置：
 
 ```yaml
 floorplan:
@@ -173,17 +177,17 @@ floorplan:
     furniture_height_m: 1.6
 ```
 
-Main optimizations:
+主要优化：
 
-- Moved from bbox-only furniture masks to mesh footprint masks while keeping `furniture_mode: bbox | mesh`.
-- Rasterized projected furniture triangles with height filtering.
-- Added face/triangle caching and duplicate projected primitive filtering.
-- Replaced set-heavy duplicate handling with vectorized/array-friendly paths.
-- Kept door/opening logic shared with label and class mask paths.
+- 家具 mask 从仅支持 bbox 扩展到 mesh footprint，同时保留 `furniture_mode: bbox | mesh`。
+- 对家具投影三角面做高度过滤和 rasterize。
+- 增加 face/triangle cache，并过滤重复投影 primitive。
+- 用数组友好的方式替代大量 set 操作。
+- door/opening 逻辑与 label/class mask 共用。
 
-Current class mask internals for the benchmark scene:
+当前 benchmark scene 的 class mask 内部耗时：
 
-| Substage | Current (s) |
+| 子阶段 | 当前 (s) |
 | --- | ---: |
 | read_inputs | 0.060 |
 | prepare_canvas | 0.000 |
@@ -194,75 +198,75 @@ Current class mask internals for the benchmark scene:
 | write_outputs | 0.005 |
 | class_mask total | 0.580 |
 
-Furniture-mask details from the current run:
+当前家具 mask 细节：
 
-- Furniture objects: `19`
-- Mesh objects: `19`
-- Triangle count: `181001`
-- Painted projected triangles: `32693`
-- Duplicate projected triangles skipped: `148289`
+- 家具对象数：`19`
+- mesh 对象数：`19`
+- 三角面数量：`181001`
+- 实际绘制投影三角面：`32693`
+- 跳过的重复投影三角面：`148289`
 
-## Stage 5: Build Scene And Sionna Assets
+## 阶段五：Build Scene 与 Sionna Assets
 
-Main optimizations:
+主要优化：
 
-- Vectorized Front3D object transforms with numpy.
-- Reduced conversion overhead when writing combined `scene.obj`.
-- Reused mesh arrays for floorplan generation.
-- Added fast paths for single-material Sionna asset export.
-- Recorded `write_scene_obj`, `write_sionna_assets`, and `write_placements_json` timings.
+- 用 numpy 向量化 Front3D 对象 transform。
+- 降低合并 `scene.obj` 时的转换开销。
+- 为 floorplan 复用 mesh arrays。
+- 为单材质 Sionna asset export 增加 fast path。
+- 记录 `write_scene_obj`、`write_sionna_assets`、`write_placements_json` 的耗时。
 
-Current build timings for the benchmark scene:
+当前 benchmark scene 的 build timings：
 
-| Build Substage | Current (s) |
+| Build 子阶段 | 当前 (s) |
 | --- | ---: |
 | write_scene_obj | 0.757 |
 | write_sionna_assets | 1.022 |
 | write_placements_json | 0.007 |
 | build_scene total | 2.481 |
 
-Build-scene speedup is smaller than label/floorplan because it was not the original dominant bottleneck. It remains a meaningful cost for very large batches, especially `write_sionna_assets`.
+build scene 的加速幅度没有 label/floorplan 大，因为它不是最初最大的瓶颈。不过在大规模 batch 中，`write_sionna_assets` 仍然是值得继续关注的固定成本。
 
-## Stage 6: Label Overlay And PNG IO
+## 阶段六：Label Overlay 与 PNG IO
 
-Main optimizations:
+主要优化：
 
-- Reduced PNG compression level for floorplan and overlay outputs.
-- Avoided unnecessary payload expansion for overlay rendering.
-- Cached/reused point positions needed by overlay.
+- 降低 floorplan 和 overlay PNG 的压缩等级。
+- 避免 overlay 渲染时构造过大的 payload。
+- 缓存/复用 overlay 所需的位置数组。
 
-Result:
+结果：
 
-| Stage | Baseline (s) | Current (s) | Speedup |
+| 阶段 | 基线 (s) | 当前 (s) | 加速比 |
 | --- | ---: | ---: | ---: |
 | label_overlay | 0.637 | 0.353 | 1.81x |
 
-This is a smaller absolute win than label/floorplan, but important because every label variant can produce a visualization image.
+这部分绝对耗时不如 label/floorplan 大，但每个 label variant 都可能生成可视化图片，因此对大批量生产仍有意义。
 
-## Stage 7: Batch And Multi-Worker Production
+## 阶段七：Batch 与多 Worker 生产
 
-Batch changes:
+batch 优化包括：
 
-- Added worker-level logs, JSONL event logs, state table, retry/dead-letter queues, and tracebacks.
-- Added `task_subprocess`, `publish_scene`, and child-run timing records.
-- Changed successful scene publishing from `copytree` to `move`.
-- Skipped child-run `summary/` generation; only the top-level batch run now builds summary folders.
-- Added `static`, `dynamic`, and `hybrid` scheduling.
-- Made `hybrid` the default after the 90-scene sweep.
+- 增加 worker 级日志、JSONL event log、state table、retry/dead-letter queue 和 traceback。
+- 增加 `task_subprocess`、`publish_scene` 和 child-run timing 记录。
+- 成功 scene 发布从 `copytree` 改为 `move`。
+- child run 跳过 `summary/` 生成，只在顶层 batch run 统一构建 summary。
+- 增加 `static`、`dynamic`、`hybrid` 三种调度策略。
+- 90-scene sweep 后，将 `hybrid` 设为默认调度策略。
 
-30-scene publishing/storage comparison:
+30-scene 发布/存储对比：
 
-| Run | Scheduler | Wall Time (s) | Success / Fail | Total Size | worker_runs Size | Notes |
+| Run | Scheduler | Wall Time (s) | Success / Fail | Total Size | worker_runs Size | 说明 |
 | --- | --- | ---: | ---: | ---: | ---: | --- |
-| batch_static30_round2_20260616 | static | 48.13 | 27 / 3 | 2.8G | 1.5G | old copytree behavior |
-| batch_static30_skipchildsummary_20260616 | static | 44.09 | 27 / 3 | 1.4G | 76M | move publish + skipped child summary |
-| batch_static30_current_20260616 | static | 44.10 | 27 / 3 | 1.4G | 77M | current timing fields verified |
+| batch_static30_round2_20260616 | static | 48.13 | 27 / 3 | 2.8G | 1.5G | 旧 copytree 行为 |
+| batch_static30_skipchildsummary_20260616 | static | 44.09 | 27 / 3 | 1.4G | 76M | move publish + 跳过 child summary |
+| batch_static30_current_20260616 | static | 44.10 | 27 / 3 | 1.4G | 77M | 当前 timing 字段已验证 |
 
-The biggest batch win was storage and IO pressure: successful scenes are no longer duplicated under `batch/worker_runs`.
+batch 最大收益是存储和 IO 压力降低：成功 scene 不再完整重复保存在 `batch/worker_runs` 下。
 
-## 90-Scene Scheduler Sweep
+## 90-Scene 调度测试
 
-The 30-scene worker sweep was too short for high worker counts, because 16+ workers receive only one or two tasks each. A second 90-scene sweep tested static, dynamic, and hybrid scheduling.
+30-scene worker sweep 对高 worker 数不够充分，因为 16+ worker 时每个 worker 只分到一两个任务。后续用同样配置跑了 90-scene sweep，比较 static、dynamic、hybrid。
 
 | Scheduler | Workers | Wall Time (s) | Success / Fail | Success/min | Worker Imbalance (s) |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -279,43 +283,43 @@ The 30-scene worker sweep was too short for high worker counts, because 16+ work
 | hybrid | 24 | 82.27 | 79 / 11 | 57.62 | 16.41 |
 | hybrid | 32 | 74.06 | 79 / 11 | 64.00 | 29.56 |
 
-The 11 failed scenes were identical across scheduler/worker settings, which indicates data/precheck failures rather than worker-count instability.
+11 个失败 scene 在所有调度/worker 设置下完全一致，说明这些失败来自数据或 precheck，而不是 worker 数量导致的不稳定。
 
-Hybrid policy:
+Hybrid 策略：
 
-1. Start with static shard queues: `shard_id = plan_index % workers`.
-2. A worker always consumes its own queue first.
-3. If its queue is empty and other queues still have pending tasks, it steals one task from the queue with the most remaining tasks.
-4. Stolen claims are logged in `batch/logs/events.jsonl` with `stolen: true` and `source_worker_id`.
+1. 初始仍按 static 分片：`shard_id = plan_index % workers`。
+2. worker 优先消费自己的队列。
+3. 自己队列清空后，如果其他队列仍有任务，就从剩余任务最多的队列偷取 1 个任务。
+4. 偷任务事件会写入 `batch/logs/events.jsonl`，包含 `stolen: true` 和 `source_worker_id`。
 
-Current recommendation:
+当前建议：
 
-- Stable production: `--workers 24 --scheduler hybrid`
-- Maximum observed throughput in this sweep: `--workers 32 --scheduler hybrid`
-- Conservative shared-machine setting: `--workers 16 --scheduler hybrid`
-- Keep `static` for strict fixed-shard debugging
-- Keep `dynamic` for comparison or fully shared queue behavior
+- 稳定生产：`--workers 24 --scheduler hybrid`
+- 本轮测试观察到的最大吞吐：`--workers 32 --scheduler hybrid`
+- 共享机器/高负载保守设置：`--workers 16 --scheduler hybrid`
+- 保留 `static` 用于严格固定分片 debug
+- 保留 `dynamic` 用于对照或需要全局共享队列的场景
 
-## Current Production Defaults After Optimization
+## 优化后的当前生产默认
 
-The full Front3D task template now represents the intended large-scale simulation setting:
+完整 Front3D 任务模板目前代表后续大规模仿真的默认设置：
 
-- Label: panel + walk
-- Label grids: `0.1`, `0.2`, `0.4`, `0.5`
-- Label mask resolution: `0.05m`
+- label: panel + walk
+- label grids: `0.1`、`0.2`、`0.4`、`0.5`
+- label mask resolution: `0.05m`
 - UE wall clearance: `0.2m`
 - UE furniture clearance: `0.1m`
-- Center BS: enabled
-- Floorplan geometry: `sampling`
-- Floorplan resolution: `0.05m`
-- Class mask: enabled
-- Furniture mask: `mesh`
-- Furniture dilation: `0.05m`
-- Batch scheduler: `hybrid`
+- center BS: enabled
+- floorplan geometry: `sampling`
+- floorplan resolution: `0.05m`
+- class mask: enabled
+- furniture mask: `mesh`
+- furniture dilation: `0.05m`
+- batch scheduler: `hybrid`
 
-## Reproduction Commands
+## 复现命令
 
-Single-scene current benchmark:
+当前单场景 benchmark：
 
 ```bash
 uv run scenegen \
@@ -326,7 +330,7 @@ uv run scenegen \
   --set 'front3d.scene_ids=[fff98d42-99a4-43fc-9639-5761cb4f87df]'
 ```
 
-90-scene hybrid sweep example:
+90-scene hybrid sweep 示例：
 
 ```bash
 uv run scenegen-batch \
@@ -339,10 +343,10 @@ uv run scenegen-batch \
   --set pipeline.clean=true
 ```
 
-## Notes And Caveats
+## 注意事项
 
-- The single-scene timings are for one representative Front3D scene. Different scenes vary with object count, room layout, mesh complexity, and label point counts.
-- Intermediate result directories are not source of truth and may be cleaned. This document preserves the important measurements.
-- `ray_height_filtered` floorplan projection remains available but is not the production default.
-- The current bottleneck for single-scene runs is no longer label. The remaining large costs are scene/Sionna asset writing and floorplan sampling/class-mask rendering.
-- Inner-scene parallelism is not currently enabled. Parallelism is primarily at the batch worker level.
+- 单场景耗时只代表一个典型 3D-FRONT scene。不同 scene 会受到物体数量、房间布局、mesh 复杂度和 label 点数量影响。
+- 中间结果目录不是 source of truth，可以清理；本文保留关键测量结果。
+- `ray_height_filtered` floorplan 投影仍可使用，但不是当前生产默认策略。
+- 当前单场景瓶颈已经不再是 label，剩余较大成本主要是 scene/Sionna asset 写出和 floorplan sampling/class-mask 渲染。
+- 单 scene 内部目前没有开启并行；主要并行发生在 batch worker 层。

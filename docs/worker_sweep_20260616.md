@@ -1,18 +1,18 @@
-# Worker Sweep 2026-06-16
+# Worker 数量与调度策略测试记录（2026-06-16）
 
-This note records a 30-scene batch worker sweep for the current `front3d_full_simulation` task template.
+本文记录当前 `front3d_full_simulation` 任务模板下的 batch worker 数量和调度策略测试结果。
 
-## Setup
+## 测试设置
 
-- Branch: `codex/batch-worker-performance`
-- Config: `config/tasks/front3d_full_simulation.yaml`
-- Scenes: first 30 sequential Front3D scenes
-- Retries: `--max-retries 0`
-- Output root: `results`
-- Machine state before sweep: 112 logical CPUs, high background load, swap nearly full
-- Known data failures: `front3d_0020`, `front3d_0026`, `front3d_0027` failed consistently in all runs
+- 分支：`codex/batch-worker-performance`
+- 配置：`config/tasks/front3d_full_simulation.yaml`
+- 场景选择：按 3D-FRONT 顺序队列从头开始
+- 重试：`--max-retries 0`
+- 输出根目录：`results`
+- 测试前机器状态：112 个逻辑 CPU，存在较高后台负载，swap 接近满
+- 已知数据失败：30-scene 测试中 `front3d_0020`、`front3d_0026`、`front3d_0027` 稳定失败
 
-Representative command:
+代表命令：
 
 ```bash
 uv run scenegen-batch \
@@ -25,7 +25,7 @@ uv run scenegen-batch \
   --set pipeline.clean=true
 ```
 
-## Results
+## 30-Scene 测试结果
 
 | Scheduler | Workers | Wall Time (s) | Success / Fail | Success/min | Task Mean (s) | Task P95 (s) | Worker Max (s) | Worker Imbalance (s) | Worker Task Range |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
@@ -43,26 +43,21 @@ uv run scenegen-batch \
 | dynamic | 24 | 29.71 | 27 / 3 | 54.53 | 11.25 | 22.33 | 27.60 | 17.85 | 1-2 |
 | dynamic | 30 | 29.55 | 27 / 3 | 54.82 | 12.20 | 22.51 | 27.27 | 21.39 | 1-1 |
 
-All runs produced around `1.4G` total output and `77M` under `batch/worker_runs`, because successful worker scene folders are moved to the run root and child summaries are skipped.
+所有 run 总输出约 `1.4G`，`batch/worker_runs` 约 `77M`。这是因为成功 scene 会从 worker 子目录 move 到 run 根目录，并且 child summary 已经跳过。
 
-## Interpretation
+## 30-Scene 结论
 
-- Stable default choice: `static` with 16 workers is conservative and already gives strong speedup over 8 workers.
-- Fastest observed choice: `static` with 24 workers was best in this 30-scene sweep.
-- Upper bound from this test: 30 workers did not improve over 24 workers. It also increased per-task overhead and task P95, so full concurrency is not a better default.
-- Dynamic scheduling is useful at moderate worker counts. It improved 8 workers from 47.55s to 41.02s and 16 workers from 37.73s to 32.39s by reducing worker idle time.
-- Dynamic scheduling was not clearly better at high worker counts. At 24 workers, static was slightly faster than dynamic; at 30 workers both were close and slower than static 24.
+- 保守默认可选：`static 16 workers`，已经明显快于 8 workers。
+- 30-scene 内最快：`static 24 workers`。
+- 30 workers 不比 24 workers 更快，说明已经出现一定资源争用。
+- dynamic 在中等 worker 数有价值，例如 8 workers 从 `47.55s` 降到 `41.02s`，16 workers 从 `37.73s` 降到 `32.39s`。
+- dynamic 在高 worker 数下优势不明显。24 workers 时 static 略快；30 workers 时两者接近。
 
-## Recommendation
+不过，30-scene 测试过短。16+ workers 时，每个 worker 只分到一两个 scene，因此它不足以判断高 worker 数下的调度策略。
 
-- For the 30-scene pilot, use `--workers 16 --scheduler static` as a conservative low-risk setting when sharing the machine with other heavy jobs.
-- For the 30-scene pilot, `--workers 24 --scheduler static` was the fastest observed setting.
-- A longer 90-scene follow-up below shows that the pilot was too short to judge dynamic or hybrid scheduling at higher worker counts.
-- Re-run a smaller pilot before very large production jobs if the template, machine load, or label/floorplan settings change materially.
+## 90-Scene 追加测试
 
-## 90-Scene Follow-Up
-
-The 30-scene run was too short for workers above 16 because each worker received only one or two scenes. A second sweep used 90 scenes from the same sequential Front3D queue and the same config.
+为了更真实地观察长队列尾部问题，后续使用同一配置做了 90-scene sweep。
 
 | Scheduler | Workers | Wall Time (s) | Success / Fail | Success/min | Task Mean (s) | Task P95 (s) | Worker Max (s) | Worker Imbalance (s) | Task Range | Stolen Tasks |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: |
@@ -79,23 +74,41 @@ The 30-scene run was too short for workers above 16 because each worker received
 | hybrid | 24 | 82.27 | 79 / 11 | 57.62 | 17.80 | 28.14 | 74.72 | 16.41 | 2-5 | 8 |
 | hybrid | 32 | 74.06 | 79 / 11 | 64.00 | 18.57 | 31.25 | 67.58 | 29.56 | 1-4 | 6 |
 
-The 11 failed scenes were identical across all 90-scene runs: `front3d_0020`, `front3d_0026`, `front3d_0027`, `front3d_0034`, `front3d_0042`, `front3d_0047`, `front3d_0050`, `front3d_0059`, `front3d_0071`, `front3d_0076`, and `front3d_0084`. This indicates the failures were data/precheck issues rather than worker-count instability.
+90-scene 中 11 个失败 scene 在所有 run 中完全一致：
 
-## Hybrid Scheduler
+- `front3d_0020`
+- `front3d_0026`
+- `front3d_0027`
+- `front3d_0034`
+- `front3d_0042`
+- `front3d_0047`
+- `front3d_0050`
+- `front3d_0059`
+- `front3d_0071`
+- `front3d_0076`
+- `front3d_0084`
 
-Hybrid scheduling keeps the initial static sharding, then switches to work stealing only at the tail:
+这说明失败主要来自数据/precheck，而不是 worker 数或调度策略导致的不稳定。
 
-1. Each worker first consumes its own fixed shard queue.
-2. When a worker's own queue is empty, it checks whether any other worker queue still has pending tasks.
-3. If so, it steals one task from the queue with the largest remaining size.
-4. Each stolen claim is recorded in `batch/logs/events.jsonl` as `task_claimed` with `stolen: true` and `source_worker_id`.
+## Hybrid 调度策略
 
-This made the long-queue case faster than both static and dynamic in the 90-scene sweep. `--scheduler hybrid` is therefore the default batch scheduler after this test.
+Hybrid 调度是“静态分片 + 尾部偷任务”：
 
-Updated recommendation:
+1. 开始时仍然按 static 分片：`shard_id = plan_index % workers`。
+2. 每个 worker 优先消费自己的固定队列。
+3. 当某个 worker 自己队列清空时，检查其他 worker 队列是否仍有待处理任务。
+4. 如果存在，就从剩余任务最多的队列偷取 1 个任务。
+5. 每次偷任务都会在 `batch/logs/events.jsonl` 的 `task_claimed` 事件中记录 `stolen: true` 和 `source_worker_id`。
 
-- Stable production setting: `--workers 24 --scheduler hybrid`.
-- Maximum-throughput setting observed in this sweep: `--workers 32 --scheduler hybrid`.
-- Conservative setting for shared/high-load machines: `--workers 16 --scheduler hybrid`.
-- Keep `static` for strict reproducibility/debugging of fixed shard assignment.
-- Keep `dynamic` for comparison and for queues where full shared scheduling is desired from the start.
+这个策略的目的不是一开始就全局抢任务，而是在尾部出现 worker 空闲时自动修补静态分片的长尾。
+
+90-scene 测试中，hybrid 在长队列下快于 static 和 dynamic，因此测试后将 `--scheduler hybrid` 设为 batch 默认策略。
+
+## 当前建议
+
+- 稳定生产设置：`--workers 24 --scheduler hybrid`
+- 本轮 sweep 中观察到的最大吞吐设置：`--workers 32 --scheduler hybrid`
+- 共享机器或高负载时的保守设置：`--workers 16 --scheduler hybrid`
+- 需要严格复现固定分片或 debug worker 分片时使用 `--scheduler static`
+- 需要全局共享队列对照时使用 `--scheduler dynamic`
+- 如果任务模板、机器负载、label/floorplan 配置发生明显变化，正式大批量生产前应重新跑一小轮 30-90 scene pilot
