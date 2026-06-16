@@ -910,6 +910,8 @@ def process_scene(
             rows=rows,
             cols=cols,
             z_vals=z_vals,
+            pixel_min_z=pixel_min_z,
+            valid_projection=valid_projection,
             z_levels=z_levels,
             shape=shape,
             output_dir=output_dir,
@@ -1017,14 +1019,14 @@ def build_sampling_projection_output(
     rows: np.ndarray,
     cols: np.ndarray,
     z_vals: np.ndarray,
+    pixel_min_z: np.ndarray,
+    valid_projection: np.ndarray,
     z_levels: list[float],
     shape: tuple[int, int],
     output_dir: Path,
     path_root: Path,
 ) -> dict[str, object]:
     stack = np.zeros((len(z_levels), shape[0], shape[1]), dtype=np.uint8)
-    pixel_min_z = build_pixel_min_height_map_from_raster(rows=rows, cols=cols, z_vals=z_vals, shape=shape)
-    valid_projection = np.isfinite(pixel_min_z)
     projection_stats: list[dict[str, object]] = []
     for index, level in enumerate(z_levels):
         mask = valid_projection & (pixel_min_z <= level)
@@ -1586,6 +1588,16 @@ def render_soft_projection_stack(
             image.save(output_dir / floorplan_layer_filename(float(level)))
             images_by_index[index] = image
         return images_by_index
+
+    if len(z_levels) == 1:
+        level = float(z_levels[0])
+        density = np.zeros(shape, dtype=np.float32)
+        hits = z_vals <= level
+        if np.any(hits):
+            np.add.at(density, (rows[hits], cols[hits]), 1.0)
+        image = render_density_projection(density, max_alpha=max_alpha, foreground_color=foreground_color)
+        image.save(output_dir / floorplan_layer_filename(level))
+        return {0: image}
 
     order = np.argsort(z_vals, kind="mergesort")
     rows_sorted = rows[order]

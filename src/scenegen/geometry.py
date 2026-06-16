@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import random
 from collections.abc import Iterable
+from functools import lru_cache
 from pathlib import Path
 
 from .models import BistroBaseScene, Box3D, ObjMaterialMesh, ObjMesh, PlacedAsset, Room, StaticObstacle
@@ -54,6 +55,12 @@ def triangle_bbox(vertices: tuple[Vec3, Vec3, Vec3]) -> StaticObstacle:
 
 
 def load_obj_mesh(path: Path) -> ObjMesh:
+    return _load_obj_mesh_cached(str(path.expanduser().resolve()))
+
+
+@lru_cache(maxsize=128)
+def _load_obj_mesh_cached(path_text: str) -> ObjMesh:
+    path = Path(path_text)
     vertices: list[Vec3] = []
     faces: list[list[int]] = []
     with path.open("r", encoding="utf-8", errors="ignore") as handle:
@@ -71,6 +78,12 @@ def load_obj_mesh(path: Path) -> ObjMesh:
 
 
 def load_obj_material_mesh(path: Path) -> ObjMaterialMesh:
+    return _load_obj_material_mesh_cached(str(path.expanduser().resolve()))
+
+
+@lru_cache(maxsize=128)
+def _load_obj_material_mesh_cached(path_text: str) -> ObjMaterialMesh:
+    path = Path(path_text)
     vertices: list[Vec3] = []
     faces_by_material: dict[str | None, list[list[int]]] = {}
     current_material: str | None = None
