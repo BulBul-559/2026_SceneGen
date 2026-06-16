@@ -83,6 +83,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "sampling": {
                 "domain": "global_floor",
                 "grid_m": [0.1],
+                "mask_resolution_m": 0.05,
                 "wall_clearance_m": 0.2,
                 "min_component_area_m2": 0.25,
                 "strategies": ["walk"],
@@ -418,6 +419,7 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     sampling = ue["sampling"]
     sampling["domain"] = str(sampling["domain"])
     sampling["wall_clearance_m"] = float(sampling["wall_clearance_m"])
+    sampling["mask_resolution_m"] = float(sampling["mask_resolution_m"])
     sampling["min_component_area_m2"] = float(sampling["min_component_area_m2"])
     sampling["strategies"] = [
         normalize_label_strategy(value, "label.ue.sampling.strategies")
@@ -573,6 +575,8 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("label.ue.sampling.domain must be 'room_floor' or 'global_floor'")
     if sampling["wall_clearance_m"] < 0:
         raise ValueError("label.ue.sampling.wall_clearance_m must be non-negative")
+    if sampling["mask_resolution_m"] <= 0:
+        raise ValueError("label.ue.sampling.mask_resolution_m must be positive")
     if sampling["min_component_area_m2"] < 0:
         raise ValueError("label.ue.sampling.min_component_area_m2 must be non-negative")
     if not sampling["strategies"]:
@@ -777,6 +781,7 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         label_sampling_domain=ue_sampling["domain"],
         label_ue_strategy=internal_label_strategy(ue_sampling["strategies"][0]),
         label_grid_resolution=ue_sampling["grid_m"][0],
+        label_sampling_mask_resolution=ue_sampling["mask_resolution_m"],
         label_batch_strategies=[internal_label_strategy(value) for value in ue_sampling["strategies"]],
         label_batch_grid_resolutions=ue_sampling["grid_m"],
         label_ue_clearance=walk["furniture_clearance_m"],

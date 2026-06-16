@@ -4,7 +4,7 @@
 
 每次运行都会在 run 目录写出 `effective_config.yaml`，它记录最终真正生效的配置。
 
-`config/tasks/front3d_full_simulation.yaml` 是后续大规模 front3d 仿真的任务模板，默认打开 label、geometry sampling floorplan、class mask 和 mesh furniture mask；`label.ue.sampling.strategies` 使用 `[panel, walk]`，`label.ue.sampling.grid_m` 使用 `[0.1, 0.2, 0.4, 0.5]` 四档。它还包含 batch-only 的 `postprocess` 段，默认关闭，需要时可生成 derived maps 并构建 compact vision dataset。
+`config/tasks/front3d_full_simulation.yaml` 是后续大规模 front3d 仿真的任务模板，默认打开 label、geometry sampling floorplan、class mask 和 mesh furniture mask；`label.ue.sampling.strategies` 使用 `[panel, walk]`，`label.ue.sampling.grid_m` 使用 `[0.1, 0.2, 0.4, 0.5]` 四档。label 可行域 mask 固定用 `label.ue.sampling.mask_resolution_m` 构建，默认 `0.05m`，再从这张高精度 mask 中抽取不同 `grid_m` 的 UE 点。它还包含 batch-only 的 `postprocess` 段，默认关闭，需要时可生成 derived maps 并构建 compact vision dataset。
 
 ## 合并规则
 
@@ -35,7 +35,7 @@ uv run scenegen \
 | `seed` | integer | `20260517` | 主随机种子。 |
 | `output_dir` | path | `results` | run 输出根目录。 |
 | `run_name` | string / `null` | `null` | run 目录名；为 `null` 时使用时间戳。 |
-| `clean` | boolean | `false` | 生成前是否清理 `output_dir` 下已有内容。 |
+| `clean` | boolean | `false` | 同名 run 已存在时，是否只清理 `output_dir/run_name` 后重新生成；不会清理整个 `output_dir`。 |
 | `index_start` | integer, `>=0` | `0` | 输出场景编号起点；例如设为 `3000` 时生成 `front3d_3000` 起的目录。 |
 
 ## assets
@@ -174,6 +174,7 @@ uv run scenegen \
 | --- | --- | --- | --- |
 | `domain` | `global_floor` / `room_floor` | `global_floor` | UE 采样域。`global_floor` 先全局采样再按 room 分类；`room_floor` 逐 room 采样。 |
 | `grid_m` | list of float, `>0` | `[0.1]` | UE 网格间隔。 |
+| `mask_resolution_m` | float, `>0` | `0.05` | 生成 label 可行区域 mask 的固定分辨率。不同 `grid_m` 只在这张 mask 上抽样，避免低密度采样时墙/门洞腐蚀不稳定。 |
 | `wall_clearance_m` | float, `>=0` | `0.2` | UE 与墙/边界的避让距离。 |
 | `min_component_area_m2` | float, `>=0` | `0.25` | 删除小于该面积的孤立自由空间。 |
 | `strategies` | list: `panel` / `walk` | `[walk]` | `panel` 不扣家具；`walk` 扣除家具自由空间。 |

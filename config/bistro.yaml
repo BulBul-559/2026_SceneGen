@@ -41,6 +41,7 @@ label:
     sampling:
       domain: global_floor
       grid_m: [0.1]
+      mask_resolution_m: 0.05
       wall_clearance_m: 0.2
       min_component_area_m2: 0.25
       strategies: [walk]

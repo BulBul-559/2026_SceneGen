@@ -19,7 +19,7 @@ from .exporters import (
 )
 from .floorplan import FloorplanConfig, generate_floorplan_for_scene
 from .labels import LabelConfig, generate_label_batch_for_scene, label_variants, write_label_overlay
-from .paths import clean_output_root, default_config_path, find_project_root, portable_path, require_dir, require_file
+from .paths import default_config_path, find_project_root, portable_path, require_dir, require_file
 from .quality import (
     QualityConfig,
     aggregate_run_statistics,
@@ -54,14 +54,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def prepare_run_dir(output_root: Path, run_name: str, clean: bool) -> Path:
     output_root = output_root.expanduser().resolve()
-    if clean:
-        clean_output_root(output_root)
-    else:
-        output_root.mkdir(parents=True, exist_ok=True)
-
+    output_root.mkdir(parents=True, exist_ok=True)
     run_dir = output_root / run_name
     if run_dir.exists():
-        raise FileExistsError(f"Run directory already exists: {run_dir}. Use --clean or choose a different --run-name.")
+        if not clean:
+            raise FileExistsError(f"Run directory already exists: {run_dir}. Use --clean or choose a different --run-name.")
+        if run_dir.is_dir():
+            shutil.rmtree(run_dir)
+        else:
+            run_dir.unlink()
     run_dir.mkdir(parents=True)
     return run_dir
 

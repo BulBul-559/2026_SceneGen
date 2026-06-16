@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import random
+import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,7 @@ class LabelConfig:
     sampling_domain: str
     ue_strategy: str
     grid_resolution_m: float
+    sampling_mask_resolution_m: float
     batch_strategies: tuple[str, ...]
     batch_grid_resolutions_m: tuple[float, ...]
     ue_clearance_m: float
@@ -89,6 +91,7 @@ class LabelConfig:
             sampling_domain=str(sampling["domain"]),
             ue_strategy=batch_strategies[0],
             grid_resolution_m=batch_grid_resolutions_m[0],
+            sampling_mask_resolution_m=float(sampling["mask_resolution_m"]),
             batch_strategies=batch_strategies,
             batch_grid_resolutions_m=batch_grid_resolutions_m,
             ue_clearance_m=float(walk["furniture_clearance_m"]),
@@ -187,9 +190,37 @@ class UeSamplingResult:
 
 
 @dataclass(frozen=True)
+class Front3DGlobalSamplingMask:
+    resolution_m: float
+    min_x: float
+    min_y: float
+    max_x: float
+    max_y: float
+    width_px: int
+    height_px: int
+    indoor_layer: np.ndarray
+    door_layer: np.ndarray
+    wall_layer: np.ndarray
+    panel_layer: np.ndarray
+    stats: dict[str, object]
+
+
+@dataclass
+class LabelGenerationCache:
+    front3d_global_masks: dict[tuple[object, ...], Front3DGlobalSamplingMask]
+
+    def __init__(self) -> None:
+        self.front3d_global_masks = {}
+
+
+@dataclass(frozen=True)
 class LabelVariant:
     name: str
     config: LabelConfig
+
+
+def elapsed_s(start: float) -> float:
+    return round(time.perf_counter() - start, 6)
 
 
 def point_payload(
@@ -335,7 +366,7 @@ def write_label_outputs(
 ) -> dict[str, object]:
     _ = (scene_dir, path_root)
     report = label_report_summary(payload, report)
-    return {
+    record = {
         "ok": bool(report["ok"]),
         "group_count": len(payload.get("groups", [])),
         "bs_count": len(payload.get("bs_points", [])),
@@ -345,6 +376,9 @@ def write_label_outputs(
         "_payload": payload,
         "_report": report,
     }
+    if isinstance(report.get("timings_s"), dict):
+        record["timings_s"] = report["timings_s"]
+    return record
 
 
 def height_token(value: float) -> str:
@@ -1253,16 +1287,35 @@ def room_sampling_result_from_assigned_points(
     return UeSamplingResult(points=points, stats=stats)
 
 
-def generate_front3d_global_subtractive_points(
+def front3d_global_mask_cache_key(base_scene: Front3DBaseScene, config: LabelConfig) -> tuple[object, ...]:
+    openings = config.openings
+    return (
+        base_scene.scene_id,
+        round(config.sampling_mask_resolution_m, 6),
+        round(config.corridor_clearance_m, 6),
+        openings.mode,
+        round(openings.dilation_m, 6),
+        round(openings.floor_tolerance_m, 6),
+        round(openings.min_height_m, 6),
+        openings.include_doors_as_wall,
+        openings.include_windows_as_wall,
+    )
+
+
+def build_front3d_global_sampling_mask(
     base_scene: Front3DBaseScene,
-    placements: list[PlacedAsset],
-    context: RoomLabelContext,
     config: LabelConfig,
-) -> UeSamplingResult:
+    cache: LabelGenerationCache | None = None,
+) -> Front3DGlobalSamplingMask:
+    cache_key = front3d_global_mask_cache_key(base_scene, config)
+    if cache is not None and cache_key in cache.front3d_global_masks:
+        return cache.front3d_global_masks[cache_key]
+
+    build_start = time.perf_counter()
     scene_data = read_json(base_scene.source_scene_json)
     metadata = read_json(base_scene.metadata_json)
     variant = str(metadata.get("variant") or "normalized")
-    resolution = config.grid_resolution_m
+    resolution = config.sampling_mask_resolution_m
     min_x = base_scene.bbox_min[0]
     min_y = base_scene.bbox_min[1]
     max_x = max(base_scene.bbox_max[0], min_x + resolution)
@@ -1346,86 +1399,15 @@ def generate_front3d_global_subtractive_points(
     wall_layer = np.asarray(wall_image, dtype=np.uint8) > 0
     indoor_with_doors_layer = indoor_layer | door_layer
     panel_layer = indoor_with_doors_layer & ~wall_layer
-
-    walk_blockers = walk_blocking_obstacles(context.obstacles, config)
-    ignored_low_obstacle_count = sum(
-        1
-        for obstacle in context.obstacles
-        if obstacle.placement_class in set(config.walk_blocking_classes)
-        and is_low_walk_obstacle(obstacle, config)
-    )
-    ignored_class_obstacle_count = sum(
-        1 for obstacle in context.obstacles if obstacle.placement_class not in set(config.walk_blocking_classes)
-    )
-    free_points: list[tuple[float, float]] = []
-    rectangular_candidate_count = int(width_px * height_px)
-    indoor_candidate_count = int(indoor_with_doors_layer.sum())
-    outdoor_rejected_count = rectangular_candidate_count - indoor_candidate_count
-    wall_rejected_count = int((indoor_with_doors_layer & wall_layer).sum())
-    panel_candidate_count = int(panel_layer.sum())
-    door_candidate_count = int(door_layer.sum())
-    door_after_wall_clearance_count = int((door_layer & panel_layer).sum())
-    bounds_rejected_count = 0
-    output_bounds_clamped_count = 0
-    obstacle_rejected_count = 0
-    point_z = context.floor_z + config.ue_height_m
-    for row, col in np.argwhere(panel_layer):
-        x = min_x + int(col) * resolution
-        y = max_y - int(row) * resolution
-        if not (
-            base_scene.bbox_min[0] - 1e-6 <= x <= base_scene.bbox_max[0] + 1e-6
-            and base_scene.bbox_min[1] - 1e-6 <= y <= base_scene.bbox_max[1] + 1e-6
-        ):
-            bounds_rejected_count += 1
-            continue
-        if config.ue_strategy == "free_space_grid":
-            blocked = any(
-                point_in_obstacles(
-                    x,
-                    y,
-                    point_z,
-                    (obstacle,),
-                    config.obstacle_strategy,
-                    min_block_height_m=config.walk_ignore_low_obstacles_below_m,
-                )
-                for obstacle in walk_blockers
-            )
-        else:
-            blocked = False
-        if blocked:
-            obstacle_rejected_count += 1
-            continue
-        safe_x = clamp_coordinate_for_label_output(x, base_scene.bbox_min[0], base_scene.bbox_max[0])
-        safe_y = clamp_coordinate_for_label_output(y, base_scene.bbox_min[1], base_scene.bbox_max[1])
-        if safe_x != round(x, 6) or safe_y != round(y, 6):
-            output_bounds_clamped_count += 1
-        free_points.append((safe_x, safe_y))
-
-    component_stats: dict[str, object] = {}
-    if config.ue_strategy == "free_space_grid":
-        free_points, component_stats = filter_small_components(
-            free_points,
-            config.grid_resolution_m,
-            config.walk_min_component_area_m2,
-        )
     stats: dict[str, object] = {
-        "ue_strategy": config.ue_strategy,
-        "sampling_domain": config.sampling_domain,
-        "sampling_source": "front3d_global_rect_subtractive_mask",
-        "sampling_pipeline_version": "2.0.0",
-        "grid_resolution_m": config.grid_resolution_m,
-        "boundary_clearance_m": config.corridor_clearance_m,
-        "rectangular_candidate_count": rectangular_candidate_count,
-        "indoor_candidate_count": indoor_candidate_count,
-        "outdoor_rejected_count": outdoor_rejected_count,
-        "wall_clearance_rejected_count": wall_rejected_count,
-        "panel_candidate_count": panel_candidate_count,
-        "door_candidate_count": door_candidate_count,
-        "door_after_wall_clearance_count": door_after_wall_clearance_count,
-        "bounds_rejected_count": bounds_rejected_count,
-        "output_bounds_clamped_count": output_bounds_clamped_count,
-        "obstacle_rejected_count": obstacle_rejected_count,
-        "kept_count": len(free_points),
+        "mask_resolution_m": resolution,
+        "mask_grid_shape": [height_px, width_px],
+        "mask_rectangular_pixel_count": int(width_px * height_px),
+        "mask_indoor_pixel_count": int(indoor_with_doors_layer.sum()),
+        "mask_wall_rejected_pixel_count": int((indoor_with_doors_layer & wall_layer).sum()),
+        "mask_panel_pixel_count": int(panel_layer.sum()),
+        "mask_door_pixel_count": int(door_layer.sum()),
+        "mask_door_after_wall_clearance_pixel_count": int((door_layer & panel_layer).sum()),
         "door_opening_mode": config.openings.mode,
         "opening_mode": config.openings.mode,
         "opening_dilation_m": config.openings.dilation_m,
@@ -1440,7 +1422,175 @@ def generate_front3d_global_subtractive_points(
         "door_mesh_count": door_mesh_count,
         "door_type_counts": door_type_counts,
         "mesh_type_counts": mesh_type_counts,
-        "grid_shape": [height_px, width_px],
+    }
+    stats["mask_build_duration_s"] = elapsed_s(build_start)
+    mask = Front3DGlobalSamplingMask(
+        resolution_m=resolution,
+        min_x=min_x,
+        min_y=min_y,
+        max_x=max_x,
+        max_y=max_y,
+        width_px=width_px,
+        height_px=height_px,
+        indoor_layer=indoor_with_doors_layer,
+        door_layer=door_layer,
+        wall_layer=wall_layer,
+        panel_layer=panel_layer,
+        stats=stats,
+    )
+    if cache is not None:
+        cache.front3d_global_masks[cache_key] = mask
+    return mask
+
+
+def mask_pixel_for_xy(mask: Front3DGlobalSamplingMask, x: float, y: float) -> tuple[int, int]:
+    col = int(round((x - mask.min_x) / mask.resolution_m))
+    row = int(round((mask.max_y - y) / mask.resolution_m))
+    return row, col
+
+
+def mask_value_at(layer: np.ndarray, mask: Front3DGlobalSamplingMask, x: float, y: float) -> bool:
+    row, col = mask_pixel_for_xy(mask, x, y)
+    if row < 0 or col < 0 or row >= mask.height_px or col >= mask.width_px:
+        return False
+    return bool(layer[row, col])
+
+
+def generate_front3d_global_subtractive_points(
+    base_scene: Front3DBaseScene,
+    placements: list[PlacedAsset],
+    context: RoomLabelContext,
+    config: LabelConfig,
+    cache: LabelGenerationCache | None = None,
+) -> UeSamplingResult:
+    total_start = time.perf_counter()
+    resolution = config.grid_resolution_m
+    cache_key = front3d_global_mask_cache_key(base_scene, config)
+    mask_cache_hit = cache is not None and cache_key in cache.front3d_global_masks
+    mask_start = time.perf_counter()
+    mask = build_front3d_global_sampling_mask(base_scene, config, cache)
+    mask_get_duration_s = elapsed_s(mask_start)
+    min_x = base_scene.bbox_min[0]
+    min_y = base_scene.bbox_min[1]
+    max_x = max(base_scene.bbox_max[0], min_x + resolution)
+    max_y = max(base_scene.bbox_max[1], min_y + resolution)
+
+    walk_blockers = walk_blocking_obstacles(context.obstacles, config)
+    ignored_low_obstacle_count = sum(
+        1
+        for obstacle in context.obstacles
+        if obstacle.placement_class in set(config.walk_blocking_classes)
+        and is_low_walk_obstacle(obstacle, config)
+    )
+    ignored_class_obstacle_count = sum(
+        1 for obstacle in context.obstacles if obstacle.placement_class not in set(config.walk_blocking_classes)
+    )
+    free_points: list[tuple[float, float]] = []
+    sample_width = max(1, int(math.ceil((max_x - min_x) / resolution)) + 1)
+    sample_height = max(1, int(math.ceil((max_y - min_y) / resolution)) + 1)
+    rectangular_candidate_count = int(sample_width * sample_height)
+    indoor_candidate_count = 0
+    outdoor_rejected_count = 0
+    wall_rejected_count = 0
+    panel_candidate_count = 0
+    door_candidate_count = 0
+    door_after_wall_clearance_count = 0
+    bounds_rejected_count = 0
+    output_bounds_clamped_count = 0
+    obstacle_rejected_count = 0
+    point_z = context.floor_z + config.ue_height_m
+    sample_start = time.perf_counter()
+    for sample_row in range(sample_height):
+        y = max_y - sample_row * resolution
+        for sample_col in range(sample_width):
+            x = min_x + sample_col * resolution
+            in_indoor = mask_value_at(mask.indoor_layer, mask, x, y)
+            if in_indoor:
+                indoor_candidate_count += 1
+            else:
+                outdoor_rejected_count += 1
+                continue
+            in_door = mask_value_at(mask.door_layer, mask, x, y)
+            if in_door:
+                door_candidate_count += 1
+            in_wall = mask_value_at(mask.wall_layer, mask, x, y)
+            if in_wall:
+                wall_rejected_count += 1
+            in_panel = mask_value_at(mask.panel_layer, mask, x, y)
+            if in_door and in_panel:
+                door_after_wall_clearance_count += 1
+            if not in_panel:
+                continue
+            panel_candidate_count += 1
+            if not (
+                base_scene.bbox_min[0] - 1e-6 <= x <= base_scene.bbox_max[0] + 1e-6
+                and base_scene.bbox_min[1] - 1e-6 <= y <= base_scene.bbox_max[1] + 1e-6
+            ):
+                bounds_rejected_count += 1
+                continue
+            if config.ue_strategy == "free_space_grid":
+                blocked = any(
+                    point_in_obstacles(
+                        x,
+                        y,
+                        point_z,
+                        (obstacle,),
+                        config.obstacle_strategy,
+                        min_block_height_m=config.walk_ignore_low_obstacles_below_m,
+                    )
+                    for obstacle in walk_blockers
+                )
+            else:
+                blocked = False
+            if blocked:
+                obstacle_rejected_count += 1
+                continue
+            safe_x = clamp_coordinate_for_label_output(x, base_scene.bbox_min[0], base_scene.bbox_max[0])
+            safe_y = clamp_coordinate_for_label_output(y, base_scene.bbox_min[1], base_scene.bbox_max[1])
+            if safe_x != round(x, 6) or safe_y != round(y, 6):
+                output_bounds_clamped_count += 1
+            free_points.append((safe_x, safe_y))
+    sample_grid_duration_s = elapsed_s(sample_start)
+
+    component_stats: dict[str, object] = {}
+    component_start = time.perf_counter()
+    if config.ue_strategy == "free_space_grid":
+        free_points, component_stats = filter_small_components(
+            free_points,
+            config.grid_resolution_m,
+            config.walk_min_component_area_m2,
+        )
+    component_filter_duration_s = elapsed_s(component_start)
+    stats: dict[str, object] = {
+        "ue_strategy": config.ue_strategy,
+        "sampling_domain": config.sampling_domain,
+        "sampling_source": "front3d_global_rect_subtractive_mask",
+        "sampling_pipeline_version": "2.1.0",
+        "grid_resolution_m": config.grid_resolution_m,
+        "mask_resolution_m": config.sampling_mask_resolution_m,
+        "boundary_clearance_m": config.corridor_clearance_m,
+        "rectangular_candidate_count": rectangular_candidate_count,
+        "indoor_candidate_count": indoor_candidate_count,
+        "outdoor_rejected_count": outdoor_rejected_count,
+        "wall_clearance_rejected_count": wall_rejected_count,
+        "panel_candidate_count": panel_candidate_count,
+        "door_candidate_count": door_candidate_count,
+        "door_after_wall_clearance_count": door_after_wall_clearance_count,
+        "bounds_rejected_count": bounds_rejected_count,
+        "output_bounds_clamped_count": output_bounds_clamped_count,
+        "obstacle_rejected_count": obstacle_rejected_count,
+        "kept_count": len(free_points),
+        "sample_grid_shape": [sample_height, sample_width],
+        "grid_shape": [sample_height, sample_width],
+    }
+    stats.update(mask.stats)
+    stats["mask_cache_hit"] = mask_cache_hit
+    stats["mask_get_duration_s"] = mask_get_duration_s
+    stats["timings_s"] = {
+        "mask_get": mask_get_duration_s,
+        "sample_grid": sample_grid_duration_s,
+        "component_filter": component_filter_duration_s,
+        "total": elapsed_s(total_start),
     }
     if config.ue_strategy == "free_space_grid":
         stats.update(
@@ -1521,19 +1671,27 @@ def generate_front3d_label(
     placements: list[PlacedAsset],
     config: LabelConfig,
     path_root: Path,
+    cache: LabelGenerationCache | None = None,
 ) -> dict[str, object]:
+    total_start = time.perf_counter()
+    timings: dict[str, float] = {}
+    contexts_start = time.perf_counter()
     contexts, global_context, skipped = build_front3d_room_contexts(base_scene, placements, config)
+    timings["build_contexts"] = elapsed_s(contexts_start)
     grouped_sampling: list[tuple[RoomLabelContext, UeSamplingResult]] = []
     if config.sampling_domain == "global_floor":
         if global_context is None:
             skipped.append({"room_id": "__global__", "room_type": "GlobalFloor", "reason": "missing_global_floor_mesh"})
         else:
-            global_result = generate_front3d_global_subtractive_points(base_scene, placements, global_context, config)
+            sampling_start = time.perf_counter()
+            global_result = generate_front3d_global_subtractive_points(base_scene, placements, global_context, config, cache)
+            timings["global_sampling"] = elapsed_s(sampling_start)
             room_contexts = [
                 replace(context, obstacles=global_context.obstacles, boundary_clearance_m=config.corridor_clearance_m)
                 for context in contexts
             ]
             corridor_context = corridor_context_from_global(global_context, config)
+            assign_start = time.perf_counter()
             assigned_groups = assign_global_free_points(
                 global_result.points,
                 room_contexts,
@@ -1543,18 +1701,23 @@ def generate_front3d_label(
                 (context, room_sampling_result_from_assigned_points(context, global_result, points, config))
                 for context, points in assigned_groups
             ]
+            timings["assign_points"] = elapsed_s(assign_start)
     else:
+        room_sampling_start = time.perf_counter()
         grouped_sampling = [(context, generate_ue_points_for_room(context, config)) for context in contexts]
+        timings["room_sampling"] = elapsed_s(room_sampling_start)
 
     grouped_free_points = [(context, result.points) for context, result in grouped_sampling]
     center_bs_context: RoomLabelContext | None = None
     center_bs_xyz: tuple[float, float, float] | None = None
     bs_selection: dict[str, object] | None = None
+    center_bs_start = time.perf_counter()
     if config.bs_center_enabled:
         if global_context is None:
             bs_selection = {"ok": False, "strategy": "geometry_center", "reason": "missing_global_floor_context"}
         else:
             center_bs_context, center_bs_xyz, bs_selection = choose_geometry_center_bs(global_context, grouped_free_points, config)
+    timings["center_bs"] = elapsed_s(center_bs_start)
 
     groups: list[dict[str, object]] = []
     room_reports: list[dict[str, object]] = []
@@ -1562,6 +1725,7 @@ def generate_front3d_label(
     warning_count = 0
     if bs_selection is not None and not bool(bs_selection.get("ok")):
         error_count += 1
+    groups_start = time.perf_counter()
     for group_index, (context, ue_result) in enumerate(grouped_sampling):
         free_xy = ue_result.points
         ue_points = [
@@ -1656,12 +1820,14 @@ def generate_front3d_label(
                 "validation": validation,
             }
         )
+    timings["build_groups_validate"] = elapsed_s(groups_start)
 
     skipped_reports = [
         {"room_id": item["room_id"], "room_type": item["room_type"], "skipped": True, "reason": item["reason"]}
         for item in skipped
     ]
     ok = bool(groups) and error_count == 0 and any(group.get("ue_points") for group in groups)
+    payload_start = time.perf_counter()
     payload = make_label_payload(
         scene_file=scene_dir / "scene.obj",
         path_root=scene_dir,
@@ -1670,6 +1836,8 @@ def generate_front3d_label(
         scene_id=base_scene.scene_id,
         groups=groups,
     )
+    timings["build_payload"] = elapsed_s(payload_start)
+    report_start = time.perf_counter()
     report = report_payload(
         mode="front3d",
         ok=ok,
@@ -1681,6 +1849,9 @@ def generate_front3d_label(
     report["scene_id"] = base_scene.scene_id
     if bs_selection is not None:
         report["bs_selection"] = bs_selection
+    timings["build_report"] = elapsed_s(report_start)
+    timings["total_generate"] = elapsed_s(total_start)
+    report["timings_s"] = timings
     return write_label_outputs(scene_dir, payload, report, path_root)
 
 
@@ -1695,6 +1866,7 @@ def generate_label_for_scene(
     base_scene: BistroBaseScene | None = None,
     front3d_base_scene: Front3DBaseScene | None = None,
     placements: list[PlacedAsset] | None = None,
+    cache: LabelGenerationCache | None = None,
 ) -> dict[str, object]:
     if mode == "generated":
         if room is None:
@@ -1707,7 +1879,7 @@ def generate_label_for_scene(
     if mode == "front3d":
         if front3d_base_scene is None:
             raise ValueError("3D-FRONT label requires a base scene")
-        return generate_front3d_label(scene_dir, front3d_base_scene, placements or [], config, path_root)
+        return generate_front3d_label(scene_dir, front3d_base_scene, placements or [], config, path_root, cache)
     raise ValueError(f"Unsupported label mode: {mode}")
 
 
@@ -1738,6 +1910,18 @@ def copy_label_variant_outputs(
     }
 
 
+def aggregate_label_timings(records: list[dict[str, object]]) -> dict[str, float]:
+    totals: dict[str, float] = {}
+    for record in records:
+        timings = record.get("timings_s")
+        if not isinstance(timings, dict):
+            continue
+        for key, value in timings.items():
+            if isinstance(value, int | float):
+                totals[str(key)] = round(totals.get(str(key), 0.0) + float(value), 6)
+    return totals
+
+
 def generate_label_batch_for_scene(
     *,
     mode: str,
@@ -1764,8 +1948,10 @@ def generate_label_batch_for_scene(
     variants = label_variants(config)
     records: list[dict[str, object]] = []
     rng_state = rng.getstate()
+    cache = LabelGenerationCache()
     for variant in variants:
         rng.setstate(rng_state)
+        started_at = time.perf_counter()
         variant_record = generate_label_for_scene(
             mode=mode,
             scene_dir=scene_dir,
@@ -1776,9 +1962,21 @@ def generate_label_batch_for_scene(
             base_scene=base_scene,
             front3d_base_scene=front3d_base_scene,
             placements=placements,
+            cache=cache,
         )
-        records.append(copy_label_variant_outputs(scene_dir, variant, variant_record, path_root))
+        generate_duration_s = elapsed_s(started_at)
+        variant_record["duration_s"] = generate_duration_s
+        copy_start = time.perf_counter()
+        public_record = copy_label_variant_outputs(scene_dir, variant, variant_record, path_root)
+        copy_duration_s = elapsed_s(copy_start)
+        timings = dict(public_record.get("timings_s", {})) if isinstance(public_record.get("timings_s"), dict) else {}
+        timings["write_outputs"] = copy_duration_s
+        timings["total_variant"] = round(generate_duration_s + copy_duration_s, 6)
+        public_record["duration_s"] = timings["total_variant"]
+        public_record["timings_s"] = timings
+        records.append(public_record)
 
+    substage_timings_s = aggregate_label_timings(records)
     return {
         "ok": all(bool(record["ok"]) for record in records),
         "primary": records[0]["name"],
@@ -1791,6 +1989,8 @@ def generate_label_batch_for_scene(
         "ue_count": records[0].get("ue_count", 0),
         "error_count": sum(int(record.get("error_count", 0)) for record in records),
         "warning_count": sum(int(record.get("warning_count", 0)) for record in records),
+        "variant_timings_s": {str(record["name"]): float(record.get("duration_s", 0.0)) for record in records},
+        "substage_timings_s": substage_timings_s,
     }
 
 

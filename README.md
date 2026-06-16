@@ -150,7 +150,7 @@ uv run scenegen
 uv run scenegen --config config/bistro.yaml
 ```
 
-生成 10 个 Bistro 场景，并清理输出目录下旧 run：
+生成 10 个 Bistro 场景，并在同名 run 已存在时只清理该 run：
 
 ```bash
 uv run scenegen --set pipeline.scenes=10 --set pipeline.clean=true
@@ -192,7 +192,7 @@ uv run scenegen --config config/front3d.yaml --set pipeline.scenes=1 --set pipel
 uv run scenegen --config config/tasks/front3d_full_simulation.yaml --set pipeline.scenes=1 --set pipeline.run_name=front3d_full_sample
 ```
 
-该模板打开 label、geometry sampling floorplan、class mask 和 mesh furniture mask，`label.ue.sampling.strategies` 默认包含 `[panel, walk]`，`label.ue.sampling.grid_m` 默认包含 `[0.1, 0.2, 0.4, 0.5]`。
+该模板打开 label、geometry sampling floorplan、class mask 和 mesh furniture mask，`label.ue.sampling.strategies` 默认包含 `[panel, walk]`，`label.ue.sampling.grid_m` 默认包含 `[0.1, 0.2, 0.4, 0.5]`。label 可行域 mask 默认以 `label.ue.sampling.mask_resolution_m: 0.05` 构建，不同 UE 间隔只在这张高精度 mask 上抽样。
 
 如果要在同一个 batch 中同步生成 derived maps 并整理 compact vision dataset，开启 `postprocess`：
 
@@ -415,6 +415,7 @@ label:
     sampling:
       domain: global_floor
       grid_m: [0.1]
+      mask_resolution_m: 0.05
       wall_clearance_m: 0.2
       min_component_area_m2: 0.25
       strategies: [walk]
@@ -446,7 +447,7 @@ label:
     enabled: true
 ```
 
-3D-FRONT 的 UE 默认使用 `label.ue.sampling.domain: global_floor`：`panel` 和 `walk` 都会先在建筑 XY bbox 的全局矩形网格上采样，再扣除 outdoor 和按 `label.ue.sampling.wall_clearance_m` 膨胀后的 wall，最后才把点按 room floor mesh 归属到各个 room；归属不到任何 room 但仍在 free space 上的点会进入 `label.ue.connected_area.room_id: "__corridor__"` 的 connected area group。默认 `label.ue.sampling.wall_clearance_m: 0.2`，这个采样会按 `front3d.openings.mode` 把 3D-FRONT 原始门洞在墙体膨胀前标为 free space，但不会在墙体膨胀后额外恢复门洞；门洞足够宽就自然保留采样点，否则会被膨胀后的 wall 吃掉。旧的逐 room 采样可切回 `label.ue.sampling.domain: room_floor`。
+3D-FRONT 的 UE 默认使用 `label.ue.sampling.domain: global_floor`：`panel` 和 `walk` 都会先用固定的 `label.ue.sampling.mask_resolution_m` 在建筑 XY bbox 上构建全局可行域 mask，再按 `label.ue.sampling.grid_m` 抽取点位，随后扣除 outdoor 和按 `label.ue.sampling.wall_clearance_m` 膨胀后的 wall，最后才把点按 room floor mesh 归属到各个 room；归属不到任何 room 但仍在 free space 上的点会进入 `label.ue.connected_area.room_id: "__corridor__"` 的 connected area group。默认 `label.ue.sampling.wall_clearance_m: 0.2`，这个采样会按 `front3d.openings.mode` 把 3D-FRONT 原始门洞在墙体膨胀前标为 free space，但不会在墙体膨胀后额外恢复门洞；门洞足够宽就自然保留采样点，否则会被膨胀后的 wall 吃掉。旧的逐 room 采样可切回 `label.ue.sampling.domain: room_floor`。
 
 `panel` 表示室内平面采样：只扣除 outdoor 和墙体间隔，不扣家具。
 

@@ -15,7 +15,7 @@ from PIL import Image
 from scenegen import __version__
 from scenegen.assets import AssetSpec, group_assets_by_class, legacy_item_to_spec, load_assets, resolve_obj_file
 from scenegen.batch import main as batch_main
-from scenegen.cli import evaluate_front3d_precheck, main, parse_args
+from scenegen.cli import evaluate_front3d_precheck, main, parse_args, prepare_run_dir
 from scenegen.config import DEFAULT_CONFIG, load_effective_config
 from scenegen.floorplan import floorplan_layer_filename, generate_front3d_class_mask, process_scene
 from scenegen.front3d import choose_scene_ids, scenegen_transform_for_child
@@ -381,6 +381,23 @@ def test_invalid_config_value_is_rejected(tmp_path: Path) -> None:
         load_effective_config(config_path, root, parse_args([]))
 
 
+def test_prepare_run_dir_clean_only_replaces_named_run(tmp_path: Path) -> None:
+    output_root = tmp_path / "results"
+    keep_run = output_root / "keep_run"
+    target_run = output_root / "target_run"
+    keep_run.mkdir(parents=True)
+    target_run.mkdir()
+    (keep_run / "keep.txt").write_text("keep", encoding="utf-8")
+    (target_run / "old.txt").write_text("old", encoding="utf-8")
+
+    run_dir = prepare_run_dir(output_root, "target_run", clean=True)
+
+    assert run_dir == target_run.resolve()
+    assert run_dir.is_dir()
+    assert not (run_dir / "old.txt").exists()
+    assert (keep_run / "keep.txt").read_text(encoding="utf-8") == "keep"
+
+
 def test_front3d_scene_selection_and_transform() -> None:
     rng = random.Random(7)
     assert choose_scene_ids(["a", "b"], ("b",), "random", 3, rng) == ["b", "b", "b"]
@@ -742,6 +759,7 @@ def test_partial_config_inherits_builtin_defaults(tmp_path: Path) -> None:
     assert "manifest" not in effective["assets"]
     assert effective["bistro"]["forbidden_xy"] == [[1.0, 11.0, 4.5, 16.0], [8.0, 8.0, 14.0, 10.0]]
     assert effective["floorplan"]["geometry"]["height"]["values_m"] == [1.6]
+    assert effective["label"]["ue"]["sampling"]["mask_resolution_m"] == 0.05
 
 
 def test_legacy_assets_manifest_config_is_rejected(tmp_path: Path) -> None:
@@ -773,6 +791,8 @@ def test_cli_set_overrides_yaml_and_parses_types(tmp_path: Path) -> None:
             "--set",
             "label.ue.sampling.grid_m=[0.1,0.2,0.5]",
             "--set",
+            "label.ue.sampling.mask_resolution_m=0.1",
+            "--set",
             "floorplan.enabled=false",
             "--set",
             "postprocess.maps.enabled=true",
@@ -791,6 +811,7 @@ def test_cli_set_overrides_yaml_and_parses_types(tmp_path: Path) -> None:
     assert effective["pipeline"]["scenes"] == 5
     assert effective["label"]["ue"]["height_m"] == 1.8
     assert effective["label"]["ue"]["sampling"]["grid_m"] == [0.1, 0.2, 0.5]
+    assert effective["label"]["ue"]["sampling"]["mask_resolution_m"] == 0.1
     assert effective["floorplan"]["enabled"] is False
     assert effective["postprocess"]["maps"]["enabled"] is True
     assert effective["postprocess"]["maps"]["workers"] == 2
@@ -1113,7 +1134,12 @@ def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
     assert report["group_count"] == len(label["groups"])
     room_sampling = report["rooms"][0]["ue_sampling"]
     assert room_sampling["sampling_source"] == "front3d_global_rect_subtractive_mask"
-    assert room_sampling["sampling_pipeline_version"] == "2.0.0"
+    assert room_sampling["sampling_pipeline_version"] == "2.1.0"
+    assert room_sampling["mask_resolution_m"] == 0.05
+    assert "timings_s" in report
+    assert "center_bs" in report["timings_s"]
+    assert "timings_s" in room_sampling
+    assert "sample_grid" in room_sampling["timings_s"]
     assert room_sampling["door_opening_mode"] == "doors"
     assert room_sampling["windows_used_as_openings"] is False
     assert room_sampling["door_type_counts"]["door"] == 1
@@ -1271,6 +1297,9 @@ def test_front3d_batch_label_outputs(tmp_path: Path) -> None:
     scene_record = manifest["scenes"][0]
     assert scene_record["label"]["variant_count"] == 4
     assert scene_record["label"]["primary"] == "label_panel_0p1"
+    assert "substage_timings_s" in scene_record["label"]
+    assert "center_bs" in scene_record["label"]["substage_timings_s"]
+    assert all("timings_s" in variant for variant in scene_record["label"]["variants"])
     assert scene_record["label"]["report_dir"] == "front3d_0000/label/report"
     assert len(scene_record["label"]["overlays"]) == 4
 

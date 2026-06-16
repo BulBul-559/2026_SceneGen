@@ -80,6 +80,7 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 - `ue.sampling.domain: global_floor`
 - `ue.sampling.strategies: [walk]`
 - `ue.sampling.grid_m: [0.1]`
+- `ue.sampling.mask_resolution_m: 0.05`
 - `ue.sampling.wall_clearance_m: 0.2`
 - `ue.walk.obstacle_strategy: below_ue_column`
 - `ue.connected_area.room_id: "__corridor__"`
@@ -89,7 +90,7 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 - `bs.wall_clearance_m: 0.2`
 - `overlay.enabled: true`
 
-`label.ue.sampling.domain: global_floor` 是当前 front3d 推荐策略：`panel` 和 `walk` 先在建筑 XY bbox 的全局矩形网格上采样，再扣 outdoor 和膨胀后的 wall，随后按 room floor mesh 分类，未归属点进入 `ConnectedArea` group。门洞/窗洞由 `front3d.openings` 统一控制。当前不再生成 room-only 版本，也不丢弃 connected area residual 点；需要严格旧行为时切换为 `room_floor`。单基站定位实验可用 `label.bs.center.enabled: true`，它会在普通 BS 之外生成一个建筑几何中心附近的 `BS_CENTER`。
+`label.ue.sampling.domain: global_floor` 是当前 front3d 推荐策略：`panel` 和 `walk` 先用固定的 `label.ue.sampling.mask_resolution_m` 在建筑 XY bbox 上构建全局可行域 mask，再按 `label.ue.sampling.grid_m` 抽样，随后扣 outdoor 和膨胀后的 wall，最后按 room floor mesh 分类，未归属点进入 `ConnectedArea` group。门洞/窗洞由 `front3d.openings` 统一控制。当前不再生成 room-only 版本，也不丢弃 connected area residual 点；需要严格旧行为时切换为 `room_floor`。单基站定位实验可用 `label.bs.center.enabled: true`，它会在普通 BS 之外生成一个建筑几何中心附近的 `BS_CENTER`。
 
 ## 常用命令
 
@@ -262,7 +263,7 @@ uv run python tools/prepare_front3d_phase1.py \
 
 - `results/`、`data/3D-Front/`、临时输出目录默认 git ignored。
 - `3d_scripts/` 是参考脚本目录，不是当前主流程的一部分。
-- `--clean` 会清理整个 `output_dir` 下旧 run，使用共享结果目录时要谨慎。
+- `--clean` / `pipeline.clean=true` 只清理当前 `output_dir/run_name`；不会清空整个 `output_dir`。
 - 质量检查默认开启；`quality.fail_on_error: true` 时发现 error 会让命令返回非零，但仍会写出报告。
 - semantic floorplan 和 geometry clean 已移除；当前主训练输入优先使用高密度几何高度层投影和可选 class mask。
 - 3D-FRONT 的电磁材质目前主要靠类别/材质名映射，低置信度结果需要后续抽样校正。
