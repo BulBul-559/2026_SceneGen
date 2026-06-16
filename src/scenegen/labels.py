@@ -209,6 +209,7 @@ class Front3DGlobalSamplingMask:
 @dataclass
 class LabelGenerationCache:
     front3d_global_masks: dict[tuple[object, ...], Front3DGlobalSamplingMask]
+    front3d_point_room_ids: dict[tuple[object, ...], dict[tuple[float, float], str]]
     front3d_room_contexts: dict[
         tuple[object, ...],
         tuple[tuple[RoomLabelContext, ...], RoomLabelContext | None, tuple[dict[str, object], ...]],
@@ -216,6 +217,7 @@ class LabelGenerationCache:
 
     def __init__(self) -> None:
         self.front3d_global_masks = {}
+        self.front3d_point_room_ids = {}
         self.front3d_room_contexts = {}
 
 
@@ -1357,6 +1359,48 @@ def assign_global_free_points(
     return grouped
 
 
+def front3d_point_assignment_cache_key(base_scene: Front3DBaseScene, config: LabelConfig) -> tuple[object, ...]:
+    return (
+        base_scene.scene_id,
+        round(config.grid_resolution_m, 6),
+        round(config.ue_clearance_m, 6),
+        round(config.wall_clearance_m, 6),
+        round(config.corridor_clearance_m, 6),
+        config.corridor_room_id,
+    )
+
+
+def cache_point_room_assignments(
+    grouped: list[tuple[RoomLabelContext, list[tuple[float, float]]]],
+) -> dict[tuple[float, float], str]:
+    lookup: dict[tuple[float, float], str] = {}
+    for context, points in grouped:
+        for x, y in points:
+            lookup[(round(x, 6), round(y, 6))] = context.room_id
+    return lookup
+
+
+def assign_global_free_points_from_lookup(
+    points: list[tuple[float, float]],
+    room_contexts: list[RoomLabelContext],
+    corridor_context: RoomLabelContext,
+    lookup: dict[tuple[float, float], str],
+) -> list[tuple[RoomLabelContext, list[tuple[float, float]]]] | None:
+    assignments: dict[str, list[tuple[float, float]]] = {context.room_id: [] for context in room_contexts}
+    assignments[corridor_context.room_id] = []
+    for x, y in points:
+        room_id = lookup.get((round(x, 6), round(y, 6)))
+        if room_id is None:
+            return None
+        assignments.setdefault(room_id, []).append((x, y))
+
+    grouped = [(context, assignments.get(context.room_id, [])) for context in room_contexts]
+    corridor_points = assignments.get(corridor_context.room_id, [])
+    if corridor_points:
+        grouped.append((corridor_context, corridor_points))
+    return grouped
+
+
 def room_sampling_result_from_assigned_points(
     context: RoomLabelContext,
     global_result: UeSamplingResult,
@@ -1836,11 +1880,23 @@ def generate_front3d_label(
             ]
             corridor_context = corridor_context_from_global(global_context, config)
             assign_start = time.perf_counter()
-            assigned_groups = assign_global_free_points(
-                global_result.points,
-                room_contexts,
-                corridor_context,
-            )
+            assignment_cache_key = front3d_point_assignment_cache_key(base_scene, config)
+            assigned_groups = None
+            if cache is not None and assignment_cache_key in cache.front3d_point_room_ids:
+                assigned_groups = assign_global_free_points_from_lookup(
+                    global_result.points,
+                    room_contexts,
+                    corridor_context,
+                    cache.front3d_point_room_ids[assignment_cache_key],
+                )
+            if assigned_groups is None:
+                assigned_groups = assign_global_free_points(
+                    global_result.points,
+                    room_contexts,
+                    corridor_context,
+                )
+                if cache is not None and config.ue_strategy == "plane_grid":
+                    cache.front3d_point_room_ids[assignment_cache_key] = cache_point_room_assignments(assigned_groups)
             grouped_sampling = [
                 (context, room_sampling_result_from_assigned_points(context, global_result, points, config))
                 for context, points in assigned_groups
