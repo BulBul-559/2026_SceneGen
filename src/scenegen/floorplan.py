@@ -618,7 +618,7 @@ def build_front3d_mesh_furniture_mask_image(
 ) -> tuple[Image.Image, dict[str, object]]:
     image = Image.new("L", image_size, 0)
     draw = ImageDraw.Draw(image)
-    mesh_cache: dict[Path, object] = {}
+    mesh_cache: dict[Path, tuple[object, np.ndarray]] = {}
     fallback_image = Image.new("L", image_size, 0)
     fallback_draw = ImageDraw.Draw(fallback_image)
     failed_objects: list[dict[str, str]] = []
@@ -633,10 +633,13 @@ def build_front3d_mesh_furniture_mask_image(
 
     for placement in placements:
         try:
-            mesh = mesh_cache.get(placement.asset.obj_file)
-            if mesh is None:
+            mesh_entry = mesh_cache.get(placement.asset.obj_file)
+            if mesh_entry is None:
                 mesh = load_obj_mesh(placement.asset.obj_file)
-                mesh_cache[placement.asset.obj_file] = mesh
+                face_array = triangulated_face_array(mesh.faces)
+                mesh_cache[placement.asset.obj_file] = (mesh, face_array)
+            else:
+                mesh, face_array = mesh_entry
             transformed = transform_mesh_vertices_array(mesh, placement)
         except Exception as exc:
             draw_bbox_furniture_mask(fallback_draw, placement, min_x, max_y, resolution)
@@ -667,7 +670,7 @@ def build_front3d_mesh_furniture_mask_image(
         object_stats = draw_projected_mesh_faces(
             draw=draw,
             vertices=transformed,
-            faces=mesh.faces,
+            faces=face_array,
             min_x=min_x,
             max_y=max_y,
             resolution=resolution,
@@ -723,10 +726,18 @@ def transform_mesh_vertices_array(mesh: object, placed: PlacedAsset) -> np.ndarr
     return transformed
 
 
+def triangulated_face_array(faces: list[list[int]]) -> np.ndarray:
+    if not faces:
+        return np.zeros((0, 3), dtype=np.int64)
+    if all(len(face) == 3 for face in faces):
+        return np.asarray(faces, dtype=np.int64)
+    return np.asarray(triangulate_obj_faces(faces), dtype=np.int64)
+
+
 def draw_projected_mesh_faces(
     draw: ImageDraw.ImageDraw,
     vertices: np.ndarray,
-    faces: list[list[int]],
+    faces: list[list[int]] | np.ndarray,
     min_x: float,
     max_y: float,
     resolution: float,
@@ -734,7 +745,7 @@ def draw_projected_mesh_faces(
     height_limit: float,
     projected_primitive_keys: set[tuple[tuple[int, int], ...]],
 ) -> dict[str, int]:
-    face_array = np.asarray(triangulate_obj_faces(faces), dtype=np.int64)
+    face_array = faces if isinstance(faces, np.ndarray) else triangulated_face_array(faces)
     if face_array.size == 0:
         return {
             "triangle_count": 0,
