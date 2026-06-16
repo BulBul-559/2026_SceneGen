@@ -1309,6 +1309,7 @@ def test_front3d_batch_runner_writes_plan_state_and_worker_logs(tmp_path: Path, 
     assert (run_dir / "batch" / "logs" / "timings.jsonl").is_file()
     assert (run_dir / "batch" / "logs" / "workers" / "worker_000.log").is_file()
     assert (run_dir / "batch" / "logs" / "workers" / "worker_001.log").is_file()
+    assert not list((run_dir / "batch" / "worker_runs").glob("**/summary"))
     manifest = json.loads((run_dir / "manifest_batch.json").read_text(encoding="utf-8"))
     assert manifest["batch"] is True
     assert manifest["workers"] == 2

@@ -224,6 +224,8 @@ def command_for_task(
         "pipeline.scenes=1",
         "pipeline.index_start=0",
         "pipeline.clean=false",
+        "runtime.batch_child=true",
+        "runtime.skip_summary=true",
         f"pipeline.seed={int(task['scene_seed'])}",
         f"front3d.scene_ids={json.dumps([task['scene_id']])}",
         "front3d.select=sequential",

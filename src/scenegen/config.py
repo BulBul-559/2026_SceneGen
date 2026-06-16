@@ -178,6 +178,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "overwrite": False,
         },
     },
+    "runtime": {
+        "batch_child": False,
+        "skip_summary": False,
+    },
 }
 
 
@@ -348,6 +352,10 @@ def normalize_optional_string(value: Any, key: str) -> str | None:
 def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_path: Path) -> dict[str, Any]:
     normalized = deepcopy(config)
     normalized.setdefault("runtime", {})
+    normalized["runtime"].setdefault("batch_child", False)
+    normalized["runtime"].setdefault("skip_summary", False)
+    normalized["runtime"]["batch_child"] = as_bool(normalized["runtime"]["batch_child"], "runtime.batch_child")
+    normalized["runtime"]["skip_summary"] = as_bool(normalized["runtime"]["skip_summary"], "runtime.skip_summary")
     normalized["runtime"]["config_path"] = str(config_path.resolve())
 
     pipeline = normalized["pipeline"]

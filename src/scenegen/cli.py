@@ -67,6 +67,16 @@ def prepare_run_dir(output_root: Path, run_name: str, clean: bool) -> Path:
     return run_dir
 
 
+def skipped_summary_manifest(summary_subdir: str, item_key: str) -> dict[str, object]:
+    return {
+        "summary_dir": f"summary/{summary_subdir}",
+        "count": 0,
+        item_key: [],
+        "skipped": True,
+        "reason": "runtime.skip_summary",
+    }
+
+
 def evaluate_front3d_precheck(args: argparse.Namespace, statistics: dict[str, object]) -> dict[str, object]:
     enabled = args.mode == "front3d" and bool(args.front3d_precheck_enabled)
     result: dict[str, object] = {"enabled": enabled, "ok": True, "errors": []}
@@ -148,6 +158,7 @@ def main(argv: list[str] | None = None) -> int:
     effective_config["runtime"]["run_dir"] = str(run_dir)
     effective_config["runtime"]["run_id"] = run_logger.run_id
     effective_config["runtime"]["worker_id"] = run_logger.worker_id
+    skip_summary = bool(effective_config["runtime"].get("skip_summary", False))
     save_effective_config(run_dir / "effective_config.yaml", effective_config)
     run_logger.event(
         "run_started",
@@ -505,9 +516,17 @@ def main(argv: list[str] | None = None) -> int:
 
     final_timings: dict[str, float] = {}
     with run_logger.stage(final_timings, "write_manifest"):
-        copy_manifest = collect_scene_objs(run_dir, scene_records, scene_prefix)
-        raw_floorplan_manifest = collect_raw_floorplans(run_dir, scene_records, scene_prefix)
-        label_floorplan_manifest = collect_label_floorplans(run_dir, scene_records, scene_prefix)
+        if skip_summary:
+            copy_manifest = skipped_summary_manifest("obj", "objects")
+            raw_floorplan_manifest = skipped_summary_manifest("floorplan", "images")
+            label_floorplan_manifest = {
+                **skipped_summary_manifest("label_floorplan", "images"),
+                "groups": {},
+            }
+        else:
+            copy_manifest = collect_scene_objs(run_dir, scene_records, scene_prefix)
+            raw_floorplan_manifest = collect_raw_floorplans(run_dir, scene_records, scene_prefix)
+            label_floorplan_manifest = collect_label_floorplans(run_dir, scene_records, scene_prefix)
         run_statistics = aggregate_run_statistics(scene_records)
         statistics_file = write_json_report(run_dir / "statistics.json", run_statistics, run_dir)
     class_counts = {name: len(items) for name, items in sorted(assets_by_class.items())}
@@ -545,6 +564,7 @@ def main(argv: list[str] | None = None) -> int:
             "obj": copy_manifest,
             "floorplan": raw_floorplan_manifest,
             "label_floorplan": label_floorplan_manifest,
+            "skipped": skip_summary,
         },
         "sionna_validation_requested": bool(args.validate_sionna),
         "sionna_validation_ok": not validation_failed if args.validate_sionna else None,

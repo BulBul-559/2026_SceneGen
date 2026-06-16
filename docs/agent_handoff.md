@@ -132,7 +132,7 @@ uv run scenegen-batch \
   --set pipeline.run_name=front3d_production_2000
 ```
 
-`scenegen-batch --scheduler static` 是默认固定分片策略，资源占用更保守；`--scheduler dynamic` 使用共享任务队列，空闲 worker 会继续领取后续 scene，可能降低长尾，但在高 CPU/IO 负载机器上也可能放大争用。正式大批量前建议用 30 scene 对比两种策略。成功 scene 发布时会从 `batch/worker_runs` move 到 run 根目录，worker 子 run 不再保留成功场景的完整重复副本，只保留日志、配置、小 manifest 和失败场景调试材料。
+`scenegen-batch --scheduler static` 是默认固定分片策略，资源占用更保守；`--scheduler dynamic` 使用共享任务队列，空闲 worker 会继续领取后续 scene，可能降低长尾，但在高 CPU/IO 负载机器上也可能放大争用。正式大批量前建议用 30 scene 对比两种策略。batch child 会设置 `runtime.skip_summary=true`，跳过自己的 `summary/` 汇总复制，最终由 batch 顶层统一生成 summary。成功 scene 发布时会从 `batch/worker_runs` move 到 run 根目录，worker 子 run 不再保留成功场景的完整重复副本，只保留日志、配置、小 manifest 和失败场景调试材料。
 
 正式生产时也可以在 batch 末尾自动生成 derived maps 和 compact vision dataset：
 
