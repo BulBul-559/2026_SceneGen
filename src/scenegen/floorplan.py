@@ -630,7 +630,6 @@ def build_front3d_mesh_furniture_mask_image(
     degenerate_triangle_count = 0
     z_rejected_triangle_count = 0
     duplicate_projected_triangle_count = 0
-    projected_primitive_keys: set[tuple[tuple[int, int], ...]] = set()
 
     for placement in placements:
         try:
@@ -677,7 +676,6 @@ def build_front3d_mesh_furniture_mask_image(
             resolution=resolution,
             bottom_z=0.0,
             height_limit=height_limit,
-            projected_primitive_keys=projected_primitive_keys,
         )
         triangle_count += object_stats["triangle_count"]
         painted_triangle_count += object_stats["painted_triangle_count"]
@@ -705,7 +703,7 @@ def build_front3d_mesh_furniture_mask_image(
         "degenerate_triangle_count": int(degenerate_triangle_count),
         "z_rejected_triangle_count": int(z_rejected_triangle_count),
         "duplicate_projected_triangle_count": int(duplicate_projected_triangle_count),
-        "unique_projected_primitive_count": int(len(projected_primitive_keys)),
+        "unique_projected_primitive_count": int(painted_triangle_count),
         "bottom_z_m": 0.0,
         "max_target_height_m": float(effective_height if effective_height is not None else 0.0),
     }
@@ -744,7 +742,6 @@ def draw_projected_mesh_faces(
     resolution: float,
     bottom_z: float,
     height_limit: float,
-    projected_primitive_keys: set[tuple[tuple[int, int], ...]],
 ) -> dict[str, int]:
     face_array = faces if isinstance(faces, np.ndarray) else triangulated_face_array(faces)
     if face_array.size == 0:
@@ -796,11 +793,6 @@ def draw_projected_mesh_faces(
     degenerate_triangle_count = 0
     for polygon_array in polygons[ordered_unique_indices]:
         polygon = [(int(point[0]), int(point[1])) for point in polygon_array]
-        primitive_key = tuple(sorted(polygon))
-        if primitive_key in projected_primitive_keys:
-            duplicate_projected_triangle_count += 1
-            continue
-        projected_primitive_keys.add(primitive_key)
         area2 = (
             (polygon[1][0] - polygon[0][0]) * (polygon[2][1] - polygon[0][1])
             - (polygon[1][1] - polygon[0][1]) * (polygon[2][0] - polygon[0][0])
