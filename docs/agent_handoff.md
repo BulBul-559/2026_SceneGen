@@ -215,6 +215,8 @@ summary/
 
 `front3d` 的 `placements.json` 中 `sionna_assets.timings_s` 会记录 Sionna XML 资产导出的细分耗时，包括建筑拆分、家具资产拆分和 XML 写入，用于定位 `build_scene` 阶段瓶颈。
 
+`label.overlays[*].timings_s` 会记录每张 label floorplan overlay 的读入、画布准备、点位绘制和缩放保存耗时。当前全配置下 overlay 通常瓶颈在 `resize_save`，不是 UE/BS 点绘制。
+
 `scenegen-batch` 额外输出：
 
 ```text

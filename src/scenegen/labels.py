@@ -2288,19 +2288,24 @@ def write_label_overlay(
     output_dir: Path | None = None,
     output_name: str = "label_overlay",
 ) -> dict[str, object]:
+    timings_s: dict[str, float] = {}
     meta_path = floorplan_dir / "meta.json"
     base_path = floorplan_primary_image_path(floorplan_dir, meta_path)
     if not meta_path.is_file() or not base_path.is_file() or not label_path.is_file():
         return {"ok": False, "reason": "missing_floorplan_or_label"}
+    started = time.perf_counter()
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     label_payload = json.loads(label_path.read_text(encoding="utf-8"))
+    timings_s["read_inputs"] = elapsed_s(started)
     origin_x, origin_y = (float(value) for value in meta["origin_xy_m"])
     resolution = float(meta["resolution_m_per_pixel"])
     render_scale = OVERLAY_RENDER_SCALE
+    started = time.perf_counter()
     canvas = scientific_overlay_canvas(base_path, render_scale).copy()
     width = canvas.width // render_scale
     height = canvas.height // render_scale
     draw = ImageDraw.Draw(canvas, "RGBA")
+    timings_s["prepare_canvas"] = elapsed_s(started)
     ue_radius_px = max(0.35, min(0.9, 0.02 / max(resolution, 1e-9)))
     bs_radius_px = max(3.0, min(5.5, 0.12 / max(resolution, 1e-9)))
     room_colors = [
@@ -2315,6 +2320,7 @@ def write_label_overlay(
     ]
     ue_count = 0
     bs_count = 0
+    started = time.perf_counter()
     for group_index, group in enumerate(label_payload.get("groups") or []):
         if not isinstance(group, dict):
             continue
@@ -2335,11 +2341,14 @@ def write_label_overlay(
             if 0 <= px < width and 0 <= py < height:
                 draw_bs_marker(draw, px, py, bs_radius_px, render_scale)
                 bs_count += 1
+    timings_s["draw_points"] = elapsed_s(started)
+    started = time.perf_counter()
     image = canvas.resize((width, height), resample=getattr(Image, "Resampling", Image).LANCZOS)
     output_dir = floorplan_dir if output_dir is None else output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"{output_name}.png"
     image.save(output_path)
+    timings_s["resize_save"] = elapsed_s(started)
     return {
         "ok": True,
         "image": portable_path(output_path, path_root),
@@ -2350,6 +2359,7 @@ def write_label_overlay(
         "render_scale": render_scale,
         "ue_radius_px": round(ue_radius_px, 3),
         "bs_radius_px": round(bs_radius_px, 3),
+        "timings_s": timings_s,
     }
 
 
