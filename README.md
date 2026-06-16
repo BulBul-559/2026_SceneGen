@@ -354,10 +354,10 @@ results/<run_name>/
 - `label_floorplan/*.png`: 每份 label 在主高度层 `floorplan_*.png` 上绘制 BS/UE 点位后的检查图。
 - `floorplan/side_view.png`: 侧视投影。
 - `floorplan/stack.npz`: 二值投影栈和高度层数据。
-- `floorplan/class_mask.png`: 可选 front3d 四分类掩码，单通道 `uint8`，类别固定为 `0 outdoor`、`1 wall`、`2 free_space`、`3 furniture`；当前会先把 3D-FRONT 原始 `Door/Hole/Pocket` 标为 free space，再执行墙体膨胀，门洞不会在膨胀后被额外恢复。家具层默认 `floorplan.class_mask.furniture_mode: mesh`，加载每个家具 OBJ 并应用实例 transform 后生成像素级 footprint；也可切到 `bbox` 加速。
+- `floorplan/class_mask.png`: 可选 front3d 四分类掩码，单通道 `uint8`，类别固定为 `0 outdoor`、`1 wall`、`2 free_space`、`3 furniture`；当前会先把 3D-FRONT 原始 `Door/Hole/Pocket` 标为 free space，再执行墙体膨胀，门洞不会在膨胀后被额外恢复。家具层默认 `floorplan.class_mask.furniture_mode: mesh`，加载每个家具 OBJ 并应用实例 transform 后做高度过滤三角面投影，生成像素级 footprint；也可切到 `bbox` 加速。
 - `floorplan/class_mask_preview.png`: 四分类掩码彩色预览图。
 - `floorplan/class_mask.npy` / `floorplan/class_mask.npz`: 训练读取用的数组格式，`npz` 额外带分辨率、origin 和类别名。
-- `floorplan/class_mask_meta.json`: 四分类掩码的类别 legend、像素统计、建筑 mesh 统计和生成参数。
+- `floorplan/class_mask_meta.json`: 四分类掩码的类别 legend、像素统计、建筑 mesh 统计、生成参数和阶段耗时。
 
 ## Bistro 禁区
 

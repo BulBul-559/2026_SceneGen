@@ -318,6 +318,9 @@ def test_front3d_class_mask_mesh_furniture_mode_uses_mesh_footprint(tmp_path: Pa
     assert mesh_meta["furniture_mode"] == "mesh"
     assert mesh_meta["furniture_mask"]["mesh_object_count"] == 1
     assert mesh_meta["furniture_mask"]["fallback_bbox_count"] == 0
+    assert mesh_meta["furniture_mask"]["method"] == "pil_height_filtered_triangle_projection"
+    assert "unique_projected_primitive_count" in mesh_meta["furniture_mask"]
+    assert "build_furniture_mask" in mesh_meta["timings_s"]
 
 
 def test_cli_version_matches_package_version(capsys: pytest.CaptureFixture[str]) -> None:

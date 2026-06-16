@@ -11,7 +11,7 @@ import numpy as np
 import trimesh
 from PIL import Image, ImageDraw, ImageFilter
 
-from .geometry import load_obj_mesh, transform_vertices
+from .geometry import load_obj_mesh
 from .models import Front3DBaseScene, Front3DOpeningConfig, PlacedAsset, Rect2D
 from .paths import portable_path
 
@@ -227,12 +227,16 @@ def generate_front3d_class_mask(
     include_windows_as_wall: bool,
     path_root: Path | None = None,
 ) -> dict[str, object]:
+    timings_s: dict[str, float] = {}
+    stage_start = time.perf_counter()
     output_dir.mkdir(parents=True, exist_ok=True)
     root = path_root or output_dir
     scene_data = json.loads(base_scene.source_scene_json.read_text(encoding="utf-8"))
     metadata = json.loads(base_scene.metadata_json.read_text(encoding="utf-8"))
     variant = str(metadata.get("variant") or "normalized")
+    timings_s["read_inputs"] = round(time.perf_counter() - stage_start, 6)
 
+    stage_start = time.perf_counter()
     min_x = 0.0
     min_y = 0.0
     max_x = max(base_scene.bbox_max[0], *(placement.max_x for placement in placements), resolution)
@@ -252,7 +256,9 @@ def generate_front3d_class_mask(
     wall_mesh_count = 0
     opening_mesh_count = 0
     opening_type_counts: dict[str, int] = {}
+    timings_s["prepare_canvas"] = round(time.perf_counter() - stage_start, 6)
 
+    stage_start = time.perf_counter()
     for mesh in scene_data.get("mesh") or []:
         if not isinstance(mesh, dict):
             continue
@@ -307,7 +313,9 @@ def generate_front3d_class_mask(
             max_y=max_y,
             resolution=resolution,
         )
+    timings_s["draw_architecture"] = round(time.perf_counter() - stage_start, 6)
 
+    stage_start = time.perf_counter()
     if opening_dilation_m > 0:
         opening_image = dilate_binary_image(opening_image, opening_dilation_m, resolution)
     opening_layer = np.asarray(opening_image, dtype=np.uint8) > 0
@@ -315,7 +323,9 @@ def generate_front3d_class_mask(
     wall_image = Image.fromarray((wall_without_openings_layer.astype(np.uint8) * 255), mode="L")
     if wall_dilation_m > 0:
         wall_image = dilate_binary_image(wall_image, wall_dilation_m, resolution)
+    timings_s["process_openings_walls"] = round(time.perf_counter() - stage_start, 6)
 
+    stage_start = time.perf_counter()
     furniture_image, furniture_meta = build_front3d_furniture_mask_image(
         placements=placements,
         image_size=image_size,
@@ -328,7 +338,9 @@ def generate_front3d_class_mask(
     )
     if furniture_dilation_m > 0:
         furniture_image = dilate_binary_image(furniture_image, furniture_dilation_m, resolution)
+    timings_s["build_furniture_mask"] = round(time.perf_counter() - stage_start, 6)
 
+    stage_start = time.perf_counter()
     floor_layer = np.asarray(floor_image, dtype=np.uint8) > 0
     wall_layer = np.asarray(wall_image, dtype=np.uint8) > 0
     furniture_layer = np.asarray(furniture_image, dtype=np.uint8) > 0
@@ -337,12 +349,14 @@ def generate_front3d_class_mask(
     class_mask[indoor_layer] = 2
     class_mask[wall_layer] = 1
     class_mask[furniture_layer & indoor_layer & ~wall_layer] = 3
+    timings_s["compose_layers"] = round(time.perf_counter() - stage_start, 6)
 
     mask_path = output_dir / "class_mask.png"
     preview_path = output_dir / "class_mask_preview.png"
     npy_path = output_dir / "class_mask.npy"
     npz_path = output_dir / "class_mask.npz"
     meta_path = output_dir / "class_mask_meta.json"
+    stage_start = time.perf_counter()
     Image.fromarray(class_mask, mode="L").save(mask_path)
     np.save(npy_path, class_mask)
     np.savez_compressed(
@@ -355,6 +369,7 @@ def generate_front3d_class_mask(
     )
     preview = render_class_mask_preview(class_mask)
     preview.save(preview_path)
+    timings_s["write_outputs"] = round(time.perf_counter() - stage_start, 6)
 
     class_counts = {CLASS_MASK_LABELS[index]: int((class_mask == index).sum()) for index in sorted(CLASS_MASK_LABELS)}
     class_id_counts = {str(index): int((class_mask == index).sum()) for index in sorted(CLASS_MASK_LABELS)}
@@ -398,6 +413,7 @@ def generate_front3d_class_mask(
         "opening_min_height_m": float(opening_min_height_m),
         "include_doors_as_wall": bool(include_doors_as_wall),
         "include_windows_as_wall": bool(include_windows_as_wall),
+        "timings_s": timings_s,
     }
     meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     return {
@@ -411,6 +427,7 @@ def generate_front3d_class_mask(
         "grid_shape": [int(height_px), int(width_px)],
         "class_counts": class_counts,
         "class_id_counts": class_id_counts,
+        "timings_s": timings_s,
     }
 
 
@@ -596,16 +613,20 @@ def build_front3d_mesh_furniture_mask_image(
     resolution: float,
     height_m: float | None,
 ) -> tuple[Image.Image, dict[str, object]]:
-    shape = (image_size[1], image_size[0])
-    vertices_chunks: list[np.ndarray] = []
-    triangle_faces: list[tuple[int, int, int]] = []
+    image = Image.new("L", image_size, 0)
+    draw = ImageDraw.Draw(image)
     mesh_cache: dict[Path, object] = {}
     fallback_image = Image.new("L", image_size, 0)
     fallback_draw = ImageDraw.Draw(fallback_image)
     failed_objects: list[dict[str, str]] = []
-    vertex_offset = 0
     mesh_object_count = 0
-    target_height = height_m
+    effective_height = height_m
+    triangle_count = 0
+    painted_triangle_count = 0
+    degenerate_triangle_count = 0
+    z_rejected_triangle_count = 0
+    duplicate_projected_triangle_count = 0
+    projected_primitive_keys: set[tuple[tuple[int, int], ...]] = set()
 
     for placement in placements:
         try:
@@ -613,8 +634,7 @@ def build_front3d_mesh_furniture_mask_image(
             if mesh is None:
                 mesh = load_obj_mesh(placement.asset.obj_file)
                 mesh_cache[placement.asset.obj_file] = mesh
-            transformed = np.asarray(transform_vertices(mesh, placement), dtype=np.float64)
-            faces = triangulate_obj_faces(mesh.faces, vertex_offset)
+            transformed = transform_mesh_vertices_array(mesh, placement)
         except Exception as exc:
             draw_bbox_furniture_mask(fallback_draw, placement, min_x, max_y, resolution)
             failed_objects.append(
@@ -626,7 +646,7 @@ def build_front3d_mesh_furniture_mask_image(
                 }
             )
             continue
-        if transformed.size == 0 or not faces:
+        if transformed.size == 0 or not mesh.faces:
             draw_bbox_furniture_mask(fallback_draw, placement, min_x, max_y, resolution)
             failed_objects.append(
                 {
@@ -639,51 +659,124 @@ def build_front3d_mesh_furniture_mask_image(
             continue
         if height_m is None:
             object_max_z = float(np.max(transformed[:, 2]))
-            target_height = object_max_z if target_height is None else max(target_height, object_max_z)
-        vertices_chunks.append(transformed)
-        triangle_faces.extend(faces)
-        vertex_offset += len(transformed)
+            effective_height = object_max_z if effective_height is None else max(effective_height, object_max_z)
+        height_limit = math.inf if height_m is None else float(height_m)
+        object_stats = draw_projected_mesh_faces(
+            draw=draw,
+            vertices=transformed,
+            faces=mesh.faces,
+            min_x=min_x,
+            max_y=max_y,
+            resolution=resolution,
+            bottom_z=0.0,
+            height_limit=height_limit,
+            projected_primitive_keys=projected_primitive_keys,
+        )
+        triangle_count += object_stats["triangle_count"]
+        painted_triangle_count += object_stats["painted_triangle_count"]
+        degenerate_triangle_count += object_stats["degenerate_triangle_count"]
+        z_rejected_triangle_count += object_stats["z_rejected_triangle_count"]
+        duplicate_projected_triangle_count += object_stats["duplicate_projected_triangle_count"]
         mesh_object_count += 1
 
-    if vertices_chunks and triangle_faces:
-        vertices = np.vstack(vertices_chunks)
-        faces_array = np.asarray(triangle_faces, dtype=np.int64)
-        raster = rasterize_height_filtered_triangles(
-            vertices=vertices,
-            faces=faces_array,
-            origin_xy=np.asarray([min_x, min_y], dtype=np.float64),
-            resolution=resolution,
-            shape=shape,
-            z_levels=[float(target_height if target_height is not None else 0.0)],
-            bottom_z=0.0,
-        )
-        mesh_layer = np.flipud((raster["stack"][0] > 0).astype(np.uint8)) * 255
-        backend_meta = dict(raster["backend_meta"])
-    else:
-        mesh_layer = np.zeros(shape, dtype=np.uint8)
-        backend_meta = {
-            "method": "deterministic_height_filtered_triangle_raster",
-            "triangle_count": 0,
-            "painted_triangle_count": 0,
-            "degenerate_triangle_count": 0,
-            "z_rejected_triangle_count": 0,
-            "bottom_z_m": 0.0,
-            "max_target_height_m": float(target_height if target_height is not None else 0.0),
-        }
-
+    mesh_layer = np.asarray(image, dtype=np.uint8)
     fallback_layer = np.asarray(fallback_image, dtype=np.uint8)
     combined_layer = np.maximum(mesh_layer, fallback_layer)
-    image = Image.fromarray(combined_layer.astype(np.uint8), mode="L")
-    return image, {
+    output_image = Image.fromarray(combined_layer.astype(np.uint8), mode="L")
+    return output_image, {
         "mode": "mesh",
         "object_count": len(placements),
         "bbox_object_count": 0,
         "mesh_object_count": int(mesh_object_count),
         "fallback_bbox_count": int(len(failed_objects)),
         "height_m": None if height_m is None else float(height_m),
-        "effective_height_m": float(target_height if target_height is not None else 0.0),
+        "effective_height_m": float(effective_height if effective_height is not None else 0.0),
         "failed_objects": failed_objects[:20],
-        **backend_meta,
+        "method": "pil_height_filtered_triangle_projection",
+        "triangle_count": int(triangle_count),
+        "painted_triangle_count": int(painted_triangle_count),
+        "degenerate_triangle_count": int(degenerate_triangle_count),
+        "z_rejected_triangle_count": int(z_rejected_triangle_count),
+        "duplicate_projected_triangle_count": int(duplicate_projected_triangle_count),
+        "unique_projected_primitive_count": int(len(projected_primitive_keys)),
+        "bottom_z_m": 0.0,
+        "max_target_height_m": float(effective_height if effective_height is not None else 0.0),
+    }
+
+
+def transform_mesh_vertices_array(mesh: object, placed: PlacedAsset) -> np.ndarray:
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    if vertices.size == 0:
+        return vertices.reshape((0, 3))
+    if placed.transform_matrix_4x4_row_major is not None:
+        matrix = np.asarray(placed.transform_matrix_4x4_row_major, dtype=np.float64).reshape((4, 4))
+        return vertices @ matrix[:3, :3].T + matrix[:3, 3]
+    cos_yaw = math.cos(placed.yaw)
+    sin_yaw = math.sin(placed.yaw)
+    transformed = np.empty_like(vertices)
+    transformed[:, 0] = placed.x + cos_yaw * vertices[:, 0] - sin_yaw * vertices[:, 1]
+    transformed[:, 1] = placed.y + sin_yaw * vertices[:, 0] + cos_yaw * vertices[:, 1]
+    transformed[:, 2] = placed.z + vertices[:, 2]
+    return transformed
+
+
+def draw_projected_mesh_faces(
+    draw: ImageDraw.ImageDraw,
+    vertices: np.ndarray,
+    faces: list[list[int]],
+    min_x: float,
+    max_y: float,
+    resolution: float,
+    bottom_z: float,
+    height_limit: float,
+    projected_primitive_keys: set[tuple[tuple[int, int], ...]],
+) -> dict[str, int]:
+    triangle_count = 0
+    painted_triangle_count = 0
+    degenerate_triangle_count = 0
+    z_rejected_triangle_count = 0
+    duplicate_projected_triangle_count = 0
+    for face in faces:
+        if len(face) < 3:
+            continue
+        first = int(face[0])
+        for index in range(1, len(face) - 1):
+            a_i, b_i, c_i = first, int(face[index]), int(face[index + 1])
+            if min(a_i, b_i, c_i) < 0 or max(a_i, b_i, c_i) >= len(vertices):
+                continue
+            triangle = vertices[[a_i, b_i, c_i]]
+            triangle_count += 1
+            tri_z_min = float(np.min(triangle[:, 2]))
+            tri_z_max = float(np.max(triangle[:, 2]))
+            if tri_z_max < bottom_z or tri_z_min > height_limit:
+                z_rejected_triangle_count += 1
+                continue
+            polygon = [
+                world_to_pixel((float(triangle[0, 0]), float(triangle[0, 1])), min_x, max_y, resolution),
+                world_to_pixel((float(triangle[1, 0]), float(triangle[1, 1])), min_x, max_y, resolution),
+                world_to_pixel((float(triangle[2, 0]), float(triangle[2, 1])), min_x, max_y, resolution),
+            ]
+            primitive_key = tuple(sorted(polygon))
+            if primitive_key in projected_primitive_keys:
+                duplicate_projected_triangle_count += 1
+                continue
+            projected_primitive_keys.add(primitive_key)
+            area2 = (
+                (polygon[1][0] - polygon[0][0]) * (polygon[2][1] - polygon[0][1])
+                - (polygon[1][1] - polygon[0][1]) * (polygon[2][0] - polygon[0][0])
+            )
+            if abs(area2) <= 1:
+                degenerate_triangle_count += 1
+                draw.line([polygon[0], polygon[1], polygon[2], polygon[0]], fill=255, width=1)
+            else:
+                draw.polygon(polygon, fill=255)
+            painted_triangle_count += 1
+    return {
+        "triangle_count": triangle_count,
+        "painted_triangle_count": painted_triangle_count,
+        "degenerate_triangle_count": degenerate_triangle_count,
+        "z_rejected_triangle_count": z_rejected_triangle_count,
+        "duplicate_projected_triangle_count": duplicate_projected_triangle_count,
     }
 
 

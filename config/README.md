@@ -275,7 +275,7 @@ uv run scenegen \
 | `enabled` | boolean | `false` | 是否生成四分类训练掩码。 |
 | `wall_dilation_m` | float, `>=0` | `0.0` | wall 类额外膨胀距离。 |
 | `furniture_dilation_m` | float, `>=0` | `0.05` | furniture 类额外膨胀距离。 |
-| `furniture_mode` | `bbox` / `mesh` | `mesh` | furniture 类生成方式。`mesh` 加载家具 OBJ、应用实例 transform 后做像素级 mesh footprint；`bbox` 使用每个家具的 XY 包围盒，速度更快但更粗。 |
+| `furniture_mode` | `bbox` / `mesh` | `mesh` | furniture 类生成方式。`mesh` 加载家具 OBJ、应用实例 transform 后做高度过滤三角面投影，生成像素级 footprint；`bbox` 使用每个家具的 XY 包围盒，速度更快但更粗。 |
 | `furniture_height_m` | float / `null` | `null` | 仅 `furniture_mode: mesh` 生效。`null` 表示投影家具全高度；数字表示只统计 `0 <= z <= furniture_height_m` 的家具几何。 |
 
 四分类固定为：`0 outdoor`、`1 wall`、`2 free_space`、`3 furniture`。

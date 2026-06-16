@@ -208,9 +208,14 @@ class Front3DGlobalSamplingMask:
 @dataclass
 class LabelGenerationCache:
     front3d_global_masks: dict[tuple[object, ...], Front3DGlobalSamplingMask]
+    front3d_room_contexts: dict[
+        tuple[object, ...],
+        tuple[tuple[RoomLabelContext, ...], RoomLabelContext | None, tuple[dict[str, object], ...]],
+    ]
 
     def __init__(self) -> None:
         self.front3d_global_masks = {}
+        self.front3d_room_contexts = {}
 
 
 @dataclass(frozen=True)
@@ -1227,6 +1232,15 @@ def build_front3d_room_contexts(
     return contexts, global_context, skipped
 
 
+def front3d_context_cache_key(base_scene: Front3DBaseScene, config: LabelConfig) -> tuple[object, ...]:
+    return (
+        base_scene.scene_id,
+        round(config.ue_clearance_m, 6),
+        round(config.wall_clearance_m, 6),
+        round(config.corridor_clearance_m, 6),
+    )
+
+
 def corridor_context_from_global(global_context: RoomLabelContext, config: LabelConfig) -> RoomLabelContext:
     return replace(
         global_context,
@@ -1700,8 +1714,23 @@ def generate_front3d_label(
     total_start = time.perf_counter()
     timings: dict[str, float] = {}
     contexts_start = time.perf_counter()
-    contexts, global_context, skipped = build_front3d_room_contexts(base_scene, placements, config)
+    context_cache_hit = False
+    context_cache_key = front3d_context_cache_key(base_scene, config)
+    if cache is not None and context_cache_key in cache.front3d_room_contexts:
+        cached_contexts, global_context, cached_skipped = cache.front3d_room_contexts[context_cache_key]
+        contexts = list(cached_contexts)
+        skipped = [dict(item) for item in cached_skipped]
+        context_cache_hit = True
+    else:
+        contexts, global_context, skipped = build_front3d_room_contexts(base_scene, placements, config)
+        if cache is not None:
+            cache.front3d_room_contexts[context_cache_key] = (
+                tuple(contexts),
+                global_context,
+                tuple(dict(item) for item in skipped),
+            )
     timings["build_contexts"] = elapsed_s(contexts_start)
+    timings["context_cache_hit"] = context_cache_hit
     grouped_sampling: list[tuple[RoomLabelContext, UeSamplingResult]] = []
     if config.sampling_domain == "global_floor":
         if global_context is None:
@@ -1941,6 +1970,8 @@ def aggregate_label_timings(records: list[dict[str, object]]) -> dict[str, float
         if not isinstance(timings, dict):
             continue
         for key, value in timings.items():
+            if isinstance(value, bool):
+                continue
             if isinstance(value, int | float):
                 totals[str(key)] = round(totals.get(str(key), 0.0) + float(value), 6)
     return totals
