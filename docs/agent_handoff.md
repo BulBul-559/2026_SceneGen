@@ -1,6 +1,6 @@
 # SceneGen Agent Handoff
 
-这份文档是给后续对话或新 agent 快速接手用的浓缩版。更完整的说明看根目录 `README.md`、`config/README.md` 和 `docs/data_onboarding.md`。
+这份文档是给后续对话或新 agent 快速接手用的浓缩版。更完整的说明看根目录 `README.md`、`config/README.md` 和 `docs/data_onboarding.md`。性能优化复盘看 `docs/performance_optimization_after_5015e71.md`，worker 数量和调度测试看 `docs/worker_sweep_20260616.md`。
 
 ## 项目一句话
 

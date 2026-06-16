@@ -44,6 +44,8 @@ SceneGen/
     3D-Front/             # 本地 3D-FRONT 原始数据与 phase1 整理结果，默认被 git ignore
   docs/
     data_onboarding.md    # 新数据源接入说明
+    performance_optimization_after_5015e71.md  # 2026-06-16 性能优化复盘
+    worker_sweep_20260616.md  # batch worker 数量和调度策略测试记录
   src/scenegen/
     assets/               # 资产契约、加载、旧 manifest 转换、材质和路径解析
     cli.py                # 命令行入口与主流程
