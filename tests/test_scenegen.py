@@ -1266,7 +1266,8 @@ def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
         assert not [value for value in iter_json_strings(payload) if value.startswith("/")]
 
 
-def test_front3d_batch_runner_writes_plan_state_and_worker_logs(tmp_path: Path) -> None:
+@pytest.mark.parametrize("scheduler", ["static", "dynamic"])
+def test_front3d_batch_runner_writes_plan_state_and_worker_logs(tmp_path: Path, scheduler: str) -> None:
     pytest.importorskip("trimesh")
     config_path = make_front3d_runtime_fixture(tmp_path)
     output_dir = tmp_path / "out"
@@ -1277,16 +1278,18 @@ def test_front3d_batch_runner_writes_plan_state_and_worker_logs(tmp_path: Path) 
             str(config_path),
             "--workers",
             "2",
+            "--scheduler",
+            scheduler,
             "--max-retries",
             "0",
             "--set",
             "pipeline.scenes=2",
             "--set",
-            "pipeline.run_name=batch_smoke",
+            f"pipeline.run_name=batch_smoke_{scheduler}",
         ]
     )
 
-    run_dir = output_dir / "batch_smoke"
+    run_dir = output_dir / f"batch_smoke_{scheduler}"
     assert exit_code == 0
     assert (run_dir / "front3d_0000" / "scene.obj").is_file()
     assert (run_dir / "front3d_0001" / "scene.obj").is_file()
@@ -1309,8 +1312,11 @@ def test_front3d_batch_runner_writes_plan_state_and_worker_logs(tmp_path: Path) 
     manifest = json.loads((run_dir / "manifest_batch.json").read_text(encoding="utf-8"))
     assert manifest["batch"] is True
     assert manifest["workers"] == 2
+    assert manifest["scheduler"] == scheduler
     assert manifest["succeeded_scenes"] == 2
     assert manifest["failed_scenes"] == 0
+    assert all("batch_publish_s" in scene for scene in manifest["scenes"])
+    assert any(json.loads(line)["stage"] == "publish_scene" for line in (run_dir / "batch" / "logs" / "timings.jsonl").read_text().splitlines())
 
 
 def test_front3d_batch_label_outputs(tmp_path: Path) -> None:

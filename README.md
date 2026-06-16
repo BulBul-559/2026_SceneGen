@@ -232,6 +232,7 @@ logs/
 uv run scenegen-batch \
   --config config/tasks/front3d_full_simulation.yaml \
   --workers 4 \
+  --scheduler static \
   --max-retries 1 \
   --set pipeline.scenes=2000 \
   --set pipeline.run_name=front3d_production_2000
@@ -272,6 +273,8 @@ batch/
 开启 `postprocess.maps.enabled` 后，每个成功 scene 会额外得到 `maps/geometry.npz`、`maps/propagation.npz` 和 `maps/metadata.json`。开启 `postprocess.dataset.enabled` 后，默认会在 `datasets/<run_name>_vision/` 下构建 compact vision dataset，只保留训练需要的 floorplan、mask、derived maps、BS label 和 metadata。
 
 `manifest_batch.json`、`manifest_front3d.json` 和 `manifest.json` 会在 batch 完成后统一汇总最终发布到 run 根目录的 `front3d_0000/`、`front3d_0001/` 等标准场景目录。
+
+`--scheduler static` 是默认调度策略，保持固定分片，资源占用更保守；`--scheduler dynamic` 会让空闲 worker 继续领取下一个 scene，可能减少长尾，但也可能在高负载机器上增加 CPU/IO 争用。正式大批量前建议先用 30 个 scene 对比两种策略。成功 scene 现在会从 `batch/worker_runs` 直接 move 到 run 根目录，`batch/worker_runs` 主要保留 worker 子 run 的日志、配置和失败场景调试信息，不再保存成功场景的完整重复副本。
 
 ## 输出结构
 

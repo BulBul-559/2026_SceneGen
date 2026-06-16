@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import queue
 import random
 import shutil
 import subprocess
@@ -46,6 +47,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run SceneGen production batches with workers, resume, and logs.")
     parser.add_argument("--config", type=Path, required=True, help="SceneGen YAML config. Batch v1 currently targets front3d.")
     parser.add_argument("--workers", type=int, default=1, help="Number of worker subprocess lanes.")
+    parser.add_argument(
+        "--scheduler",
+        choices=("dynamic", "static"),
+        default="static",
+        help="Worker scheduling policy. static keeps legacy shard assignment; dynamic lets idle workers claim the next task.",
+    )
     parser.add_argument("--resume", action="store_true", help="Resume an existing batch run with the same run_name.")
     parser.add_argument("--max-retries", type=int, default=1, help="Retries per scene task after subprocess failure.")
     parser.add_argument(
@@ -304,19 +311,40 @@ def run_task(
     if process.returncode != 0:
         raise TaskProcessError(process.returncode, command, process.stdout, process.stderr)
 
+    publish_start = time.perf_counter()
     worker_run_dir = paths.worker_runs / worker_id / str(task["task_id"])
     source_scene_dir = worker_run_dir / "front3d_0000"
     final_scene_dir = paths.run_dir / str(task["scene_key"])
     if not source_scene_dir.is_dir():
         raise FileNotFoundError(f"Expected worker scene directory not found: {source_scene_dir}")
+    record = load_task_scene_record(worker_run_dir, str(task["scene_key"]), int(task["target_index"]))
     if final_scene_dir.exists():
         shutil.rmtree(final_scene_dir)
-    shutil.copytree(source_scene_dir, final_scene_dir)
-    record = load_task_scene_record(worker_run_dir, str(task["scene_key"]), int(task["target_index"]))
+    shutil.move(str(source_scene_dir), str(final_scene_dir))
+    worker_summary_dir = worker_run_dir / "summary"
+    if worker_summary_dir.exists():
+        shutil.rmtree(worker_summary_dir)
+    publish_duration_s = round(time.perf_counter() - publish_start, 6)
+    append_jsonl(
+        paths.timings,
+        {
+            "schema_version": "scenegen.batch.timing.v1",
+            "ts": now_iso(),
+            "worker_id": worker_id,
+            "task_id": task["task_id"],
+            "scene_key": task["scene_key"],
+            "stage": "publish_scene",
+            "attempt_no": attempt_no,
+            "status": "ok",
+            "duration_ms": round(publish_duration_s * 1000.0, 3),
+        },
+    )
     record["scene_dir"] = str(task["scene_key"])
     record["batch_worker_id"] = worker_id
     record["batch_attempt_no"] = attempt_no
     record["batch_duration_s"] = duration_s
+    record["batch_publish_s"] = publish_duration_s
+    record["batch_total_duration_s"] = round(duration_s + publish_duration_s, 6)
     append_jsonl(
         worker_jsonl,
         {
@@ -367,7 +395,9 @@ def write_task_failure(paths: BatchPaths, worker_id: str, task: dict[str, Any], 
 def worker_loop(
     *,
     worker_index: int,
-    tasks: list[dict[str, Any]],
+    task_queue: queue.Queue[dict[str, Any]],
+    total_tasks: int,
+    scheduler: str,
     config_path: Path,
     repo_root: Path,
     raw_set_values: list[str],
@@ -378,91 +408,99 @@ def worker_loop(
 ) -> list[dict[str, Any]]:
     worker_id = f"worker_{worker_index:03d}"
     records: list[dict[str, Any]] = []
-    event(paths, "worker_started", worker_id=worker_id, task_count=len(tasks))
-    for task in tasks:
+    event(paths, "worker_started", worker_id=worker_id, scheduler=scheduler, total_task_count=total_tasks)
+    while True:
+        try:
+            task = task_queue.get_nowait()
+        except queue.Empty:
+            break
         task_id = str(task["task_id"])
-        with state_lock:
-            status = state["tasks"].get(task_id, {}).get("status")
-        if status == "succeeded":
-            event(paths, "task_skipped_resume", worker_id=worker_id, task_id=task_id)
-            final_scene_dir = paths.run_dir / str(task["scene_key"])
-            record_path = final_scene_dir / "scene_record_batch.json"
-            if record_path.is_file():
-                records.append(json.loads(record_path.read_text(encoding="utf-8")))
-            continue
-        attempt_no = 0
-        while attempt_no <= max_retries:
-            attempt_no += 1
-            event(paths, "task_started", worker_id=worker_id, task_id=task_id, attempt_no=attempt_no, scene_id=task["scene_id"])
+        event(paths, "task_claimed", worker_id=worker_id, task_id=task_id, queued_remaining=task_queue.qsize())
+        try:
             with state_lock:
-                state["tasks"][task_id] = {
-                    **task,
-                    "status": "running",
-                    "worker_id": worker_id,
-                    "attempt_no": attempt_no,
-                    "updated_at": now_iso(),
-                }
-                write_state(paths, state)
-            try:
-                record = run_task(
-                    config_path=config_path,
-                    repo_root=repo_root,
-                    raw_set_values=raw_set_values,
-                    paths=paths,
-                    worker_id=worker_id,
-                    task=task,
-                    attempt_no=attempt_no,
-                )
-            except Exception as exc:
-                traceback_file = write_task_failure(paths, worker_id, task, attempt_no, exc)
-                queue_payload = {
-                    "schema_version": "scenegen.batch.queue.v1",
-                    "ts": now_iso(),
-                    "worker_id": worker_id,
-                    "task_id": task_id,
-                    "scene_key": task["scene_key"],
-                    "scene_id": task["scene_id"],
-                    "attempt_no": attempt_no,
-                    "max_retries": max_retries,
-                    "error_type": type(exc).__name__,
-                    "error": str(exc),
-                    "traceback_file": traceback_file,
-                }
-                append_jsonl(paths.failures, queue_payload)
-                if attempt_no <= max_retries:
-                    append_jsonl(paths.retry_queue, {**queue_payload, "event_type": "retry_enqueued"})
-                    event(paths, "retry_enqueued", level="warning", **queue_payload)
-                    continue
-                append_jsonl(paths.dead_letter, {**queue_payload, "event_type": "dead_lettered"})
-                event(paths, "task_failed", level="error", **queue_payload)
+                status = state["tasks"].get(task_id, {}).get("status")
+            if status == "succeeded":
+                event(paths, "task_skipped_resume", worker_id=worker_id, task_id=task_id)
+                final_scene_dir = paths.run_dir / str(task["scene_key"])
+                record_path = final_scene_dir / "scene_record_batch.json"
+                if record_path.is_file():
+                    records.append(json.loads(record_path.read_text(encoding="utf-8")))
+                continue
+            attempt_no = 0
+            while attempt_no <= max_retries:
+                attempt_no += 1
+                event(paths, "task_started", worker_id=worker_id, task_id=task_id, attempt_no=attempt_no, scene_id=task["scene_id"])
                 with state_lock:
                     state["tasks"][task_id] = {
                         **task,
-                        "status": "failed",
+                        "status": "running",
                         "worker_id": worker_id,
                         "attempt_no": attempt_no,
+                        "updated_at": now_iso(),
+                    }
+                    write_state(paths, state)
+                try:
+                    record = run_task(
+                        config_path=config_path,
+                        repo_root=repo_root,
+                        raw_set_values=raw_set_values,
+                        paths=paths,
+                        worker_id=worker_id,
+                        task=task,
+                        attempt_no=attempt_no,
+                    )
+                except Exception as exc:
+                    traceback_file = write_task_failure(paths, worker_id, task, attempt_no, exc)
+                    queue_payload = {
+                        "schema_version": "scenegen.batch.queue.v1",
+                        "ts": now_iso(),
+                        "worker_id": worker_id,
+                        "task_id": task_id,
+                        "scene_key": task["scene_key"],
+                        "scene_id": task["scene_id"],
+                        "attempt_no": attempt_no,
+                        "max_retries": max_retries,
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
                         "traceback_file": traceback_file,
-                        "updated_at": now_iso(),
                     }
-                    write_state(paths, state)
-                break
-            else:
-                record_path = paths.run_dir / str(task["scene_key"]) / "scene_record_batch.json"
-                record_path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
-                records.append(record)
-                event(paths, "task_succeeded", worker_id=worker_id, task_id=task_id, attempt_no=attempt_no)
-                with state_lock:
-                    state["tasks"][task_id] = {
-                        **task,
-                        "status": "succeeded",
-                        "worker_id": worker_id,
-                        "attempt_no": attempt_no,
-                        "scene_record": portable_path(record_path, paths.run_dir),
-                        "updated_at": now_iso(),
-                    }
-                    write_state(paths, state)
-                break
-    event(paths, "worker_stopped", worker_id=worker_id, completed_count=len(records))
+                    append_jsonl(paths.failures, queue_payload)
+                    if attempt_no <= max_retries:
+                        append_jsonl(paths.retry_queue, {**queue_payload, "event_type": "retry_enqueued"})
+                        event(paths, "retry_enqueued", level="warning", **queue_payload)
+                        continue
+                    append_jsonl(paths.dead_letter, {**queue_payload, "event_type": "dead_lettered"})
+                    event(paths, "task_failed", level="error", **queue_payload)
+                    with state_lock:
+                        state["tasks"][task_id] = {
+                            **task,
+                            "status": "failed",
+                            "worker_id": worker_id,
+                            "attempt_no": attempt_no,
+                            "traceback_file": traceback_file,
+                            "updated_at": now_iso(),
+                        }
+                        write_state(paths, state)
+                    break
+                else:
+                    record_path = paths.run_dir / str(task["scene_key"]) / "scene_record_batch.json"
+                    record_path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+                    records.append(record)
+                    event(paths, "task_succeeded", worker_id=worker_id, task_id=task_id, attempt_no=attempt_no)
+                    with state_lock:
+                        state["tasks"][task_id] = {
+                            **task,
+                            "status": "succeeded",
+                            "worker_id": worker_id,
+                            "attempt_no": attempt_no,
+                            "scene_record": portable_path(record_path, paths.run_dir),
+                            "updated_at": now_iso(),
+                        }
+                        write_state(paths, state)
+                    break
+        finally:
+            task_queue.task_done()
+    event(paths, "worker_stopped", worker_id=worker_id, scheduler=scheduler, completed_count=len(records))
     return records
 
 
@@ -473,6 +511,7 @@ def build_final_manifest(
     records: list[dict[str, Any]],
     workers: int,
     max_retries: int,
+    scheduler: str,
 ) -> dict[str, Any]:
     records = sorted(records, key=lambda item: int(item.get("batch_task_id", "front3d_999999").split("_")[-1]))
     copy_manifest = collect_scene_objs(paths.run_dir, records, "front3d")
@@ -490,6 +529,7 @@ def build_final_manifest(
         "run_name": effective_config["pipeline"]["run_name"],
         "run_dir": ".",
         "workers": workers,
+        "scheduler": scheduler,
         "max_retries": max_retries,
         "requested_scenes": effective_config["pipeline"]["scenes"],
         "succeeded_scenes": len(records),
@@ -553,6 +593,7 @@ def main(argv: list[str] | None = None) -> int:
     effective_config["runtime"]["batch"] = {
         "enabled": True,
         "workers": args.workers,
+        "scheduler": args.scheduler,
         "max_retries": args.max_retries,
         "run_dir": str(run_dir),
     }
@@ -582,11 +623,21 @@ def main(argv: list[str] | None = None) -> int:
         run_name=run_name,
         run_dir=str(run_dir),
         workers=args.workers,
+        scheduler=args.scheduler,
         task_count=len(tasks),
         resume=bool(args.resume),
     )
 
-    shards = [[task for task in tasks if int(task["shard_id"]) == worker_index] for worker_index in range(args.workers)]
+    worker_queues: list[queue.Queue[dict[str, Any]]]
+    if args.scheduler == "static":
+        worker_queues = [queue.Queue() for _ in range(args.workers)]
+        for task in tasks:
+            worker_queues[int(task["shard_id"])].put(task)
+    else:
+        shared_queue: queue.Queue[dict[str, Any]] = queue.Queue()
+        for task in tasks:
+            shared_queue.put(task)
+        worker_queues = [shared_queue for _ in range(args.workers)]
     state_lock = threading.Lock()
     records: list[dict[str, Any]] = []
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
@@ -594,7 +645,9 @@ def main(argv: list[str] | None = None) -> int:
             executor.submit(
                 worker_loop,
                 worker_index=worker_index,
-                tasks=shard,
+                task_queue=worker_queues[worker_index],
+                total_tasks=len(tasks),
+                scheduler=args.scheduler,
                 config_path=config_path.resolve(),
                 repo_root=repo_root,
                 raw_set_values=list(args.set_values or []),
@@ -603,7 +656,7 @@ def main(argv: list[str] | None = None) -> int:
                 state=state,
                 state_lock=state_lock,
             )
-            for worker_index, shard in enumerate(shards)
+            for worker_index in range(args.workers)
         ]
         for future in as_completed(futures):
             records.extend(future.result())
@@ -622,6 +675,7 @@ def main(argv: list[str] | None = None) -> int:
         records=records,
         workers=args.workers,
         max_retries=args.max_retries,
+        scheduler=args.scheduler,
     )
     failed_count = int(manifest["failed_scenes"])
     try:

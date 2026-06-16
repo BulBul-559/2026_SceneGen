@@ -339,12 +339,13 @@ uv run scenegen \
 uv run scenegen-batch \
   --config config/tasks/front3d_full_simulation.yaml \
   --workers 4 \
+  --scheduler static \
   --max-retries 1 \
   --set pipeline.scenes=2000 \
   --set pipeline.run_name=front3d_production_2000
 ```
 
-`scenegen-batch` 不是新的 YAML 字段，而是生产管理入口。它会复用同一份配置和 `--set` 语法，并在 run 目录写出 `batch/scene_plan.jsonl`、`batch/state.json`、worker 日志、失败队列、重试队列和 `manifest_batch.json`。
+`scenegen-batch` 不是新的 YAML 字段，而是生产管理入口。它会复用同一份配置和 `--set` 语法，并在 run 目录写出 `batch/scene_plan.jsonl`、`batch/state.json`、worker 日志、失败队列、重试队列和 `manifest_batch.json`。`--scheduler static` 是默认固定分片策略；`--scheduler dynamic` 会让空闲 worker 继续领取下一个 scene，适合在正式大批量前用 30 个 scene 试跑对比。成功 scene 会从 `batch/worker_runs` move 到 run 根目录，worker 子目录只保留日志、配置和失败场景调试材料。
 
 在同一次 batch 后自动生成 maps 和 compact vision dataset：
 
