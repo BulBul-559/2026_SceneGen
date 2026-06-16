@@ -21,6 +21,7 @@ DEFAULT_BIN_SIZE = 0.05
 FIXED_ORIGIN_XY = np.array([0.0, 0.0], dtype=np.float64)
 SIDE_VIEW_MAX_POINTS = 750_000
 SURFACE_SAMPLE_CHUNK_SIZE = 500_000
+FLOORPLAN_PNG_COMPRESS_LEVEL = 1
 CLASS_MASK_LABELS: dict[int, str] = {
     0: "outdoor",
     1: "wall",
@@ -38,6 +39,10 @@ CLASS_MASK_COLORS: dict[int, tuple[int, int, int]] = {
 def floorplan_layer_filename(level_m: float) -> str:
     height_token = f"{level_m:.2f}".replace("-", "m").replace(".", "p")
     return f"floorplan_{height_token}.png"
+
+
+def save_floorplan_png(image: Image.Image, path: Path) -> None:
+    image.save(path, compress_level=FLOORPLAN_PNG_COMPRESS_LEVEL)
 
 
 def world_to_pixel(point: tuple[float, float], min_x: float, max_y: float, resolution: float) -> tuple[int, int]:
@@ -361,7 +366,7 @@ def generate_front3d_class_mask(
     npz_path = output_dir / "class_mask.npz"
     meta_path = output_dir / "class_mask_meta.json"
     stage_start = time.perf_counter()
-    Image.fromarray(class_mask, mode="L").save(mask_path)
+    save_floorplan_png(Image.fromarray(class_mask, mode="L"), mask_path)
     np.save(npy_path, class_mask)
     np.savez_compressed(
         npz_path,
@@ -372,7 +377,7 @@ def generate_front3d_class_mask(
         class_names=np.asarray([CLASS_MASK_LABELS[index] for index in sorted(CLASS_MASK_LABELS)]),
     )
     preview = render_class_mask_preview(class_mask)
-    preview.save(preview_path)
+    save_floorplan_png(preview, preview_path)
     timings_s["write_outputs"] = round(time.perf_counter() - stage_start, 6)
 
     class_counts = {CLASS_MASK_LABELS[index]: int((class_mask == index).sum()) for index in sorted(CLASS_MASK_LABELS)}
@@ -945,7 +950,7 @@ def process_scene(
         z_min=0.0,
         z_max=float(max(scan_top, max_shifted_z)),
     )
-    side_view.save(side_view_output_path)
+    save_floorplan_png(side_view, side_view_output_path)
     timings_s["side_view"] = round(time.perf_counter() - stage_start, 6)
 
     if projection_mode == "sampling":
@@ -1023,7 +1028,7 @@ def process_scene(
         title=f"scene: {input_path.name}",
         tile_size=preview_tile_size,
     )
-    soft_plain_preview.save(preview_output_path)
+    save_floorplan_png(soft_plain_preview, preview_output_path)
     timings_s["write_preview"] = round(time.perf_counter() - stage_start, 6)
 
     meta = {
@@ -1147,7 +1152,7 @@ def build_height_filtered_projection_output(
     for index, level in enumerate(z_levels):
         mask = stack[index] > 0
         image = render_density_projection(densities[index], max_alpha=0.90, foreground_color=(40, 40, 40))
-        image.save(output_dir / floorplan_layer_filename(float(level)))
+        save_floorplan_png(image, output_dir / floorplan_layer_filename(float(level)))
         images_by_index[index] = image
         projection_stats.append(
             {
@@ -1727,7 +1732,7 @@ def render_soft_projection_stack(
         images_by_index = {}
         for index, level in enumerate(z_levels):
             image = empty.copy()
-            image.save(output_dir / floorplan_layer_filename(float(level)))
+            save_floorplan_png(image, output_dir / floorplan_layer_filename(float(level)))
             images_by_index[index] = image
         return images_by_index
 
@@ -1736,7 +1741,7 @@ def render_soft_projection_stack(
         hits = z_vals <= level
         density = density_from_indices(rows[hits], cols[hits], shape) if np.any(hits) else np.zeros(shape, dtype=np.float32)
         image = render_density_projection(density, max_alpha=max_alpha, foreground_color=foreground_color)
-        image.save(output_dir / floorplan_layer_filename(level))
+        save_floorplan_png(image, output_dir / floorplan_layer_filename(level))
         return {0: image}
 
     order = np.argsort(z_vals, kind="mergesort")
@@ -1754,7 +1759,7 @@ def render_soft_projection_stack(
             density += density_from_indices(rows_sorted[cursor:next_cursor], cols_sorted[cursor:next_cursor], shape)
             cursor = next_cursor
         image = render_density_projection(density, max_alpha=max_alpha, foreground_color=foreground_color)
-        image.save(output_dir / floorplan_layer_filename(level))
+        save_floorplan_png(image, output_dir / floorplan_layer_filename(level))
         images_by_index[original_index] = image
     return images_by_index
 

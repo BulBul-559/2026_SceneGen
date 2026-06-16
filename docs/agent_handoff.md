@@ -217,6 +217,8 @@ summary/
 
 `label.overlays[*].timings_s` 会记录每张 label floorplan overlay 的读入、画布准备、点位绘制和缩放保存耗时。当前 overlay PNG 使用无损快速压缩级别 `png_compress_level: 1`；全配置下 overlay 通常瓶颈在 `resize_save`，不是 UE/BS 点绘制。
 
+`floorplan_*.png`、`floorplan/preview.png`、`side_view.png` 和 class mask PNG 也使用无损快速压缩级别 `png_compress_level: 1` 写出。该设置只影响 PNG 编码时间和文件字节，不改变像素内容；实测收益很小，主要用于减少保存 preview / mask 时的固定开销。
+
 `scenegen-batch` 额外输出：
 
 ```text
