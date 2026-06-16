@@ -1996,8 +1996,8 @@ def copy_label_variant_outputs(
     report_path = report_dir / f"{variant.name}_report.json"
     payload = record["_payload"]
     report = record["_report"]
-    label_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_label_json(label_path, payload)
+    write_label_json(report_path, report)
     public_record = {key: value for key, value in record.items() if not str(key).startswith("_")}
     return {
         **public_record,
@@ -2007,6 +2007,10 @@ def copy_label_variant_outputs(
         "label_file": portable_path(label_path, path_root),
         "report_file": portable_path(report_path, path_root),
     }
+
+
+def write_label_json(path: Path, payload: dict[str, object]) -> None:
+    path.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 
 
 def aggregate_label_timings(records: list[dict[str, object]]) -> dict[str, float]:
