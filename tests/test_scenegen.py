@@ -31,6 +31,8 @@ from scenegen.labels import (
     generate_bs_points_for_room,
     generate_ue_points_for_room,
     label_variants,
+    point_in_triangles,
+    points_in_triangles_mask,
 )
 from scenegen.models import Asset, Front3DBaseScene, PlacedAsset, SupportTriangle
 from scenegen.paths import (
@@ -194,6 +196,33 @@ def write_l_shaped_furniture_obj(path: Path) -> None:
         + "\n",
         encoding="utf-8",
     )
+
+
+def test_points_in_triangles_mask_matches_scalar_check() -> None:
+    triangles = (
+        SupportTriangle(
+            vertices=((0.0, 0.0, 0.0), (2.0, 0.0, 0.0), (0.0, 2.0, 0.0)),
+            area=2.0,
+            z=0.0,
+        ),
+        SupportTriangle(
+            vertices=((2.0, 0.0, 0.0), (2.0, 2.0, 0.0), (0.0, 2.0, 0.0)),
+            area=2.0,
+            z=0.0,
+        ),
+    )
+    points = np.asarray(
+        [
+            (0.25, 0.25),
+            (1.5, 1.5),
+            (2.0, 1.0),
+            (2.2, 1.0),
+            (-0.1, 0.0),
+        ],
+        dtype=np.float64,
+    )
+    expected = [point_in_triangles(float(x), float(y), triangles) for x, y in points]
+    assert points_in_triangles_mask(points, triangles).tolist() == expected
 
 
 def make_class_mask_fixture(tmp_path: Path) -> tuple[Front3DBaseScene, list[PlacedAsset]]:

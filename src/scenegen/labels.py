@@ -700,6 +700,39 @@ def point_in_triangles(x: float, y: float, triangles: tuple[SupportTriangle, ...
     return any(point_in_triangle_2d((x, y), tri, tolerance=1e-6) for tri in triangles)
 
 
+def points_in_triangles_mask(points_xy: np.ndarray, triangles: tuple[SupportTriangle, ...]) -> np.ndarray:
+    inside = np.zeros(points_xy.shape[0], dtype=bool)
+    if points_xy.size == 0:
+        return inside
+    remaining = np.ones(points_xy.shape[0], dtype=bool)
+    x = points_xy[:, 0]
+    y = points_xy[:, 1]
+    tolerance = 1e-6
+    for tri in triangles:
+        candidate_indices = np.flatnonzero(remaining)
+        if candidate_indices.size == 0:
+            break
+        vertices = tri.vertices
+        ax, ay = vertices[0][0], vertices[0][1]
+        bx, by = vertices[1][0], vertices[1][1]
+        cx, cy = vertices[2][0], vertices[2][1]
+        denominator = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
+        if abs(denominator) <= 1e-12:
+            continue
+        px = x[candidate_indices]
+        py = y[candidate_indices]
+        w0 = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / denominator
+        w1 = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / denominator
+        w2 = 1.0 - w0 - w1
+        hit_local = (w0 >= -tolerance) & (w1 >= -tolerance) & (w2 >= -tolerance)
+        if not np.any(hit_local):
+            continue
+        hit_indices = candidate_indices[hit_local]
+        inside[hit_indices] = True
+        remaining[hit_indices] = False
+    return inside
+
+
 def label_obstacles_for_placements(
     placements: list[PlacedAsset],
     clearance: float,
@@ -1260,20 +1293,32 @@ def assign_global_free_points(
 ) -> list[tuple[RoomLabelContext, list[tuple[float, float]]]]:
     assignments: dict[str, list[tuple[float, float]]] = {context.room_id: [] for context in room_contexts}
     assignments[corridor_context.room_id] = []
-    context_by_id = {context.room_id: context for context in room_contexts}
-    context_by_id[corridor_context.room_id] = corridor_context
-    for x, y in points:
-        owner = next(
-            (
-                context
-                for context in room_contexts
-                if point_in_rect_xy(x, y, context.bounds_xy, padding=1e-6)
-                and point_in_triangles(x, y, context.floor_triangles)
-            ),
-            None,
+    if not points:
+        return [(context, []) for context in room_contexts]
+
+    points_xy = np.asarray(points, dtype=np.float64)
+    assigned = np.zeros(points_xy.shape[0], dtype=bool)
+    for context in room_contexts:
+        min_x, min_y, max_x, max_y = context.bounds_xy
+        candidate_mask = (
+            ~assigned
+            & (points_xy[:, 0] >= min_x - 1e-6)
+            & (points_xy[:, 0] <= max_x + 1e-6)
+            & (points_xy[:, 1] >= min_y - 1e-6)
+            & (points_xy[:, 1] <= max_y + 1e-6)
         )
-        room_id = owner.room_id if owner is not None else corridor_context.room_id
-        assignments[room_id].append((x, y))
+        candidate_indices = np.flatnonzero(candidate_mask)
+        if candidate_indices.size == 0:
+            continue
+        inside_mask = points_in_triangles_mask(points_xy[candidate_indices], context.floor_triangles)
+        if not np.any(inside_mask):
+            continue
+        hit_indices = candidate_indices[inside_mask]
+        assignments[context.room_id].extend(points[index] for index in hit_indices)
+        assigned[hit_indices] = True
+
+    corridor_indices = np.flatnonzero(~assigned)
+    assignments[corridor_context.room_id].extend(points[index] for index in corridor_indices)
     grouped = [(context, assignments[context.room_id]) for context in room_contexts]
     corridor_points = assignments[corridor_context.room_id]
     if corridor_points:
