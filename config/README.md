@@ -254,7 +254,7 @@ uv run scenegen \
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `enabled` | boolean | `true` | 是否生成基于 `scene.obj` 的几何占据图。 |
-| `projection` | `sampling` / `ray_height_filtered` | `sampling` | 几何投影方式。`sampling` 是旧的随机表面采样；`ray_height_filtered` 是确定性的高度过滤 column 投影。 |
+| `projection` | `sampling` / `ray_height_filtered` | `sampling` | 几何投影方式。`sampling` 使用面积加权随机表面采样；`ray_height_filtered` 是确定性的高度过滤 column 投影。 |
 
 ### floorplan.geometry.height
 

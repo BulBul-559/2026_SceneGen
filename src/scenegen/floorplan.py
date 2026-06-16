@@ -1424,7 +1424,7 @@ def sample_surface_points(
 
     estimated = int(mesh.area / max(resolution * resolution, 1e-6) * 0.35 * density_scale)
     sample_count = int(np.clip(estimated, min_sample_points, max_sample_points))
-    samples, face_indices = trimesh.sample.sample_surface(mesh, sample_count)
+    samples, face_indices = sample_surface_points_numpy(mesh, sample_count)
     sample_normals = mesh.face_normals[face_indices].astype(np.float32, copy=False) if include_normals else None
     return samples.astype(np.float32, copy=False), sample_normals, {
         "surface_area_m2": float(mesh.area),
@@ -1433,7 +1433,35 @@ def sample_surface_points(
         "num_points": sample_count,
         "min_sample_points": int(min_sample_points),
         "max_sample_points": int(max_sample_points),
+        "sampler": "numpy_area_weighted",
     }
+
+
+def sample_surface_points_numpy(mesh: trimesh.Trimesh, count: int) -> tuple[np.ndarray, np.ndarray]:
+    if count <= 0:
+        return np.zeros((0, 3), dtype=np.float32), np.zeros((0,), dtype=np.int64)
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    if faces.size == 0:
+        raise RuntimeError("Cannot sample an empty mesh.")
+    face_areas = np.asarray(mesh.area_faces, dtype=np.float64)
+    total_area = float(face_areas.sum())
+    if total_area <= 0.0:
+        raise RuntimeError("Cannot sample a mesh with zero surface area.")
+    cumulative_area = np.cumsum(face_areas)
+    rng = np.random.default_rng()
+    face_indices = np.searchsorted(cumulative_area, rng.random(count) * total_area, side="right")
+    face_indices = np.minimum(face_indices, len(faces) - 1).astype(np.int64, copy=False)
+    vertices = np.asarray(mesh.vertices, dtype=np.float32)
+    triangles = vertices[faces[face_indices]]
+    u = rng.random(count, dtype=np.float32)
+    v = rng.random(count, dtype=np.float32)
+    flip = u + v > 1.0
+    u[flip] = 1.0 - u[flip]
+    v[flip] = 1.0 - v[flip]
+    samples = triangles[:, 0] + u[:, None] * (triangles[:, 1] - triangles[:, 0]) + v[:, None] * (
+        triangles[:, 2] - triangles[:, 0]
+    )
+    return samples.astype(np.float32, copy=False), face_indices
 
 
 def detect_effective_height_range(z_values: np.ndarray, bin_size: float) -> tuple[float, float, dict[str, object]]:

@@ -10,6 +10,9 @@ from .models import BistroBaseScene, Box3D, ObjMaterialMesh, ObjMesh, PlacedAsse
 from .models import SupportSurface, SupportTriangle, Vec3
 
 
+OBJ_MESH_CACHE_SIZE = 64
+
+
 def parse_face_indices(parts: Iterable[str], vertex_count: int) -> list[int]:
     indices: list[int] = []
     for part in parts:
@@ -58,7 +61,7 @@ def load_obj_mesh(path: Path) -> ObjMesh:
     return _load_obj_mesh_cached(str(path.expanduser().resolve()))
 
 
-@lru_cache(maxsize=128)
+@lru_cache(maxsize=OBJ_MESH_CACHE_SIZE)
 def _load_obj_mesh_cached(path_text: str) -> ObjMesh:
     path = Path(path_text)
     vertices: list[Vec3] = []
@@ -81,7 +84,7 @@ def load_obj_material_mesh(path: Path) -> ObjMaterialMesh:
     return _load_obj_material_mesh_cached(str(path.expanduser().resolve()))
 
 
-@lru_cache(maxsize=128)
+@lru_cache(maxsize=OBJ_MESH_CACHE_SIZE)
 def _load_obj_material_mesh_cached(path_text: str) -> ObjMaterialMesh:
     path = Path(path_text)
     vertices: list[Vec3] = []

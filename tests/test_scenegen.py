@@ -1079,6 +1079,8 @@ def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
     for filename in ("floorplan_1p60.png", "preview.png", "side_view.png", "meta.json", "stack.npz"):
         assert (scene_dir / "floorplan" / filename).is_file()
     assert not (scene_dir / "floorplan" / "geometry_raw.png").exists()
+    floorplan_meta = json.loads((scene_dir / "floorplan" / "meta.json").read_text(encoding="utf-8"))
+    assert floorplan_meta["sampling"]["sampler"] == "numpy_area_weighted"
     for filename in ("class_mask.png", "class_mask_preview.png", "class_mask.npy", "class_mask.npz", "class_mask_meta.json"):
         assert (scene_dir / "floorplan" / filename).is_file()
     class_mask = np.load(scene_dir / "floorplan" / "class_mask.npy")
