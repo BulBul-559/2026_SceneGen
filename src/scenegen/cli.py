@@ -386,6 +386,7 @@ def main(argv: list[str] | None = None) -> int:
                             bounds_xy=build.bounds_xy,
                             forbidden_xy_rects=source.forbidden_xy_rects,
                             front3d_base_scene=build.front3d_base_scene,
+                            scene_mesh_arrays=build.floorplan_mesh_arrays,
                         )
                     floorplan_timings = record["floorplan"].get("timings_s") if isinstance(record.get("floorplan"), dict) else None
                     if isinstance(floorplan_timings, dict):

@@ -10,9 +10,22 @@ from pathlib import Path
 from xml.dom import minidom
 from xml.etree import ElementTree as ET
 
+import numpy as np
+
 from .assets import resolve_face_sionna_material, sionna_material_itu_type
 from .geometry import build_room_mesh, load_obj_material_mesh, load_obj_mesh, transform_vertices
-from .models import Asset, BistroBaseScene, Front3DBaseScene, ObjMesh, PlacedAsset, Rect2D, Room, SionnaAssetPart, SionnaXmlShape
+from .models import (
+    Asset,
+    BistroBaseScene,
+    Front3DBaseScene,
+    ObjMesh,
+    PlacedAsset,
+    Rect2D,
+    Room,
+    SceneMeshArrays,
+    SionnaAssetPart,
+    SionnaXmlShape,
+)
 from .paths import SIONNA_BASE_SCENE_MATERIAL, portable_path
 
 
@@ -46,6 +59,17 @@ def obj_vertex_lines(vertices: list[tuple[float, float, float]]) -> list[str]:
 
 def obj_face_lines(faces: list[list[int]], vertex_offset: int = 0) -> list[str]:
     return ["f " + " ".join(str(vertex_offset + index + 1) for index in face) + "\n" for face in faces]
+
+
+def triangulated_face_indices(faces: list[list[int]], vertex_offset: int = 0) -> list[tuple[int, int, int]]:
+    triangles: list[tuple[int, int, int]] = []
+    for face in faces:
+        if len(face) < 3:
+            continue
+        first = int(face[0]) + vertex_offset
+        for index in range(1, len(face) - 1):
+            triangles.append((first, int(face[index]) + vertex_offset, int(face[index + 1]) + vertex_offset))
+    return triangles
 
 
 def write_clean_obj_subset(
@@ -395,10 +419,18 @@ def write_bistro_obj(path: Path, base_scene: BistroBaseScene, placements: list[P
             vertex_offset += len(mesh.vertices)
 
 
-def write_front3d_obj(path: Path, base_scene: Front3DBaseScene, placements: list[PlacedAsset]) -> None:
+def write_front3d_obj(
+    path: Path,
+    base_scene: Front3DBaseScene,
+    placements: list[PlacedAsset],
+    *,
+    collect_mesh_arrays: bool = False,
+) -> SceneMeshArrays | None:
     path.parent.mkdir(parents=True, exist_ok=True)
     base_mesh = load_obj_mesh(base_scene.scene_obj)
     mesh_cache: dict[Path, ObjMesh] = {}
+    vertex_chunks: list[list[tuple[float, float, float]]] = []
+    triangle_chunks: list[list[tuple[int, int, int]]] = []
     vertex_offset = 0
     with path.open("w", encoding="utf-8", newline="\n") as handle:
         handle.writelines(
@@ -408,16 +440,37 @@ def write_front3d_obj(path: Path, base_scene: Front3DBaseScene, placements: list
             ]
         )
         offset_x, offset_y, offset_z = base_scene.world_offset
-        handle.writelines(obj_vertex_lines([(x + offset_x, y + offset_y, z + offset_z) for x, y, z in base_mesh.vertices]))
+        base_vertices = [(x + offset_x, y + offset_y, z + offset_z) for x, y, z in base_mesh.vertices]
+        handle.writelines(obj_vertex_lines(base_vertices))
         handle.writelines(obj_face_lines(base_mesh.faces, vertex_offset))
+        if collect_mesh_arrays:
+            vertex_chunks.append(base_vertices)
+            triangle_chunks.append(triangulated_face_indices(base_mesh.faces, vertex_offset))
         vertex_offset += len(base_mesh.vertices)
 
         for placed in placements:
             mesh = mesh_cache.setdefault(placed.asset.obj_file, load_obj_mesh(placed.asset.obj_file))
             handle.write(f"o {placed.instance_name}\n")
-            handle.writelines(obj_vertex_lines(transform_vertices(mesh, placed)))
+            transformed_vertices = transform_vertices(mesh, placed)
+            handle.writelines(obj_vertex_lines(transformed_vertices))
             handle.writelines(obj_face_lines(mesh.faces, vertex_offset))
+            if collect_mesh_arrays:
+                vertex_chunks.append(transformed_vertices)
+                triangle_chunks.append(triangulated_face_indices(mesh.faces, vertex_offset))
             vertex_offset += len(mesh.vertices)
+    if not collect_mesh_arrays:
+        return None
+    vertices = (
+        np.concatenate([np.asarray(chunk, dtype=np.float32) for chunk in vertex_chunks], axis=0)
+        if vertex_chunks
+        else np.zeros((0, 3), dtype=np.float32)
+    )
+    faces = (
+        np.concatenate([np.asarray(chunk, dtype=np.int32) for chunk in triangle_chunks], axis=0)
+        if triangle_chunks
+        else np.zeros((0, 3), dtype=np.int32)
+    )
+    return SceneMeshArrays(vertices=vertices, faces=faces, source="write_front3d_obj")
 
 
 def placement_to_json(placed: PlacedAsset, path_root: Path) -> dict[str, object]:
@@ -514,11 +567,17 @@ def write_front3d_scene_files(
     scene_index: int,
     seed: int,
     rng: object,
-) -> dict[str, object]:
+    collect_floorplan_mesh_arrays: bool = True,
+) -> tuple[dict[str, object], SceneMeshArrays | None]:
     timings_s: dict[str, float] = {}
     output_dir.mkdir(parents=True, exist_ok=True)
     started = time.perf_counter()
-    write_front3d_obj(output_dir / "scene.obj", base_scene, placements)
+    floorplan_mesh_arrays = write_front3d_obj(
+        output_dir / "scene.obj",
+        base_scene,
+        placements,
+        collect_mesh_arrays=collect_floorplan_mesh_arrays,
+    )
     timings_s["write_scene_obj"] = round(time.perf_counter() - started, 6)
     started = time.perf_counter()
     sionna_assets = write_front3d_sionna_scene_assets(output_dir, base_scene, placements)
@@ -545,7 +604,7 @@ def write_front3d_scene_files(
     record["skipped_object_count"] = len(skipped_objects)
     record["skipped_objects"] = skipped_objects
     record["build_timings_s"] = timings_s
-    return record
+    return record, floorplan_mesh_arrays
 
 
 def scene_record(

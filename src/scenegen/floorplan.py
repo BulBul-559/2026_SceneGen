@@ -12,7 +12,7 @@ import trimesh
 from PIL import Image, ImageDraw, ImageFilter
 
 from .geometry import load_obj_mesh
-from .models import Front3DBaseScene, Front3DOpeningConfig, PlacedAsset, Rect2D
+from .models import Front3DBaseScene, Front3DOpeningConfig, PlacedAsset, Rect2D, SceneMeshArrays
 from .paths import portable_path
 
 
@@ -123,6 +123,7 @@ def generate_floorplan_for_scene(
     bounds_xy: tuple[float, float, float, float] | None = None,
     forbidden_xy_rects: tuple[Rect2D, ...] = (),
     front3d_base_scene: Front3DBaseScene | None = None,
+    scene_mesh_arrays: SceneMeshArrays | None = None,
 ) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
     path_root = scene_obj.parent
@@ -156,6 +157,7 @@ def generate_floorplan_for_scene(
             height_mode=config.height_mode,
             heights_m=config.heights_m,
             projection_mode=config.geometry_projection,
+            scene_mesh_arrays=scene_mesh_arrays,
         )
         timings_s["floorplan_geometry"] = round(time.perf_counter() - start, 6)
         record.update(
@@ -833,21 +835,32 @@ def process_scene(
     height_mode: str = "layers",
     heights_m: list[float] | None = None,
     projection_mode: str = "sampling",
+    scene_mesh_arrays: SceneMeshArrays | None = None,
 ) -> dict[str, object]:
     if projection_mode not in {"sampling", "ray_height_filtered"}:
         raise ValueError("projection_mode must be 'sampling' or 'ray_height_filtered'")
     timings_s: dict[str, float] = {}
     output_dir.mkdir(parents=True, exist_ok=True)
     stage_start = time.perf_counter()
-    mesh_path, conversion_meta = prepare_mesh_path(input_path, output_dir)
     path_root = input_path.parent
-    mesh = load_as_mesh(mesh_path)
-
-    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    if scene_mesh_arrays is None:
+        mesh_path, conversion_meta = prepare_mesh_path(input_path, output_dir)
+        mesh = load_as_mesh(mesh_path)
+        vertices = np.asarray(mesh.vertices, dtype=np.float64)
+        faces = np.asarray(mesh.faces, dtype=np.int64)
+    else:
+        mesh_path = input_path
+        conversion_meta = {
+            "source_type": "memory",
+            "conversion": "scene_mesh_arrays",
+            "source": scene_mesh_arrays.source,
+        }
+        vertices = np.asarray(scene_mesh_arrays.vertices, dtype=np.float64)
+        faces = np.asarray(scene_mesh_arrays.faces, dtype=np.int64)
     vertical_axis = int(np.argmin(np.ptp(vertices, axis=0)))
     reorder = [axis for axis in range(3) if axis != vertical_axis] + [vertical_axis]
     oriented_vertices = vertices[:, reorder]
-    oriented_mesh = trimesh.Trimesh(vertices=oriented_vertices, faces=mesh.faces, process=False)
+    oriented_mesh = trimesh.Trimesh(vertices=oriented_vertices, faces=faces, process=False)
     timings_s["load_orient_mesh"] = round(time.perf_counter() - stage_start, 6)
 
     sampled_points: np.ndarray | None = None

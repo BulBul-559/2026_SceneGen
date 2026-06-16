@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 
 Box3D = tuple[float, float, float, float, float, float]
@@ -57,6 +58,13 @@ class SionnaXmlShape:
     filename: str
     material_name: str
     transform: tuple[float, ...] | None = None
+
+
+@dataclass(frozen=True)
+class SceneMeshArrays:
+    vertices: Any
+    faces: Any
+    source: str
 
 
 @dataclass(frozen=True)

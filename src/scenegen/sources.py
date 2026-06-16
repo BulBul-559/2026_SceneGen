@@ -8,7 +8,7 @@ from pathlib import Path
 from .exporters import write_bistro_scene_files, write_front3d_scene_files, write_scene_files
 from .front3d import Front3DConfig, Front3DIndex, build_scene_from_front3d
 from .geometry import load_bistro_base_scene
-from .models import Asset, BistroBaseScene, Front3DBaseScene, PlacedAsset, Rect2D, Room
+from .models import Asset, BistroBaseScene, Front3DBaseScene, PlacedAsset, Rect2D, Room, SceneMeshArrays
 from .placement import build_bistro_scene_placements, build_scene_placements
 
 
@@ -20,6 +20,7 @@ class SceneBuildResult:
     room: Room | None = None
     base_scene: BistroBaseScene | None = None
     front3d_base_scene: Front3DBaseScene | None = None
+    floorplan_mesh_arrays: SceneMeshArrays | None = None
 
 
 class GeneratedSceneSource:
@@ -128,6 +129,7 @@ class Front3DSceneSource:
         )
         self.index = Front3DIndex(config)
         self.config = config
+        self.collect_floorplan_mesh_arrays = bool(args.floorplan_enabled and args.floorplan_geometry_enabled)
         self._selection_rng = random.Random(args.seed)
         self._selection_cursor = int(config.start_index) if not config.scene_ids else 0
         self._rejected_scene_ids: set[str] = set()
@@ -161,7 +163,7 @@ class Front3DSceneSource:
         scene_id: str,
     ) -> SceneBuildResult:
         build = build_scene_from_front3d(self.index, scene_id, scene_index)
-        record = write_front3d_scene_files(
+        record, floorplan_mesh_arrays = write_front3d_scene_files(
             scene_dir,
             build.base_scene,
             build.placements,
@@ -169,6 +171,7 @@ class Front3DSceneSource:
             scene_index,
             scene_seed,
             rng,
+            collect_floorplan_mesh_arrays=self.collect_floorplan_mesh_arrays,
         )
         return SceneBuildResult(
             placements=build.placements,
@@ -180,6 +183,7 @@ class Front3DSceneSource:
             ),
             record=record,
             front3d_base_scene=build.base_scene,
+            floorplan_mesh_arrays=floorplan_mesh_arrays,
         )
 
     def build_scene(
