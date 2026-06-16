@@ -731,46 +731,71 @@ def draw_projected_mesh_faces(
     height_limit: float,
     projected_primitive_keys: set[tuple[tuple[int, int], ...]],
 ) -> dict[str, int]:
-    triangle_count = 0
+    face_array = np.asarray(triangulate_obj_faces(faces), dtype=np.int64)
+    if face_array.size == 0:
+        return {
+            "triangle_count": 0,
+            "painted_triangle_count": 0,
+            "degenerate_triangle_count": 0,
+            "z_rejected_triangle_count": 0,
+            "duplicate_projected_triangle_count": 0,
+        }
+    valid_face_indices = np.all((face_array >= 0) & (face_array < len(vertices)), axis=1)
+    face_array = face_array[valid_face_indices]
+    triangle_count = int(face_array.shape[0])
+    if triangle_count == 0:
+        return {
+            "triangle_count": 0,
+            "painted_triangle_count": 0,
+            "degenerate_triangle_count": 0,
+            "z_rejected_triangle_count": 0,
+            "duplicate_projected_triangle_count": 0,
+        }
+
+    triangles = vertices[face_array]
+    tri_z_min = np.min(triangles[:, :, 2], axis=1)
+    tri_z_max = np.max(triangles[:, :, 2], axis=1)
+    z_valid = (tri_z_max >= bottom_z) & (tri_z_min <= height_limit)
+    z_rejected_triangle_count = int((~z_valid).sum())
+    if not np.any(z_valid):
+        return {
+            "triangle_count": triangle_count,
+            "painted_triangle_count": 0,
+            "degenerate_triangle_count": 0,
+            "z_rejected_triangle_count": z_rejected_triangle_count,
+            "duplicate_projected_triangle_count": 0,
+        }
+
+    triangles = triangles[z_valid]
+    cols = np.rint((triangles[:, :, 0] - min_x) / resolution).astype(np.int64)
+    rows = np.rint((max_y - triangles[:, :, 1]) / resolution).astype(np.int64)
+    polygons = np.stack((cols, rows), axis=2)
+    stride = max(int(math.ceil(max_y / max(resolution, 1e-9))) + 1000, 1_000_000)
+    primitive_codes = polygons[:, :, 0] * stride + polygons[:, :, 1]
+    sorted_codes = np.sort(primitive_codes, axis=1)
+    _unique_codes, first_indices = np.unique(sorted_codes, axis=0, return_index=True)
+    ordered_unique_indices = np.sort(first_indices)
+    duplicate_projected_triangle_count = int(polygons.shape[0] - ordered_unique_indices.size)
+
     painted_triangle_count = 0
     degenerate_triangle_count = 0
-    z_rejected_triangle_count = 0
-    duplicate_projected_triangle_count = 0
-    for face in faces:
-        if len(face) < 3:
+    for polygon_array in polygons[ordered_unique_indices]:
+        polygon = [(int(point[0]), int(point[1])) for point in polygon_array]
+        primitive_key = tuple(sorted(polygon))
+        if primitive_key in projected_primitive_keys:
+            duplicate_projected_triangle_count += 1
             continue
-        first = int(face[0])
-        for index in range(1, len(face) - 1):
-            a_i, b_i, c_i = first, int(face[index]), int(face[index + 1])
-            if min(a_i, b_i, c_i) < 0 or max(a_i, b_i, c_i) >= len(vertices):
-                continue
-            triangle = vertices[[a_i, b_i, c_i]]
-            triangle_count += 1
-            tri_z_min = float(np.min(triangle[:, 2]))
-            tri_z_max = float(np.max(triangle[:, 2]))
-            if tri_z_max < bottom_z or tri_z_min > height_limit:
-                z_rejected_triangle_count += 1
-                continue
-            polygon = [
-                world_to_pixel((float(triangle[0, 0]), float(triangle[0, 1])), min_x, max_y, resolution),
-                world_to_pixel((float(triangle[1, 0]), float(triangle[1, 1])), min_x, max_y, resolution),
-                world_to_pixel((float(triangle[2, 0]), float(triangle[2, 1])), min_x, max_y, resolution),
-            ]
-            primitive_key = tuple(sorted(polygon))
-            if primitive_key in projected_primitive_keys:
-                duplicate_projected_triangle_count += 1
-                continue
-            projected_primitive_keys.add(primitive_key)
-            area2 = (
-                (polygon[1][0] - polygon[0][0]) * (polygon[2][1] - polygon[0][1])
-                - (polygon[1][1] - polygon[0][1]) * (polygon[2][0] - polygon[0][0])
-            )
-            if abs(area2) <= 1:
-                degenerate_triangle_count += 1
-                draw.line([polygon[0], polygon[1], polygon[2], polygon[0]], fill=255, width=1)
-            else:
-                draw.polygon(polygon, fill=255)
-            painted_triangle_count += 1
+        projected_primitive_keys.add(primitive_key)
+        area2 = (
+            (polygon[1][0] - polygon[0][0]) * (polygon[2][1] - polygon[0][1])
+            - (polygon[1][1] - polygon[0][1]) * (polygon[2][0] - polygon[0][0])
+        )
+        if abs(area2) <= 1:
+            degenerate_triangle_count += 1
+            draw.line([polygon[0], polygon[1], polygon[2], polygon[0]], fill=255, width=1)
+        else:
+            draw.polygon(polygon, fill=255)
+        painted_triangle_count += 1
     return {
         "triangle_count": triangle_count,
         "painted_triangle_count": painted_triangle_count,
