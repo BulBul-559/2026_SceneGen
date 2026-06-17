@@ -54,6 +54,7 @@ from scenegen.procedural import (
     assign_room_types_to_geometry,
     candidates_for_asset_reuse,
     candidate_pose_for_policy,
+    choose_procedural_layout,
     companion_directions,
     desired_classes_from_profile,
     door_keepout_boxes_for_rooms,
@@ -338,6 +339,16 @@ def test_procedural_rect_union_layout_creates_irregular_connected_footprint() ->
             visited.add(neighbor)
             frontier.append(neighbor)
     assert visited == set(graph)
+
+
+def test_procedural_mixed_layout_uses_configured_weights() -> None:
+    rng = random.Random(12)
+
+    assert choose_procedural_layout("split_tree", {"rect_union": 1.0}, rng) == "split_tree"
+    assert choose_procedural_layout("mixed", {"split_tree": 0.0, "rect_union": 1.0, "grid": 0.0}, rng) == "rect_union"
+
+    with pytest.raises(ValueError, match="layout_weights"):
+        choose_procedural_layout("mixed", {"split_tree": 0.0, "rect_union": 0.0, "grid": 0.0}, rng)
 
 
 def test_procedural_exterior_segments_follow_room_union_not_bbox() -> None:
@@ -1057,6 +1068,48 @@ def test_invalid_procedural_layout_is_rejected(tmp_path: Path) -> None:
         load_effective_config(config_path, root, parse_args([]))
 
 
+def test_procedural_mixed_layout_config_validates_weights(tmp_path: Path) -> None:
+    root = find_project_root()
+    config_path = tmp_path / "mixed_layout.yaml"
+    config_path.write_text(
+        "procedural:\n"
+        "  layout: mixed\n"
+        "  layout_weights:\n"
+        "    split_tree: 0\n"
+        "    rect_union: 1\n"
+        "    grid: 0\n",
+        encoding="utf-8",
+    )
+
+    effective, _overrides = load_effective_config(config_path, root, parse_args([]))
+
+    assert effective["procedural"]["layout"] == "mixed"
+    assert effective["procedural"]["layout_weights"] == {"split_tree": 0.0, "rect_union": 1.0, "grid": 0.0}
+
+    bad_zero = tmp_path / "bad_mixed_zero.yaml"
+    bad_zero.write_text(
+        "procedural:\n"
+        "  layout: mixed\n"
+        "  layout_weights:\n"
+        "    split_tree: 0\n"
+        "    rect_union: 0\n"
+        "    grid: 0\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="layout_weights"):
+        load_effective_config(bad_zero, root, parse_args([]))
+
+    bad_unknown = tmp_path / "bad_mixed_unknown.yaml"
+    bad_unknown.write_text(
+        "procedural:\n"
+        "  layout_weights:\n"
+        "    polygon_shell: 1\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="Unknown config field"):
+        load_effective_config(bad_unknown, root, parse_args([]))
+
+
 def test_procedural_room_profiles_accept_custom_names_and_reject_bad_classes(tmp_path: Path) -> None:
     root = find_project_root()
     config_path = tmp_path / "procedural_profiles.yaml"
@@ -1625,6 +1678,8 @@ def test_aggregate_procedural_run_report_summarizes_structure() -> None:
                 "precheck": {"ok": True, "errors": [], "room_type_geometry": {"ok": True}},
                 "procedural": {
                     "scene_id": "scene-a",
+                    "layout": "rect_union",
+                    "configured_layout": "mixed",
                     "room_count": 2,
                     "footprint": {"room_area_m2": 21.0, "bbox_area_m2": 28.0, "fill_ratio": 0.75, "concavity_area_m2": 7.0},
                     "adjacency_count": 1,
@@ -1659,6 +1714,8 @@ def test_aggregate_procedural_run_report_summarizes_structure() -> None:
                 },
                 "procedural": {
                     "scene_id": "scene-b",
+                    "layout": "split_tree",
+                    "configured_layout": "mixed",
                     "room_count": 1,
                     "footprint": {"room_area_m2": 16.0, "bbox_area_m2": 16.0, "fill_ratio": 1.0, "concavity_area_m2": 0.0},
                     "adjacency_count": 0,
@@ -1674,6 +1731,8 @@ def test_aggregate_procedural_run_report_summarizes_structure() -> None:
 
     assert report["schema_version"] == "scenegen.procedural.run_report.v1"
     assert report["scene_count"] == 2
+    assert report["layout_counts_total"] == {"rect_union": 1, "split_tree": 1}
+    assert report["configured_layout_counts_total"] == {"mixed": 2}
     assert report["room_count"] == {"min": 1.0, "max": 2.0, "mean": 1.5}
     assert report["room_type_counts_total"] == {"Bedroom": 1, "LivingRoom": 2}
     assert report["room_area_m2"] == {"min": 9.0, "max": 16.0, "mean": 12.333333}
@@ -1688,6 +1747,8 @@ def test_aggregate_procedural_run_report_summarizes_structure() -> None:
     assert report["room_type_geometry_failed_count"] == 1
     assert report["room_type_geometry_issue_counts"] == {"too_small": 1}
     assert report["scenes"][0]["room_type_counts"] == {"Bedroom": 1, "LivingRoom": 1}
+    assert report["scenes"][0]["layout"] == "rect_union"
+    assert report["scenes"][0]["configured_layout"] == "mixed"
     assert report["scenes"][0]["footprint"]["fill_ratio"] == 0.75
     assert report["scenes"][0]["room_type_geometry_ok"] is True
     assert report["scenes"][1]["room_type_geometry_ok"] is False

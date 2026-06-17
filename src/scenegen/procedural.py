@@ -129,6 +129,8 @@ def aggregate_procedural_run_report(scene_records: list[dict[str, object]]) -> d
     skipped_counts: list[float] = []
     placement_ratios: list[float] = []
     type_totals: Counter[str] = Counter()
+    layout_totals: Counter[str] = Counter()
+    configured_layout_totals: Counter[str] = Counter()
     precheck_error_totals: Counter[str] = Counter()
     group_attempt_totals: Counter[str] = Counter()
     group_success_totals: Counter[str] = Counter()
@@ -144,6 +146,10 @@ def aggregate_procedural_run_report(scene_records: list[dict[str, object]]) -> d
             continue
         rooms = procedural.get("rooms") if isinstance(procedural.get("rooms"), list) else []
         room_count = int(procedural.get("room_count", len(rooms)) or len(rooms))
+        layout = str(procedural.get("layout") or "unknown")
+        configured_layout = str(procedural.get("configured_layout") or layout)
+        layout_totals[layout] += 1
+        configured_layout_totals[configured_layout] += 1
         adjacency_count = int(procedural.get("adjacency_count", 0) or 0)
         window_count = int(procedural.get("window_count", 0) or 0)
         room_counts.append(float(room_count))
@@ -219,6 +225,8 @@ def aggregate_procedural_run_report(scene_records: list[dict[str, object]]) -> d
                 "scene_index": record.get("scene_index"),
                 "scene_dir": record.get("scene_dir"),
                 "scene_id": procedural.get("scene_id"),
+                "layout": layout,
+                "configured_layout": configured_layout,
                 "room_count": room_count,
                 "room_type_counts": dict(sorted(scene_type_counts.items())),
                 "room_area_m2": numeric_summary(scene_room_areas),
@@ -239,6 +247,8 @@ def aggregate_procedural_run_report(scene_records: list[dict[str, object]]) -> d
     return {
         "schema_version": "scenegen.procedural.run_report.v1",
         "scene_count": scene_count,
+        "layout_counts_total": dict(sorted(layout_totals.items())),
+        "configured_layout_counts_total": dict(sorted(configured_layout_totals.items())),
         "room_count": numeric_summary(room_counts),
         "room_type_counts_total": dict(sorted(type_totals.items())),
         "room_type_counts_mean_per_scene": {
@@ -1102,6 +1112,20 @@ def make_room_layout(
             room_type_geometry_rules=room_type_geometry_rules,
         )
     raise ValueError(f"Unsupported procedural layout: {layout}")
+
+
+def choose_procedural_layout(
+    configured_layout: str,
+    layout_weights: dict[str, float] | None,
+    rng: random.Random,
+) -> str:
+    if configured_layout != "mixed":
+        return configured_layout
+    supported_layouts = ("grid", "split_tree", "rect_union")
+    weights = [max(0.0, float((layout_weights or {}).get(layout, 0.0))) for layout in supported_layouts]
+    if not any(weight > 0.0 for weight in weights):
+        raise ValueError("procedural.layout_weights must assign a positive weight for mixed layout")
+    return rng.choices(supported_layouts, weights=weights, k=1)[0]
 
 
 def select_room_profile_spec(room_type: str, profiles: dict[str, dict[str, Any]]) -> tuple[str, dict[str, Any]]:
@@ -2238,9 +2262,11 @@ class ProceduralFront3DGenerator:
         total_start = time.perf_counter()
         timings: dict[str, float] = {}
         stage_start = time.perf_counter()
+        configured_layout = str(self.args.procedural_layout)
+        selected_layout = choose_procedural_layout(configured_layout, dict(self.args.procedural_layout_weights), rng)
         rooms = make_room_layout(
             rng,
-            str(self.args.procedural_layout),
+            selected_layout,
             tuple(int(value) for value in self.args.procedural_room_count),
             tuple(float(value) for value in self.args.procedural_room_width_m),
             tuple(float(value) for value in self.args.procedural_room_length_m),
@@ -2298,7 +2324,9 @@ class ProceduralFront3DGenerator:
         timings["total"] = time.perf_counter() - total_start
         report = {
             "scene_id": scene_id,
-            "layout": str(self.args.procedural_layout),
+            "layout": selected_layout,
+            "configured_layout": configured_layout,
+            "layout_weights": dict(self.args.procedural_layout_weights),
             "room_count": len(rooms),
             "footprint": rooms_footprint_metrics(rooms),
             "adjacency_count": len(adjacencies),

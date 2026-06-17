@@ -67,6 +67,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "procedural": {
         "layout": "split_tree",
+        "layout_weights": {"split_tree": 1.0, "rect_union": 1.0, "grid": 0.2},
         "room_count": [3, 6],
         "room_width_m": [3.2, 5.8],
         "room_length_m": [3.2, 6.4],
@@ -713,6 +714,23 @@ def normalize_room_type_weights(value: Any, key: str = "procedural.room_type_wei
     return weights
 
 
+def normalize_layout_weights(value: Any, key: str = "procedural.layout_weights") -> dict[str, float]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"{key} must be a mapping")
+    weights: dict[str, float] = {}
+    for raw_name, raw_weight in value.items():
+        layout = str(raw_name).strip()
+        if not layout:
+            raise ValueError(f"{key} layout names must not be empty")
+        weight = float(raw_weight)
+        if weight < 0:
+            raise ValueError(f"{key}.{raw_name} must be non-negative")
+        weights[layout] = weight
+    return weights
+
+
 def normalize_required_room_types(value: Any, key: str = "procedural.required_room_types") -> dict[str, int]:
     if value is None:
         return {}
@@ -974,6 +992,7 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
 
     procedural = normalized["procedural"]
     procedural["layout"] = str(procedural["layout"])
+    procedural["layout_weights"] = normalize_layout_weights(procedural.get("layout_weights"))
     procedural["room_count"] = parse_int_pair(procedural["room_count"], "procedural.room_count")
     procedural["room_width_m"] = parse_float_pair(procedural["room_width_m"], "procedural.room_width_m")
     procedural["room_length_m"] = parse_float_pair(procedural["room_length_m"], "procedural.room_length_m")
@@ -1162,8 +1181,16 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("placement.max_attempts must be at least 1")
 
     procedural = config["procedural"]
-    if procedural["layout"] not in {"grid", "split_tree", "rect_union"}:
-        raise ValueError("procedural.layout must be 'grid', 'split_tree', or 'rect_union'")
+    supported_layouts = {"grid", "split_tree", "rect_union"}
+    if procedural["layout"] not in {*supported_layouts, "mixed"}:
+        raise ValueError("procedural.layout must be 'grid', 'split_tree', 'rect_union', or 'mixed'")
+    unknown_layout_weights = sorted(set(procedural["layout_weights"]) - supported_layouts)
+    if unknown_layout_weights:
+        raise ValueError(f"procedural.layout_weights contains unsupported layouts: {unknown_layout_weights}")
+    if procedural["layout"] == "mixed" and not any(
+        float(procedural["layout_weights"].get(layout, 0.0)) > 0.0 for layout in supported_layouts
+    ):
+        raise ValueError("procedural.layout_weights must assign a positive weight when procedural.layout is 'mixed'")
     if procedural["room_count"][0] < 1 or procedural["room_count"][1] < procedural["room_count"][0]:
         raise ValueError("procedural.room_count must be [min, max] with max >= min >= 1")
     for key in ("room_width_m", "room_length_m", "room_height_m"):
@@ -1524,6 +1551,7 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         bistro_support_items=placement["bistro_support_items"],
         max_attempts=placement["max_attempts"],
         procedural_layout=procedural["layout"],
+        procedural_layout_weights=procedural["layout_weights"],
         procedural_room_count=procedural["room_count"],
         procedural_room_width_m=procedural["room_width_m"],
         procedural_room_length_m=procedural["room_length_m"],

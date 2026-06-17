@@ -22,6 +22,10 @@ front3d:
 
 procedural:
   layout: split_tree
+  layout_weights:
+    split_tree: 1.0
+    rect_union: 1.0
+    grid: 0.2
   room_count: [3, 6]
   room_width_m: [3.2, 5.8]
   room_length_m: [3.2, 6.4]
