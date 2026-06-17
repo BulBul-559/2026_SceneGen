@@ -60,6 +60,7 @@ from scenegen.procedural import (
     procedural_asset_footprint_size,
     rotate_direction,
     room_adjacencies_for_rooms,
+    room_type_sequence,
     select_room_group_specs,
     select_room_profile,
     write_procedural_source_files,
@@ -271,6 +272,20 @@ def test_procedural_split_tree_layout_tiles_complete_positive_footprint() -> Non
             x_overlap = min(left_room.x1, right_room.x1) - max(left_room.x0, right_room.x0)
             y_overlap = min(left_room.y1, right_room.y1) - max(left_room.y0, right_room.y0)
             assert x_overlap <= 1e-6 or y_overlap <= 1e-6
+
+
+def test_procedural_room_type_sequence_supports_weights() -> None:
+    weighted = room_type_sequence(
+        8,
+        ("LivingRoom", "Bedroom", "Kitchen"),
+        random.Random(9),
+        shuffle=True,
+        room_type_weights={"LivingRoom": 0.0, "Bedroom": 0.0, "Kitchen": 1.0},
+    )
+    legacy = room_type_sequence(5, ("LivingRoom", "Bedroom"), random.Random(1), shuffle=False)
+
+    assert weighted == ["Kitchen"] * 8
+    assert legacy == ["LivingRoom", "Bedroom", "LivingRoom", "Bedroom", "LivingRoom"]
 
 
 def test_procedural_asset_approx_footprint_uses_scenegen_xy() -> None:
@@ -844,6 +859,22 @@ def test_procedural_room_profiles_accept_custom_names_and_reject_bad_classes(tmp
     )
     with pytest.raises(ValueError, match="procedural.placement_groups.room_types.DiningRoom"):
         load_effective_config(bad_group_path, root, parse_args([]))
+
+
+def test_procedural_room_type_weights_reject_all_zero_for_configured_rooms(tmp_path: Path) -> None:
+    root = find_project_root()
+    config_path = tmp_path / "bad_room_type_weights.yaml"
+    config_path.write_text(
+        "procedural:\n"
+        "  room_types: [Kitchen, Bathroom]\n"
+        "  room_type_weights:\n"
+        "    Kitchen: 0\n"
+        "    Bathroom: 0\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="procedural.room_type_weights"):
+        load_effective_config(config_path, root, parse_args([]))
 
 
 def test_prepare_run_dir_clean_only_replaces_named_run(tmp_path: Path) -> None:

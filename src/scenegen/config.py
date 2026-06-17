@@ -72,6 +72,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "room_length_m": [3.2, 6.4],
         "room_height_m": [2.8, 3.4],
         "room_types": ["LivingRoom", "Bedroom", "DiningRoom", "StudyRoom", "Kitchen", "Bathroom", "Hallway"],
+        "room_type_weights": {
+            "LivingRoom": 2.0,
+            "Bedroom": 2.0,
+            "DiningRoom": 1.2,
+            "StudyRoom": 1.0,
+            "Kitchen": 1.0,
+            "Bathroom": 0.8,
+            "Hallway": 0.6,
+        },
         "wall_thickness_m": 0.16,
         "door_width_m": 1.0,
         "windows": {
@@ -507,6 +516,23 @@ def normalize_room_profiles(value: Any, key: str = "procedural.room_profiles") -
     return profiles
 
 
+def normalize_room_type_weights(value: Any, key: str = "procedural.room_type_weights") -> dict[str, float]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"{key} must be a mapping")
+    weights: dict[str, float] = {}
+    for raw_name, raw_weight in value.items():
+        room_type = str(raw_name).strip()
+        if not room_type:
+            raise ValueError(f"{key} room type names must not be empty")
+        weight = float(raw_weight)
+        if weight < 0:
+            raise ValueError(f"{key}.{raw_name} must be non-negative")
+        weights[room_type] = weight
+    return weights
+
+
 def normalize_placement_policy(value: Any, key: str = "procedural.placement_policy") -> dict[str, dict[str, Any]]:
     if not isinstance(value, dict) or not value:
         raise ValueError(f"{key} must be a non-empty mapping")
@@ -664,6 +690,7 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     procedural["room_length_m"] = parse_float_pair(procedural["room_length_m"], "procedural.room_length_m")
     procedural["room_height_m"] = parse_float_pair(procedural["room_height_m"], "procedural.room_height_m")
     procedural["room_types"] = parse_string_sequence(procedural["room_types"], "procedural.room_types")
+    procedural["room_type_weights"] = normalize_room_type_weights(procedural.get("room_type_weights"))
     procedural["wall_thickness_m"] = float(procedural["wall_thickness_m"])
     procedural["door_width_m"] = float(procedural["door_width_m"])
     windows = procedural["windows"]
@@ -841,6 +868,10 @@ def validate_effective_config(config: dict[str, Any]) -> None:
             raise ValueError(f"procedural.{key} must be [min, max] with max >= min > 0")
     if not procedural["room_types"]:
         raise ValueError("procedural.room_types must not be empty")
+    if procedural["room_type_weights"] and not any(
+        float(procedural["room_type_weights"].get(room_type, 0.0)) > 0.0 for room_type in procedural["room_types"]
+    ):
+        raise ValueError("procedural.room_type_weights must assign a positive weight to at least one configured room type")
     if procedural["wall_thickness_m"] <= 0:
         raise ValueError("procedural.wall_thickness_m must be positive")
     if procedural["door_width_m"] < 0:
@@ -1160,6 +1191,7 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         procedural_room_length_m=procedural["room_length_m"],
         procedural_room_height_m=procedural["room_height_m"],
         procedural_room_types=procedural["room_types"],
+        procedural_room_type_weights=procedural["room_type_weights"],
         procedural_wall_thickness_m=procedural["wall_thickness_m"],
         procedural_door_width_m=procedural["door_width_m"],
         procedural_windows=procedural["windows"],
