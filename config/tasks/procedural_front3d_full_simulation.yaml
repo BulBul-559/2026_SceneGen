@@ -40,6 +40,10 @@ procedural:
   room_length_m: [3.2, 6.4]
   room_height_m: [2.8, 3.4]
   room_types: [LivingRoom, Bedroom, DiningRoom, StudyRoom, Kitchen, Bathroom, Hallway]
+  required_room_types:
+    LivingRoom: 1
+    Bedroom: 1
+    Kitchen: 1
   room_type_weights:
     LivingRoom: 2.0
     Bedroom: 2.0

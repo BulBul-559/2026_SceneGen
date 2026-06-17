@@ -72,6 +72,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "room_length_m": [3.2, 6.4],
         "room_height_m": [2.8, 3.4],
         "room_types": ["LivingRoom", "Bedroom", "DiningRoom", "StudyRoom", "Kitchen", "Bathroom", "Hallway"],
+        "required_room_types": {"LivingRoom": 1, "Bedroom": 1, "Kitchen": 1},
         "room_type_weights": {
             "LivingRoom": 2.0,
             "Bedroom": 2.0,
@@ -533,6 +534,31 @@ def normalize_room_type_weights(value: Any, key: str = "procedural.room_type_wei
     return weights
 
 
+def normalize_required_room_types(value: Any, key: str = "procedural.required_room_types") -> dict[str, int]:
+    if value is None:
+        return {}
+    if isinstance(value, list | tuple):
+        return {room_type: 1 for room_type in parse_string_sequence(value, key)}
+    if not isinstance(value, dict):
+        raise ValueError(f"{key} must be a mapping, sequence, or null")
+    required: dict[str, int] = {}
+    for raw_name, raw_count in value.items():
+        room_type = str(raw_name).strip()
+        if not room_type:
+            raise ValueError(f"{key} room type names must not be empty")
+        if isinstance(raw_count, bool):
+            raise ValueError(f"{key}.{raw_name} must be an integer")
+        count_float = float(raw_count)
+        if not count_float.is_integer():
+            raise ValueError(f"{key}.{raw_name} must be an integer")
+        count = int(count_float)
+        if count < 0:
+            raise ValueError(f"{key}.{raw_name} must be non-negative")
+        if count > 0:
+            required[room_type] = count
+    return required
+
+
 def normalize_placement_policy(value: Any, key: str = "procedural.placement_policy") -> dict[str, dict[str, Any]]:
     if not isinstance(value, dict) or not value:
         raise ValueError(f"{key} must be a non-empty mapping")
@@ -690,6 +716,7 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     procedural["room_length_m"] = parse_float_pair(procedural["room_length_m"], "procedural.room_length_m")
     procedural["room_height_m"] = parse_float_pair(procedural["room_height_m"], "procedural.room_height_m")
     procedural["room_types"] = parse_string_sequence(procedural["room_types"], "procedural.room_types")
+    procedural["required_room_types"] = normalize_required_room_types(procedural.get("required_room_types"))
     procedural["room_type_weights"] = normalize_room_type_weights(procedural.get("room_type_weights"))
     procedural["wall_thickness_m"] = float(procedural["wall_thickness_m"])
     procedural["door_width_m"] = float(procedural["door_width_m"])
@@ -868,6 +895,12 @@ def validate_effective_config(config: dict[str, Any]) -> None:
             raise ValueError(f"procedural.{key} must be [min, max] with max >= min > 0")
     if not procedural["room_types"]:
         raise ValueError("procedural.room_types must not be empty")
+    unknown_required = sorted(set(procedural["required_room_types"]) - set(procedural["room_types"]))
+    if unknown_required:
+        raise ValueError(f"procedural.required_room_types contains room types not enabled in procedural.room_types: {unknown_required}")
+    required_total = sum(int(count) for count in procedural["required_room_types"].values())
+    if required_total > int(procedural["room_count"][1]):
+        raise ValueError("procedural.required_room_types count must not exceed procedural.room_count max")
     if procedural["room_type_weights"] and not any(
         float(procedural["room_type_weights"].get(room_type, 0.0)) > 0.0 for room_type in procedural["room_types"]
     ):
@@ -1191,6 +1224,7 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         procedural_room_length_m=procedural["room_length_m"],
         procedural_room_height_m=procedural["room_height_m"],
         procedural_room_types=procedural["room_types"],
+        procedural_required_room_types=procedural["required_room_types"],
         procedural_room_type_weights=procedural["room_type_weights"],
         procedural_wall_thickness_m=procedural["wall_thickness_m"],
         procedural_door_width_m=procedural["door_width_m"],

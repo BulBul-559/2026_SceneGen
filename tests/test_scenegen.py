@@ -288,6 +288,23 @@ def test_procedural_room_type_sequence_supports_weights() -> None:
     assert legacy == ["LivingRoom", "Bedroom", "LivingRoom", "Bedroom", "LivingRoom"]
 
 
+def test_procedural_room_type_sequence_keeps_required_types() -> None:
+    sequence = room_type_sequence(
+        5,
+        ("LivingRoom", "Bedroom", "Kitchen", "Bathroom"),
+        random.Random(11),
+        shuffle=True,
+        required_room_types={"LivingRoom": 1, "Bedroom": 1, "Kitchen": 1},
+        room_type_weights={"LivingRoom": 0.0, "Bedroom": 0.0, "Kitchen": 0.0, "Bathroom": 1.0},
+    )
+
+    assert len(sequence) == 5
+    assert sequence.count("LivingRoom") == 1
+    assert sequence.count("Bedroom") == 1
+    assert sequence.count("Kitchen") == 1
+    assert sequence.count("Bathroom") == 2
+
+
 def test_procedural_asset_approx_footprint_uses_scenegen_xy() -> None:
     asset = Asset(
         name="asset",
@@ -867,6 +884,7 @@ def test_procedural_room_type_weights_reject_all_zero_for_configured_rooms(tmp_p
     config_path.write_text(
         "procedural:\n"
         "  room_types: [Kitchen, Bathroom]\n"
+        "  required_room_types: null\n"
         "  room_type_weights:\n"
         "    Kitchen: 0\n"
         "    Bathroom: 0\n",
@@ -875,6 +893,43 @@ def test_procedural_room_type_weights_reject_all_zero_for_configured_rooms(tmp_p
 
     with pytest.raises(ValueError, match="procedural.room_type_weights"):
         load_effective_config(config_path, root, parse_args([]))
+
+
+def test_procedural_required_room_types_reject_inconsistent_config(tmp_path: Path) -> None:
+    root = find_project_root()
+    unknown_path = tmp_path / "bad_required_room_type.yaml"
+    unknown_path.write_text(
+        "procedural:\n"
+        "  room_types: [LivingRoom]\n"
+        "  required_room_types:\n"
+        "    Kitchen: 1\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="procedural.required_room_types"):
+        load_effective_config(unknown_path, root, parse_args([]))
+
+    too_many_path = tmp_path / "too_many_required_room_types.yaml"
+    too_many_path.write_text(
+        "procedural:\n"
+        "  room_count: [2, 2]\n"
+        "  required_room_types:\n"
+        "    LivingRoom: 1\n"
+        "    Bedroom: 1\n"
+        "    Kitchen: 1\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="procedural.required_room_types"):
+        load_effective_config(too_many_path, root, parse_args([]))
+
+    fractional_path = tmp_path / "fractional_required_room_types.yaml"
+    fractional_path.write_text(
+        "procedural:\n"
+        "  required_room_types:\n"
+        "    LivingRoom: 1.5\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="procedural.required_room_types"):
+        load_effective_config(fractional_path, root, parse_args([]))
 
 
 def test_prepare_run_dir_clean_only_replaces_named_run(tmp_path: Path) -> None:
@@ -1806,6 +1861,7 @@ def make_procedural_runtime_fixture(tmp_path: Path) -> Path:
                     "room_length_m": [3.0, 3.0],
                     "room_height_m": [2.8, 2.8],
                     "room_types": ["LivingRoom"],
+                    "required_room_types": None,
                     "windows": {
                         "enabled": True,
                         "room_probability": 1.0,

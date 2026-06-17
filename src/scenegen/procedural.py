@@ -489,10 +489,32 @@ def room_type_sequence(
     rng: random.Random,
     *,
     shuffle: bool,
+    required_room_types: dict[str, int] | None = None,
     room_type_weights: dict[str, float] | None = None,
 ) -> list[str]:
     if not room_types:
         return ["Room" for _ in range(room_count)]
+    required: list[str] = []
+    if required_room_types:
+        for room_type in room_types:
+            required.extend([room_type] * max(0, int(required_room_types.get(room_type, 0))))
+    if required:
+        required = required[:room_count]
+        remaining_count = room_count - len(required)
+        sequence = list(required)
+        if remaining_count > 0:
+            sequence.extend(
+                room_type_sequence(
+                    remaining_count,
+                    room_types,
+                    rng,
+                    shuffle=shuffle,
+                    room_type_weights=room_type_weights,
+                )
+            )
+        if shuffle:
+            rng.shuffle(sequence)
+        return sequence
     if room_type_weights:
         weights = [max(0.0, float(room_type_weights.get(room_type, 0.0))) for room_type in room_types]
         if any(weight > 0.0 for weight in weights):
@@ -514,15 +536,24 @@ def make_grid_room_layout(
     room_length_range: tuple[float, float],
     height_range: tuple[float, float],
     room_types: tuple[str, ...],
+    required_room_types: dict[str, int] | None = None,
     room_type_weights: dict[str, float] | None = None,
 ) -> list[ProceduralRoom]:
-    room_count = rng.randint(room_count_range[0], room_count_range[1])
+    required_total = sum(max(0, int(count)) for count in (required_room_types or {}).values())
+    room_count = max(rng.randint(room_count_range[0], room_count_range[1]), required_total)
     columns = max(1, math.ceil(math.sqrt(room_count)))
     rows = max(1, math.ceil(room_count / columns))
     column_widths = [round(rng.uniform(*room_width_range), 3) for _ in range(columns)]
     row_lengths = [round(rng.uniform(*room_length_range), 3) for _ in range(rows)]
     height = round(rng.uniform(*height_range), 3)
-    type_sequence = room_type_sequence(room_count, room_types, rng, shuffle=False, room_type_weights=room_type_weights)
+    type_sequence = room_type_sequence(
+        room_count,
+        room_types,
+        rng,
+        shuffle=False,
+        required_room_types=required_room_types,
+        room_type_weights=room_type_weights,
+    )
     rooms: list[ProceduralRoom] = []
     room_index = 0
     y0 = 0.0
@@ -589,9 +620,11 @@ def make_split_tree_room_layout(
     room_length_range: tuple[float, float],
     height_range: tuple[float, float],
     room_types: tuple[str, ...],
+    required_room_types: dict[str, int] | None = None,
     room_type_weights: dict[str, float] | None = None,
 ) -> list[ProceduralRoom]:
-    room_count = rng.randint(room_count_range[0], room_count_range[1])
+    required_total = sum(max(0, int(count)) for count in (required_room_types or {}).values())
+    room_count = max(rng.randint(room_count_range[0], room_count_range[1]), required_total)
     scale = math.sqrt(room_count)
     root_width = round(rng.uniform(room_width_range[0] * scale, room_width_range[1] * scale), 3)
     root_length = round(rng.uniform(room_length_range[0] * scale, room_length_range[1] * scale), 3)
@@ -613,7 +646,14 @@ def make_split_tree_room_layout(
         regions.extend([left, right])
     regions = sorted(regions, key=lambda region: (region.y0, region.x0))
     height = round(rng.uniform(*height_range), 3)
-    type_sequence = room_type_sequence(len(regions), room_types, rng, shuffle=True, room_type_weights=room_type_weights)
+    type_sequence = room_type_sequence(
+        len(regions),
+        room_types,
+        rng,
+        shuffle=True,
+        required_room_types=required_room_types,
+        room_type_weights=room_type_weights,
+    )
     return [
         ProceduralRoom(
             room_id=f"proc_room_{index:02d}",
@@ -636,6 +676,7 @@ def make_room_layout(
     room_length_range: tuple[float, float],
     height_range: tuple[float, float],
     room_types: tuple[str, ...],
+    required_room_types: dict[str, int] | None = None,
     room_type_weights: dict[str, float] | None = None,
 ) -> list[ProceduralRoom]:
     if layout == "grid":
@@ -646,6 +687,7 @@ def make_room_layout(
             room_length_range,
             height_range,
             room_types,
+            required_room_types=required_room_types,
             room_type_weights=room_type_weights,
         )
     if layout == "split_tree":
@@ -656,6 +698,7 @@ def make_room_layout(
             room_length_range,
             height_range,
             room_types,
+            required_room_types=required_room_types,
             room_type_weights=room_type_weights,
         )
     raise ValueError(f"Unsupported procedural layout: {layout}")
@@ -1543,6 +1586,7 @@ class ProceduralFront3DGenerator:
             tuple(float(value) for value in self.args.procedural_room_length_m),
             tuple(float(value) for value in self.args.procedural_room_height_m),
             tuple(str(value) for value in self.args.procedural_room_types),
+            required_room_types=dict(self.args.procedural_required_room_types),
             room_type_weights=dict(self.args.procedural_room_type_weights),
         )
         timings["layout"] = time.perf_counter() - stage_start
