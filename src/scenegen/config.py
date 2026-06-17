@@ -100,6 +100,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
         },
         "wall_margin_m": 0.25,
         "object_margin_m": 0.15,
+        "placement_policy": {
+            "default": {"zone": "anywhere", "wall_offset_m": 0.0, "center_radius_ratio": 0.35},
+            "table": {"zone": "center", "wall_offset_m": 0.0, "center_radius_ratio": 0.25},
+            "seat": {"zone": "anywhere", "wall_offset_m": 0.0, "center_radius_ratio": 0.35},
+            "floor": {"zone": "wall", "wall_offset_m": 0.05, "center_radius_ratio": 0.35},
+        },
         "max_attempts_per_object": 80,
         "asset_pool_limit": 500,
         "precheck": {
@@ -432,6 +438,28 @@ def normalize_room_profiles(value: Any, key: str = "procedural.room_profiles") -
     return profiles
 
 
+def normalize_placement_policy(value: Any, key: str = "procedural.placement_policy") -> dict[str, dict[str, Any]]:
+    if not isinstance(value, dict) or not value:
+        raise ValueError(f"{key} must be a non-empty mapping")
+    allowed_classes = {"default", "table", "seat", "floor"}
+    policies: dict[str, dict[str, Any]] = {}
+    for raw_name, raw_policy in value.items():
+        class_name = str(raw_name).strip().lower()
+        policy_key = f"{key}.{raw_name}"
+        if class_name not in allowed_classes:
+            raise ValueError(f"{policy_key} must be default, table, seat, or floor")
+        if not isinstance(raw_policy, dict):
+            raise ValueError(f"{policy_key} must be a mapping")
+        policies[class_name] = {
+            "zone": str(raw_policy.get("zone", "anywhere")).strip(),
+            "wall_offset_m": float(raw_policy.get("wall_offset_m", 0.0)),
+            "center_radius_ratio": float(raw_policy.get("center_radius_ratio", 0.35)),
+        }
+    if "default" not in policies:
+        raise ValueError(f"{key}.default is required")
+    return policies
+
+
 def normalize_label_strategy(value: Any, key: str) -> str:
     text = str(value).strip()
     if text == "panel":
@@ -534,6 +562,7 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     procedural["room_profiles"] = normalize_room_profiles(procedural["room_profiles"])
     procedural["wall_margin_m"] = float(procedural["wall_margin_m"])
     procedural["object_margin_m"] = float(procedural["object_margin_m"])
+    procedural["placement_policy"] = normalize_placement_policy(procedural["placement_policy"])
     procedural["max_attempts_per_object"] = int(procedural["max_attempts_per_object"])
     procedural["asset_pool_limit"] = int(procedural["asset_pool_limit"])
     procedural_precheck = procedural["precheck"]
@@ -705,6 +734,13 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("procedural.wall_margin_m must be non-negative")
     if procedural["object_margin_m"] < 0:
         raise ValueError("procedural.object_margin_m must be non-negative")
+    for class_name, policy in procedural["placement_policy"].items():
+        if policy["zone"] not in {"anywhere", "center", "wall"}:
+            raise ValueError(f"procedural.placement_policy.{class_name}.zone must be 'anywhere', 'center', or 'wall'")
+        if policy["wall_offset_m"] < 0:
+            raise ValueError(f"procedural.placement_policy.{class_name}.wall_offset_m must be non-negative")
+        if not 0.0 <= policy["center_radius_ratio"] <= 1.0:
+            raise ValueError(f"procedural.placement_policy.{class_name}.center_radius_ratio must be between 0 and 1")
     if procedural["max_attempts_per_object"] < 1:
         raise ValueError("procedural.max_attempts_per_object must be at least 1")
     if procedural["asset_pool_limit"] < 1:
@@ -972,6 +1008,7 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         procedural_room_profiles=procedural["room_profiles"],
         procedural_wall_margin_m=procedural["wall_margin_m"],
         procedural_object_margin_m=procedural["object_margin_m"],
+        procedural_placement_policy=procedural["placement_policy"],
         procedural_max_attempts_per_object=procedural["max_attempts_per_object"],
         procedural_asset_pool_limit=procedural["asset_pool_limit"],
         procedural_precheck_enabled=procedural["precheck"]["enabled"],

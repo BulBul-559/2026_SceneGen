@@ -48,10 +48,12 @@ from scenegen.procedural import (
     ProceduralAssetEntry,
     ProceduralRoom,
     architecture_meshes_for_rooms,
+    candidate_pose_for_policy,
     desired_classes_from_profile,
     entries_matching_profile_filter,
     make_room_layout,
     object_count_for_room_area,
+    placement_policy_for_class,
     procedural_asset_approx_bbox,
     procedural_asset_footprint_size,
     select_room_profile,
@@ -279,6 +281,59 @@ def test_procedural_object_count_supports_range_and_area_adaptive() -> None:
         {"strategy": "area_adaptive", "min": 2, "max": 9, "area_per_object_m2": 4.0, "jitter": [0, 0]},
         random.Random(1),
     ) == 9
+
+
+def test_procedural_placement_policy_samples_center_and_wall_zones() -> None:
+    asset = Asset(
+        name="asset",
+        export_name="asset",
+        obj_file=Path("asset.obj"),
+        width=2.0,
+        length=1.0,
+        height=1.5,
+        placement_class="floor",
+        source_to_sionna_material={},
+        sionna_material_names=("itu-wood",),
+    )
+    entry = ProceduralAssetEntry(model_id="model", asset=asset, payload={}, semantic={})
+    room = ProceduralRoom("room", "Bedroom", 0.0, 0.0, 10.0, 10.0, 3.0)
+
+    center_policy = placement_policy_for_class(
+        {"default": {"zone": "anywhere"}, "table": {"zone": "center", "center_radius_ratio": 0.0}},
+        "table",
+    )
+    _yaw, center_x, center_y, _width, _length, zone = candidate_pose_for_policy(
+        room,
+        entry,
+        center_policy,
+        margin=0.25,
+        rng=random.Random(1),
+    )
+
+    assert zone == "center"
+    assert center_x == pytest.approx(5.0)
+    assert center_y == pytest.approx(5.0)
+
+    wall_policy = placement_policy_for_class(
+        {"default": {"zone": "anywhere"}, "floor": {"zone": "wall", "wall_offset_m": 0.0}},
+        "floor",
+    )
+    _yaw, wall_x, wall_y, width, length, zone = candidate_pose_for_policy(
+        room,
+        entry,
+        wall_policy,
+        margin=0.25,
+        rng=random.Random(2),
+    )
+    clearances = [
+        wall_x - (room.x0 + 0.25 + width / 2.0),
+        (room.x1 - 0.25 - width / 2.0) - wall_x,
+        wall_y - (room.y0 + 0.25 + length / 2.0),
+        (room.y1 - 0.25 - length / 2.0) - wall_y,
+    ]
+
+    assert zone == "wall"
+    assert min(abs(value) for value in clearances) == pytest.approx(0.0)
 
 
 def test_procedural_room_profile_filters_match_asset_semantics() -> None:
@@ -568,12 +623,12 @@ def test_front3d_class_mask_mesh_furniture_mode_uses_mesh_footprint(tmp_path: Pa
 
 
 def test_cli_version_matches_package_version(capsys: pytest.CaptureFixture[str]) -> None:
-    assert __version__ == "3.4.0"
+    assert __version__ == "3.5.0"
     with pytest.raises(SystemExit) as exc_info:
         parse_args(["--version"])
 
     assert exc_info.value.code == 0
-    assert capsys.readouterr().out.strip() == "SceneGen 3.4.0"
+    assert capsys.readouterr().out.strip() == "SceneGen 3.5.0"
 
 
 def test_bistro_config_is_mode_specific_default_overlay() -> None:
@@ -693,6 +748,17 @@ def test_procedural_room_profiles_accept_custom_names_and_reject_bad_classes(tmp
     )
     with pytest.raises(ValueError, match="procedural.room_profiles.default.filters.seat.unknown_field"):
         load_effective_config(bad_filter_path, root, parse_args([]))
+
+    bad_policy_path = tmp_path / "bad_procedural_policy.yaml"
+    bad_policy_path.write_text(
+        "procedural:\n"
+        "  placement_policy:\n"
+        "    table:\n"
+        "      zone: diagonal\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="procedural.placement_policy.table.zone"):
+        load_effective_config(bad_policy_path, root, parse_args([]))
 
 
 def test_prepare_run_dir_clean_only_replaces_named_run(tmp_path: Path) -> None:

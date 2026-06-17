@@ -122,6 +122,7 @@ uv run scenegen \
 | `room_profiles` | mapping | 见模板 | 房间类型到 furniture class 序列和语义筛选规则的映射。必须包含 `default`；可新增任意 room type 名。 |
 | `wall_margin_m` | float, `>=0` | `0.25` | 家具 bbox 与 room 边界的最小距离。 |
 | `object_margin_m` | float, `>=0` | `0.15` | 家具 bbox 之间的额外间距。 |
+| `placement_policy` | mapping | 见模板 | 不同 furniture class 的空间采样策略。 |
 | `max_attempts_per_object` | integer, `>=1` | `80` | 每个家具候选最多尝试多少次随机位置和朝向。 |
 | `asset_pool_limit` | integer, `>=1` | `500` | 每个 placement class 最多缓存多少个 3D-FUTURE 资产用于采样。 |
 | `precheck` | mapping | 见模板 | 程序化场景预检和失败重试设置。 |
@@ -140,6 +141,18 @@ uv run scenegen \
 | `jitter` | `[min, max]` | `[-1, 1]` | `area_adaptive` 估算后的整数随机扰动。 |
 
 `area_adaptive` 计算方式为 `round(room_area / area_per_object_m2) + random(jitter)`，再裁剪到 `[min, max]`。因此小房间会自然少放，大房间会自然多放，同时保留少量随机性。
+
+### procedural.placement_policy
+
+控制家具中心点采样区域和朝向策略。当前支持 `default`、`table`、`seat`、`floor` 四个键；未知 class 会使用 `default`。
+
+| 字段 | 可选值 / 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `zone` | `anywhere` / `center` / `wall` | 见模板 | `anywhere` 在 room 有效区域均匀采样；`center` 在房间中心附近采样；`wall` 靠某一面墙采样并按墙面方向设置 yaw。 |
+| `wall_offset_m` | float, `>=0` | `0.0` / `0.05` | `zone: wall` 时离墙的额外偏移。 |
+| `center_radius_ratio` | float, `0-1` | `0.35` | `zone: center` 时中心采样半径占 `min(room.width, room.length)` 的比例。 |
+
+默认配置中 `floor` 使用 `wall`，用于让床/柜类地面大件更常靠墙；`table` 使用 `center`，用于让桌子更常出现在房间中心附近；`seat` 保持 `anywhere`，后续可继续演进为围绕桌子的关系约束。
 
 ### procedural.precheck
 

@@ -60,6 +60,23 @@ procedural:
       filters: {}
   wall_margin_m: 0.25
   object_margin_m: 0.15
+  placement_policy:
+    default:
+      zone: anywhere
+      wall_offset_m: 0.0
+      center_radius_ratio: 0.35
+    table:
+      zone: center
+      wall_offset_m: 0.0
+      center_radius_ratio: 0.25
+    seat:
+      zone: anywhere
+      wall_offset_m: 0.0
+      center_radius_ratio: 0.35
+    floor:
+      zone: wall
+      wall_offset_m: 0.05
+      center_radius_ratio: 0.35
   max_attempts_per_object: 80
   asset_pool_limit: 500
   precheck:

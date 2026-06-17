@@ -162,6 +162,55 @@ def procedural_asset_approx_bbox(
     )
 
 
+def placement_policy_for_class(policies: dict[str, dict[str, Any]], class_name: str) -> dict[str, Any]:
+    return dict(policies.get(class_name) or policies["default"])
+
+
+def candidate_pose_for_policy(
+    room: ProceduralRoom,
+    entry: ProceduralAssetEntry,
+    policy: dict[str, Any],
+    margin: float,
+    rng: random.Random,
+) -> tuple[float, float, float, float, float, str]:
+    zone = str(policy.get("zone", "anywhere"))
+    if zone == "wall":
+        side = rng.choice(("south", "north", "west", "east"))
+        yaw_by_side = {
+            "south": 0.0,
+            "north": math.pi,
+            "west": math.pi / 2.0,
+            "east": math.pi * 1.5,
+        }
+        yaw = yaw_by_side[side]
+        width, length = procedural_asset_footprint_size(entry, yaw)
+        min_x = room.x0 + margin + width / 2.0
+        max_x = room.x1 - margin - width / 2.0
+        min_y = room.y0 + margin + length / 2.0
+        max_y = room.y1 - margin - length / 2.0
+        offset = float(policy.get("wall_offset_m", 0.0))
+        if side == "south":
+            return yaw, rng.uniform(min_x, max_x), min(min_y + offset, max_y), width, length, zone
+        if side == "north":
+            return yaw, rng.uniform(min_x, max_x), max(max_y - offset, min_y), width, length, zone
+        if side == "west":
+            return yaw, min(min_x + offset, max_x), rng.uniform(min_y, max_y), width, length, zone
+        return yaw, max(max_x - offset, min_x), rng.uniform(min_y, max_y), width, length, zone
+
+    yaw = rng.choice([0.0, math.pi / 2.0, math.pi, math.pi * 1.5])
+    width, length = procedural_asset_footprint_size(entry, yaw)
+    min_x = room.x0 + margin + width / 2.0
+    max_x = room.x1 - margin - width / 2.0
+    min_y = room.y0 + margin + length / 2.0
+    max_y = room.y1 - margin - length / 2.0
+    if zone == "center":
+        radius = max(0.0, min(room.width, room.length) * float(policy.get("center_radius_ratio", 0.35)))
+        center_x = (room.x0 + room.x1) / 2.0 + rng.uniform(-radius, radius)
+        center_y = (room.y0 + room.y1) / 2.0 + rng.uniform(-radius, radius)
+        return yaw, min(max(center_x, min_x), max_x), min(max(center_y, min_y), max_y), width, length, zone
+    return yaw, rng.uniform(min_x, max_x), rng.uniform(min_y, max_y), width, length, "anywhere"
+
+
 def procedural_asset_transform_for_center(
     entry: ProceduralAssetEntry,
     yaw: float,
@@ -773,6 +822,7 @@ class ProceduralFront3DGenerator:
             "exact_room_reject_count": 0,
             "exact_collision_reject_count": 0,
             "desired_object_counts": desired_object_counts,
+            "policy_zone_counts": {},
         }
         room_boxes: dict[str, list[tuple[float, float, float, float, float, float]]] = {room.room_id: [] for room in rooms}
         mesh_cache: dict[Path, list[Vec3]] = {}
@@ -788,14 +838,12 @@ class ProceduralFront3DGenerator:
                 for _attempt in range(int(self.args.procedural_max_attempts_per_object)):
                     stats["attempt_count"] = int(stats["attempt_count"]) + 1
                     entry = rng.choice(candidates)
-                    yaw = rng.choice([0.0, math.pi / 2.0, math.pi, math.pi * 1.5])
-                    width, length = procedural_asset_footprint_size(entry, yaw)
                     margin = float(self.args.procedural_wall_margin_m)
+                    policy = placement_policy_for_class(self.args.procedural_placement_policy, class_name)
+                    yaw, center_x, center_y, width, length, zone = candidate_pose_for_policy(room, entry, policy, margin, rng)
                     if width >= room.width - 2.0 * margin or length >= room.length - 2.0 * margin:
                         stats["size_reject_count"] = int(stats["size_reject_count"]) + 1
                         continue
-                    center_x = rng.uniform(room.x0 + margin + width / 2.0, room.x1 - margin - width / 2.0)
-                    center_y = rng.uniform(room.y0 + margin + length / 2.0, room.y1 - margin - length / 2.0)
                     approx_bbox = procedural_asset_approx_bbox(entry, yaw, center_x, center_y)
                     if any(
                         boxes_overlap_xy(approx_bbox, other, float(self.args.procedural_object_margin_m))
@@ -845,6 +893,9 @@ class ProceduralFront3DGenerator:
                         )
                     )
                     room_boxes[room.room_id].append(bbox)
+                    zone_counts = stats["policy_zone_counts"]
+                    if isinstance(zone_counts, dict):
+                        zone_counts[zone] = int(zone_counts.get(zone, 0)) + 1
                     placed = True
                     break
                 if not placed:

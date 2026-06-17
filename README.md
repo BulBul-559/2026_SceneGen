@@ -2,7 +2,7 @@
 
 SceneGen 是一个面向 Linux 环境的轻量级室内场景生成项目。它基于空场景和归一化资产，随机生成带家具、桌椅、小物件的 3D 场景，并同步导出 Sionna/Mitsuba 可加载的场景文件和平面图。
 
-当前项目版本：`3.4.0`。
+当前项目版本：`3.5.0`。
 
 当前主工作流包括 Bistro 场景生成、3D-FRONT 已组合场景合成，以及实验性的自动场景生成：Bistro 以 `data/scene/scene.obj` 作为空场景，以 `data/catalogs/bistro.v1.json` 管理资产契约；3D-FRONT 以第一阶段整理出的 `data/3D-Front/scenegen_manifest.json` 为索引，合并建筑结构和已有家具实例；`procedural_front3d` 会自动采样多房间户型，并从 3D-FUTURE/3D-FRONT 资产池中摆放家具。`data/assets/manifest.json` 仍保留为兼容位置，但内容已经与 catalog 使用同一份清洗后的契约。
 
@@ -236,11 +236,12 @@ uv run scenegen-batch \
 2. 写出 Front3D-like `procedural_source/scene.json` 与 `procedural_source/architecture.json`，供 label、class mask 和 floorplan 复用。
 3. 按 `procedural.object_count` 为每个 room 计算家具数量，小房间少放、大房间多放。
 4. 从 `data/3D-Front/scenegen_manifest.json` 的 3D-FUTURE 物体池中按 `procedural.room_profiles` 配置的房间家具类别序列和 semantic filter 筛选家具。
-5. 在每个 room 内进行 bbox 约束摆放，避免越界和家具间碰撞。
-6. 按 `procedural.precheck` 检查实际家具数、目标完成率和跳过比例；失败时自动换 seed 重试补齐同一输出编号。
-7. 复用现有 `scene.obj`、`scene.xml`、`label/`、`floorplan/`、`class_mask`、quality 和 statistics 输出链路。
+5. 按 `procedural.placement_policy` 采样家具位置：默认床/柜类 `floor` 物体更靠墙，`table` 更靠房间中心，`seat` 保持自由采样。
+6. 在每个 room 内进行 bbox 约束摆放，避免越界和家具间碰撞。
+7. 按 `procedural.precheck` 检查实际家具数、目标完成率和跳过比例；失败时自动换 seed 重试补齐同一输出编号。
+8. 复用现有 `scene.obj`、`scene.xml`、`label/`、`floorplan/`、`class_mask`、quality 和 statistics 输出链路。
 
-第一版仍是规则 baseline：房间拓扑和关系约束还比较轻量；家具数量已经支持 `procedural.object_count` 面积自适应，家具组合已经迁移到 `procedural.room_profiles`，可以按房间类型配置 `table`、`seat`、`floor` 的组合序列，并可用 `category`、`super_category`、`name`、`material` 关键词筛选更合适的资产。程序化预检会在 label/floorplan 前过滤摆放过少或失败比例过高的样本。后续可以逐步替换为更强的 room planner、语义资产组、约束求解器和可达性/连通性验证。
+第一版仍是规则 baseline：房间拓扑和关系约束还比较轻量；家具数量已经支持 `procedural.object_count` 面积自适应，家具组合已经迁移到 `procedural.room_profiles`，可以按房间类型配置 `table`、`seat`、`floor` 的组合序列，并可用 `category`、`super_category`、`name`、`material` 关键词筛选更合适的资产；位置采样已支持 `procedural.placement_policy` 的中心/靠墙偏置。程序化预检会在 label/floorplan 前过滤摆放过少或失败比例过高的样本。后续可以逐步替换为更强的 room planner、语义资产组、约束求解器和可达性/连通性验证。
 
 ## 生产运行与日志
 
