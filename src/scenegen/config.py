@@ -72,6 +72,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "split_tree": 1.0,
             "rect_union": 1.0,
             "room_graph": 1.0,
+            "polygon_shell": 0.8,
             "corridor_spine": 0.8,
             "grid": 0.2,
         },
@@ -1197,10 +1198,11 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("placement.max_attempts must be at least 1")
 
     procedural = config["procedural"]
-    supported_layouts = {"grid", "split_tree", "rect_union", "room_graph", "corridor_spine"}
+    supported_layouts = {"grid", "split_tree", "rect_union", "room_graph", "polygon_shell", "corridor_spine"}
     if procedural["layout"] not in {*supported_layouts, "mixed"}:
         raise ValueError(
-            "procedural.layout must be 'grid', 'split_tree', 'rect_union', 'room_graph', 'corridor_spine', or 'mixed'"
+            "procedural.layout must be 'grid', 'split_tree', 'rect_union', 'room_graph', 'polygon_shell', "
+            "'corridor_spine', or 'mixed'"
         )
     unknown_layout_weights = sorted(set(procedural["layout_weights"]) - supported_layouts)
     if unknown_layout_weights:

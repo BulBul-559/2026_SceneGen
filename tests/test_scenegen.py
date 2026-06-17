@@ -390,6 +390,50 @@ def test_procedural_room_graph_layout_grows_connected_irregular_footprint() -> N
     assert visited == set(graph)
 
 
+def test_procedural_polygon_shell_layout_splits_notched_shell() -> None:
+    rooms = make_room_layout(
+        random.Random(2037),
+        "polygon_shell",
+        (6, 6),
+        (3.0, 5.0),
+        (3.0, 5.0),
+        (2.8, 2.8),
+        ("LivingRoom", "Bedroom", "Kitchen", "StudyRoom", "Bathroom"),
+        required_room_types={"LivingRoom": 1, "Bedroom": 1, "Kitchen": 1},
+        room_type_assignment="geometry_fit",
+        room_type_area_priority=("LivingRoom", "Bedroom", "Kitchen", "StudyRoom", "Bathroom"),
+        room_type_geometry_rules=DEFAULT_CONFIG["procedural"]["precheck"]["room_type_geometry"],
+    )
+    assert len(rooms) == 6
+    assert {"LivingRoom", "Bedroom", "Kitchen"}.issubset({room.room_type for room in rooms})
+    assert min(room.x0 for room in rooms) == pytest.approx(0.0)
+    assert min(room.y0 for room in rooms) == pytest.approx(0.0)
+    for left_index, left_room in enumerate(rooms):
+        for right_room in rooms[left_index + 1 :]:
+            x_overlap = min(left_room.x1, right_room.x1) - max(left_room.x0, right_room.x0)
+            y_overlap = min(left_room.y1, right_room.y1) - max(left_room.y0, right_room.y0)
+            assert x_overlap <= 1e-6 or y_overlap <= 1e-6
+
+    metrics = rooms_footprint_metrics(rooms)
+    assert metrics["fill_ratio"] < 0.95
+    assert metrics["concavity_area_m2"] > 0.0
+
+    adjacencies = room_adjacencies_for_rooms(rooms, wall_thickness=0.16, door_width=1.0)
+    graph = {room.room_id: set() for room in rooms}
+    for adjacency in adjacencies:
+        left, right = (str(value) for value in adjacency["rooms"])
+        graph[left].add(right)
+        graph[right].add(left)
+    visited = {rooms[0].room_id}
+    frontier = [rooms[0].room_id]
+    while frontier:
+        room_id = frontier.pop()
+        for neighbor in graph[room_id] - visited:
+            visited.add(neighbor)
+            frontier.append(neighbor)
+    assert visited == set(graph)
+
+
 def test_procedural_mixed_layout_uses_configured_weights() -> None:
     rng = random.Random(12)
 
@@ -411,11 +455,33 @@ def test_procedural_mixed_layout_uses_configured_weights() -> None:
         )
         == "room_graph"
     )
+    assert (
+        choose_procedural_layout(
+            "mixed",
+            {
+                "split_tree": 0.0,
+                "rect_union": 0.0,
+                "room_graph": 0.0,
+                "polygon_shell": 1.0,
+                "corridor_spine": 0.0,
+                "grid": 0.0,
+            },
+            rng,
+        )
+        == "polygon_shell"
+    )
 
     with pytest.raises(ValueError, match="layout_weights"):
         choose_procedural_layout(
             "mixed",
-            {"split_tree": 0.0, "rect_union": 0.0, "room_graph": 0.0, "corridor_spine": 0.0, "grid": 0.0},
+            {
+                "split_tree": 0.0,
+                "rect_union": 0.0,
+                "room_graph": 0.0,
+                "polygon_shell": 0.0,
+                "corridor_spine": 0.0,
+                "grid": 0.0,
+            },
             rng,
         )
 
@@ -1182,6 +1248,7 @@ def test_procedural_mixed_layout_config_validates_weights(tmp_path: Path) -> Non
         "    split_tree: 0\n"
         "    rect_union: 1\n"
         "    room_graph: 0\n"
+        "    polygon_shell: 0\n"
         "    corridor_spine: 0\n"
         "    grid: 0\n",
         encoding="utf-8",
@@ -1194,6 +1261,7 @@ def test_procedural_mixed_layout_config_validates_weights(tmp_path: Path) -> Non
         "split_tree": 0.0,
         "rect_union": 1.0,
         "room_graph": 0.0,
+        "polygon_shell": 0.0,
         "corridor_spine": 0.0,
         "grid": 0.0,
     }
@@ -1206,6 +1274,7 @@ def test_procedural_mixed_layout_config_validates_weights(tmp_path: Path) -> Non
         "    split_tree: 0\n"
         "    rect_union: 0\n"
         "    room_graph: 0\n"
+        "    polygon_shell: 0\n"
         "    corridor_spine: 0\n"
         "    grid: 0\n",
         encoding="utf-8",
@@ -1217,7 +1286,7 @@ def test_procedural_mixed_layout_config_validates_weights(tmp_path: Path) -> Non
     bad_unknown.write_text(
         "procedural:\n"
         "  layout_weights:\n"
-        "    polygon_shell: 1\n",
+        "    spiral_shell: 1\n",
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="Unknown config field"):
@@ -1271,6 +1340,7 @@ def test_procedural_corridor_spine_config_requires_capacity(tmp_path: Path) -> N
         "    split_tree: 1\n"
         "    rect_union: 0\n"
         "    room_graph: 0\n"
+        "    polygon_shell: 0\n"
         "    corridor_spine: 0\n"
         "    grid: 0\n",
         encoding="utf-8",

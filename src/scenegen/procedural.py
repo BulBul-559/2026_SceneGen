@@ -1233,6 +1233,174 @@ def make_room_graph_layout(
     )
 
 
+def notched_shell_regions(
+    rng: random.Random,
+    *,
+    width: float,
+    length: float,
+    min_width: float,
+    min_length: float,
+) -> list[LayoutRegion] | None:
+    sides = ["east", "west", "north", "south"]
+    rng.shuffle(sides)
+    for side in sides:
+        if side in {"east", "west"}:
+            if width < min_width * 2.0 or length < min_length * 3.0:
+                continue
+            max_depth = min(width - min_width, width * 0.45)
+            max_notch_length = min(length - 2.0 * min_length, length * 0.48)
+            if max_depth < min_width * 0.45 or max_notch_length < min_length:
+                continue
+            depth = round(rng.uniform(min_width * 0.45, max_depth), 3)
+            notch_length = round(rng.uniform(min_length, max_notch_length), 3)
+            notch_y0 = round(rng.uniform(min_length, length - notch_length - min_length), 6)
+            notch_y1 = round(notch_y0 + notch_length, 6)
+            inner_x = round(width - depth, 6)
+            if side == "east":
+                return [
+                    LayoutRegion(0.0, 0.0, width, notch_y0),
+                    LayoutRegion(0.0, notch_y0, inner_x, notch_y1),
+                    LayoutRegion(0.0, notch_y1, width, length),
+                ]
+            return [
+                LayoutRegion(0.0, 0.0, width, notch_y0),
+                LayoutRegion(depth, notch_y0, width, notch_y1),
+                LayoutRegion(0.0, notch_y1, width, length),
+            ]
+        if length < min_length * 2.0 or width < min_width * 3.0:
+            continue
+        max_depth = min(length - min_length, length * 0.45)
+        max_notch_width = min(width - 2.0 * min_width, width * 0.48)
+        if max_depth < min_length * 0.45 or max_notch_width < min_width:
+            continue
+        depth = round(rng.uniform(min_length * 0.45, max_depth), 3)
+        notch_width = round(rng.uniform(min_width, max_notch_width), 3)
+        notch_x0 = round(rng.uniform(min_width, width - notch_width - min_width), 6)
+        notch_x1 = round(notch_x0 + notch_width, 6)
+        inner_y = round(length - depth, 6)
+        if side == "north":
+            return [
+                LayoutRegion(0.0, 0.0, notch_x0, length),
+                LayoutRegion(notch_x0, 0.0, notch_x1, inner_y),
+                LayoutRegion(notch_x1, 0.0, width, length),
+            ]
+        return [
+            LayoutRegion(0.0, 0.0, notch_x0, length),
+            LayoutRegion(notch_x0, depth, notch_x1, length),
+            LayoutRegion(notch_x1, 0.0, width, length),
+        ]
+    return None
+
+
+def split_regions_to_count(
+    rng: random.Random,
+    regions: list[LayoutRegion],
+    *,
+    target_count: int,
+    room_width_range: tuple[float, float],
+    room_length_range: tuple[float, float],
+) -> list[LayoutRegion] | None:
+    result = list(regions)
+    while len(result) < target_count:
+        candidates = sorted(enumerate(result), key=lambda item: item[1].area, reverse=True)
+        split_result: tuple[int, tuple[LayoutRegion, LayoutRegion]] | None = None
+        for index, region in candidates:
+            split = split_region_once(rng, region, room_width_range, room_length_range)
+            if split is not None:
+                split_result = (index, split)
+                break
+        if split_result is None:
+            return None
+        index, split = split_result
+        result.pop(index)
+        result.extend(split)
+    return result
+
+
+def make_polygon_shell_room_layout(
+    rng: random.Random,
+    room_count_range: tuple[int, int],
+    room_width_range: tuple[float, float],
+    room_length_range: tuple[float, float],
+    height_range: tuple[float, float],
+    room_types: tuple[str, ...],
+    required_room_types: dict[str, int] | None = None,
+    room_type_assignment: str = "sequence",
+    room_type_area_priority: tuple[str, ...] = (),
+    room_type_max_counts: dict[str, int | None] | None = None,
+    room_type_weights: dict[str, float] | None = None,
+    room_type_geometry_rules: dict[str, dict[str, float | None]] | None = None,
+) -> list[ProceduralRoom]:
+    required_total = sum(max(0, int(count)) for count in (required_room_types or {}).values())
+    room_count = max(rng.randint(room_count_range[0], room_count_range[1]), required_total, 3)
+    scale = math.sqrt(room_count)
+    min_width = float(room_width_range[0])
+    min_length = float(room_length_range[0])
+    root_width_min = max(room_width_range[0] * scale, min_width * 3.2)
+    root_length_min = max(room_length_range[0] * scale, min_length * 3.2)
+    root_width = round(rng.uniform(root_width_min, max(root_width_min, room_width_range[1] * scale)), 3)
+    root_length = round(rng.uniform(root_length_min, max(root_length_min, room_length_range[1] * scale)), 3)
+
+    base_regions = notched_shell_regions(
+        rng,
+        width=root_width,
+        length=root_length,
+        min_width=min_width,
+        min_length=min_length,
+    )
+    if base_regions is None:
+        return make_split_tree_room_layout(
+            rng,
+            room_count_range,
+            room_width_range,
+            room_length_range,
+            height_range,
+            room_types,
+            required_room_types=required_room_types,
+            room_type_assignment=room_type_assignment,
+            room_type_area_priority=room_type_area_priority,
+            room_type_max_counts=room_type_max_counts,
+            room_type_weights=room_type_weights,
+            room_type_geometry_rules=room_type_geometry_rules,
+        )
+
+    regions = split_regions_to_count(
+        rng,
+        base_regions,
+        target_count=room_count,
+        room_width_range=room_width_range,
+        room_length_range=room_length_range,
+    )
+    if regions is None:
+        return make_split_tree_room_layout(
+            rng,
+            room_count_range,
+            room_width_range,
+            room_length_range,
+            height_range,
+            room_types,
+            required_room_types=required_room_types,
+            room_type_assignment=room_type_assignment,
+            room_type_area_priority=room_type_area_priority,
+            room_type_max_counts=room_type_max_counts,
+            room_type_weights=room_type_weights,
+            room_type_geometry_rules=room_type_geometry_rules,
+        )
+
+    return regions_to_procedural_rooms(
+        regions,
+        rng=rng,
+        height_range=height_range,
+        room_types=room_types,
+        required_room_types=required_room_types,
+        room_type_assignment=room_type_assignment,
+        room_type_area_priority=room_type_area_priority,
+        room_type_max_counts=room_type_max_counts,
+        room_type_weights=room_type_weights,
+        room_type_geometry_rules=room_type_geometry_rules,
+    )
+
+
 def make_corridor_spine_room_layout(
     rng: random.Random,
     room_count_range: tuple[int, int],
@@ -1408,6 +1576,21 @@ def make_room_layout(
             room_type_weights=room_type_weights,
             room_type_geometry_rules=room_type_geometry_rules,
         )
+    if layout == "polygon_shell":
+        return make_polygon_shell_room_layout(
+            rng,
+            room_count_range,
+            room_width_range,
+            room_length_range,
+            height_range,
+            room_types,
+            required_room_types=required_room_types,
+            room_type_assignment=room_type_assignment,
+            room_type_area_priority=room_type_area_priority,
+            room_type_max_counts=room_type_max_counts,
+            room_type_weights=room_type_weights,
+            room_type_geometry_rules=room_type_geometry_rules,
+        )
     if layout == "corridor_spine":
         return make_corridor_spine_room_layout(
             rng,
@@ -1433,7 +1616,7 @@ def choose_procedural_layout(
 ) -> str:
     if configured_layout != "mixed":
         return configured_layout
-    supported_layouts = ("grid", "split_tree", "rect_union", "room_graph", "corridor_spine")
+    supported_layouts = ("grid", "split_tree", "rect_union", "room_graph", "polygon_shell", "corridor_spine")
     weights = [max(0.0, float((layout_weights or {}).get(layout, 0.0))) for layout in supported_layouts]
     if not any(weight > 0.0 for weight in weights):
         raise ValueError("procedural.layout_weights must assign a positive weight for mixed layout")
