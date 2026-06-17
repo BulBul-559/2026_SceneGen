@@ -3396,6 +3396,7 @@ def test_procedural_front3d_batch_runner_uses_procedural_scene_prefix(tmp_path: 
     assert (run_dir / "manifest_batch.json").is_file()
     assert (run_dir / "manifest_procedural_front3d.json").is_file()
     assert (run_dir / "procedural_report.json").is_file()
+    assert (run_dir / "procedural_asset_pool_coverage.json").is_file()
     assert not (run_dir / "manifest_front3d.json").exists()
     assert (run_dir / "summary" / "obj" / "procedural_front3d_0000.obj").is_file()
     plan = [json.loads(line) for line in (run_dir / "batch" / "scene_plan.jsonl").read_text(encoding="utf-8").splitlines()]
@@ -3408,10 +3409,14 @@ def test_procedural_front3d_batch_runner_uses_procedural_scene_prefix(tmp_path: 
     assert manifest["mode"] == "procedural_front3d"
     assert manifest["succeeded_scenes"] == 2
     assert manifest["procedural_report_file"] == "procedural_report.json"
+    assert manifest["procedural_asset_pool_coverage_file"] == "procedural_asset_pool_coverage.json"
     assert manifest["procedural_report"]["scene_count"] == 2
     assert manifest["procedural_report"]["room_count"]["min"] >= 1
     report = json.loads((run_dir / "procedural_report.json").read_text(encoding="utf-8"))
+    coverage = json.loads((run_dir / "procedural_asset_pool_coverage.json").read_text(encoding="utf-8"))
     assert report["scene_count"] == 2
+    assert coverage == report["asset_pool_coverage"]
+    assert coverage["class_pool_counts"]
     assert report["room_type_counts_total"]
     assert all("procedural" in scene for scene in manifest["scenes"])
     assert all(scene["procedural"]["window_count"] >= 1 for scene in manifest["scenes"])

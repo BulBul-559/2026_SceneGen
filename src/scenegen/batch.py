@@ -605,6 +605,7 @@ def build_final_manifest(
     statistics_file = write_json_report(paths.run_dir / "statistics.json", run_statistics, paths.run_dir)
     procedural_report: dict[str, object] | None = None
     procedural_report_file: str | None = None
+    procedural_asset_pool_coverage_file: str | None = None
     procedural_precheck_skipped_scenes: list[dict[str, object]] = []
     if mode == "procedural_front3d":
         for record in records:
@@ -614,6 +615,13 @@ def build_final_manifest(
     if mode == "procedural_front3d":
         procedural_report = aggregate_procedural_run_report(records, procedural_precheck_skipped_scenes)
         procedural_report_file = write_json_report(paths.run_dir / "procedural_report.json", procedural_report, paths.run_dir)
+        asset_pool_coverage = procedural_report.get("asset_pool_coverage")
+        if isinstance(asset_pool_coverage, dict):
+            procedural_asset_pool_coverage_file = write_json_report(
+                paths.run_dir / "procedural_asset_pool_coverage.json",
+                asset_pool_coverage,
+                paths.run_dir,
+            )
     manifest: dict[str, Any] = {
         "generator": "SceneGen",
         "batch": True,
@@ -643,6 +651,7 @@ def build_final_manifest(
         "statistics_file": statistics_file,
         "procedural_report": procedural_report,
         "procedural_report_file": procedural_report_file,
+        "procedural_asset_pool_coverage_file": procedural_asset_pool_coverage_file,
         "procedural_precheck_skipped_count": len(procedural_precheck_skipped_scenes) if mode == "procedural_front3d" else 0,
         "procedural_precheck_skipped_scenes": procedural_precheck_skipped_scenes if mode == "procedural_front3d" else [],
         "effective_config": "effective_config.yaml",

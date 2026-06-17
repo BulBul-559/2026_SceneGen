@@ -1047,9 +1047,17 @@ def main(argv: list[str] | None = None) -> int:
         statistics_file = write_json_report(run_dir / "statistics.json", run_statistics, run_dir)
         procedural_report: dict[str, object] | None = None
         procedural_report_file: str | None = None
+        procedural_asset_pool_coverage_file: str | None = None
         if args.mode == "procedural_front3d":
             procedural_report = aggregate_procedural_run_report(scene_records, precheck_skipped_scenes)
             procedural_report_file = write_json_report(run_dir / "procedural_report.json", procedural_report, run_dir)
+            asset_pool_coverage = procedural_report.get("asset_pool_coverage")
+            if isinstance(asset_pool_coverage, dict):
+                procedural_asset_pool_coverage_file = write_json_report(
+                    run_dir / "procedural_asset_pool_coverage.json",
+                    asset_pool_coverage,
+                    run_dir,
+                )
     class_counts = {name: len(items) for name, items in sorted(assets_by_class.items())}
     procedural_skipped_object_count = (
         sum(int(record.get("skipped_object_count", 0)) for record in scene_records)
@@ -1114,6 +1122,9 @@ def main(argv: list[str] | None = None) -> int:
         "statistics_file": statistics_file,
         "procedural_report": procedural_report if args.mode == "procedural_front3d" else None,
         "procedural_report_file": procedural_report_file if args.mode == "procedural_front3d" else None,
+        "procedural_asset_pool_coverage_file": (
+            procedural_asset_pool_coverage_file if args.mode == "procedural_front3d" else None
+        ),
         "timing_summary_s": timing_summary(scene_records),
         "run_timings_s": {
             **setup_timings,
