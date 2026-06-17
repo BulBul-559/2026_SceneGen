@@ -491,6 +491,31 @@ def test_procedural_placement_policy_samples_center_and_wall_zones() -> None:
     assert min(abs(value) for value in clearances) == pytest.approx(0.0)
 
 
+def test_procedural_placement_policy_accepts_room_type_overrides() -> None:
+    policies = {
+        "default": {"zone": "anywhere", "wall_offset_m": 0.0, "center_radius_ratio": 0.35},
+        "table": {"zone": "center", "wall_offset_m": 0.0, "center_radius_ratio": 0.25},
+        "seat": {"zone": "anywhere", "wall_offset_m": 0.0, "center_radius_ratio": 0.35},
+        "by_room_type": {
+            "Kitchen": {
+                "table": {"zone": "wall", "wall_offset_m": 0.08, "center_radius_ratio": 0.35},
+                "default": {"zone": "center", "wall_offset_m": 0.0, "center_radius_ratio": 0.20},
+            }
+        },
+    }
+
+    kitchen_table = placement_policy_for_class(policies, "table", "Kitchen")
+    kitchen_seat = placement_policy_for_class(policies, "seat", "Kitchen")
+    living_table = placement_policy_for_class(policies, "table", "LivingRoom")
+
+    assert kitchen_table["zone"] == "wall"
+    assert kitchen_table["wall_offset_m"] == pytest.approx(0.08)
+    assert kitchen_seat["zone"] == "center"
+    assert kitchen_seat["center_radius_ratio"] == pytest.approx(0.20)
+    assert living_table["zone"] == "center"
+    assert living_table["center_radius_ratio"] == pytest.approx(0.25)
+
+
 def test_procedural_placement_groups_select_by_room_type_and_directions() -> None:
     groups = {
         "enabled": True,
@@ -983,6 +1008,19 @@ def test_procedural_room_profiles_accept_custom_names_and_reject_bad_classes(tmp
     )
     with pytest.raises(ValueError, match="procedural.placement_policy.table.zone"):
         load_effective_config(bad_policy_path, root, parse_args([]))
+
+    bad_room_policy_path = tmp_path / "bad_procedural_room_policy.yaml"
+    bad_room_policy_path.write_text(
+        "procedural:\n"
+        "  placement_policy:\n"
+        "    by_room_type:\n"
+        "      Kitchen:\n"
+        "        table:\n"
+        "          zone: diagonal\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="procedural.placement_policy.by_room_type.Kitchen.table.zone"):
+        load_effective_config(bad_room_policy_path, root, parse_args([]))
 
     bad_group_path = tmp_path / "bad_procedural_group.yaml"
     bad_group_path.write_text(

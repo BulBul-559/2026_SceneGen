@@ -148,6 +148,82 @@ procedural:
       zone: wall
       wall_offset_m: 0.05
       center_radius_ratio: 0.35
+    by_room_type:
+      LivingRoom:
+        table:
+          zone: center
+          wall_offset_m: 0.0
+          center_radius_ratio: 0.18
+        seat:
+          zone: center
+          wall_offset_m: 0.0
+          center_radius_ratio: 0.35
+        floor:
+          zone: wall
+          wall_offset_m: 0.05
+          center_radius_ratio: 0.35
+      Bedroom:
+        table:
+          zone: wall
+          wall_offset_m: 0.08
+          center_radius_ratio: 0.35
+        floor:
+          zone: wall
+          wall_offset_m: 0.08
+          center_radius_ratio: 0.35
+      DiningRoom:
+        table:
+          zone: center
+          wall_offset_m: 0.0
+          center_radius_ratio: 0.12
+        seat:
+          zone: center
+          wall_offset_m: 0.0
+          center_radius_ratio: 0.30
+      StudyRoom:
+        table:
+          zone: wall
+          wall_offset_m: 0.10
+          center_radius_ratio: 0.35
+        seat:
+          zone: wall
+          wall_offset_m: 0.10
+          center_radius_ratio: 0.35
+        floor:
+          zone: wall
+          wall_offset_m: 0.05
+          center_radius_ratio: 0.35
+      Kitchen:
+        table:
+          zone: wall
+          wall_offset_m: 0.08
+          center_radius_ratio: 0.35
+        seat:
+          zone: center
+          wall_offset_m: 0.0
+          center_radius_ratio: 0.35
+        floor:
+          zone: wall
+          wall_offset_m: 0.08
+          center_radius_ratio: 0.35
+      Bathroom:
+        table:
+          zone: wall
+          wall_offset_m: 0.08
+          center_radius_ratio: 0.35
+        floor:
+          zone: wall
+          wall_offset_m: 0.08
+          center_radius_ratio: 0.35
+      Hallway:
+        table:
+          zone: wall
+          wall_offset_m: 0.08
+          center_radius_ratio: 0.35
+        floor:
+          zone: wall
+          wall_offset_m: 0.08
+          center_radius_ratio: 0.35
   placement_groups:
     enabled: true
     room_types:

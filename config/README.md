@@ -128,7 +128,7 @@ uv run scenegen \
 | `room_profiles` | mapping | 见模板 | 房间类型到 furniture class 序列和语义筛选规则的映射。必须包含 `default`；可新增任意 room type 名。 |
 | `wall_margin_m` | float, `>=0` | `0.25` | 家具 bbox 与 room 边界的最小距离。 |
 | `object_margin_m` | float, `>=0` | `0.15` | 家具 bbox 之间的额外间距。 |
-| `placement_policy` | mapping | 见模板 | 不同 furniture class 的空间采样策略。 |
+| `placement_policy` | mapping | 见模板 | 不同 furniture class 的空间采样策略，并可按 room type 覆盖。 |
 | `placement_groups` | mapping | 见模板 | 可选的关系式家具组合，先尝试 anchor + companion 成组摆放，再用普通采样补齐剩余家具。 |
 | `max_attempts_per_object` | integer, `>=1` | `80` | 每个家具候选最多尝试多少次随机位置和朝向。 |
 | `asset_pool_limit` | integer, `>=1` | `500` | 每个 placement class 最多缓存多少个 3D-FUTURE 资产用于采样。 |
@@ -169,15 +169,16 @@ uv run scenegen \
 
 ### procedural.placement_policy
 
-控制家具中心点采样区域和朝向策略。当前支持 `default`、`table`、`seat`、`floor` 四个键；未知 class 会使用 `default`。
+控制家具中心点采样区域和朝向策略。顶层支持 `default`、`table`、`seat`、`floor` 四个 class 键；未知 class 会使用 `default`。`by_room_type` 可按房型覆盖某个 class 的策略，例如厨房/卫浴的柜体靠墙、客厅/餐厅桌椅更靠中心。
 
 | 字段 | 可选值 / 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `zone` | `anywhere` / `center` / `wall` | 见模板 | `anywhere` 在 room 有效区域均匀采样；`center` 在房间中心附近采样；`wall` 靠某一面墙采样并按墙面方向设置 yaw。 |
 | `wall_offset_m` | float, `>=0` | `0.0` / `0.05` | `zone: wall` 时离墙的额外偏移。 |
 | `center_radius_ratio` | float, `0-1` | `0.35` | `zone: center` 时中心采样半径占 `min(room.width, room.length)` 的比例。 |
+| `by_room_type` | mapping / `null` | 见模板 | room type 到 class policy 覆盖的映射。room type 支持精确、大小写不敏感和子串匹配；每个房型下可写 `default`、`table`、`seat`、`floor` 中任意几项。 |
 
-默认配置中 `floor` 使用 `wall`，用于让床/柜类地面大件更常靠墙；`table` 使用 `center`，用于让桌子更常出现在房间中心附近；`seat` 保持 `anywhere`。如果 `procedural.placement_groups` 成功生成关系组，组内 companion 会围绕 anchor 摆放；剩余 seat 仍由这里的策略控制。
+默认配置中 `floor` 使用 `wall`，用于让床/柜类地面大件更常靠墙；`table` 使用 `center`，用于让桌子更常出现在房间中心附近；`seat` 保持 `anywhere`。房型覆盖会在顶层 class 策略之后生效：例如 `Kitchen.table` / `Bathroom.table` 默认改为靠墙，`LivingRoom.seat` / `DiningRoom.seat` 默认改为中心区域。若 `procedural.placement_groups` 成功生成关系组，组内 companion 会围绕 anchor 摆放；剩余家具继续由这里的策略控制。
 
 ### procedural.placement_groups
 

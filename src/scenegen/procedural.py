@@ -321,8 +321,32 @@ def procedural_asset_approx_bbox(
     )
 
 
-def placement_policy_for_class(policies: dict[str, dict[str, Any]], class_name: str) -> dict[str, Any]:
-    return dict(policies.get(class_name) or policies["default"])
+def select_room_policy_overrides(room_type: str, policies: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Select optional placement policy overrides for a room type."""
+
+    by_room_type = policies.get("by_room_type") if isinstance(policies.get("by_room_type"), dict) else {}
+    if room_type in by_room_type:
+        return dict(by_room_type[room_type])
+    lowered = room_type.lower()
+    for name, room_policies in by_room_type.items():
+        if str(name).lower() == lowered:
+            return dict(room_policies)
+    for name, room_policies in by_room_type.items():
+        name_lowered = str(name).lower()
+        if name_lowered in lowered or lowered in name_lowered:
+            return dict(room_policies)
+    return {}
+
+
+def placement_policy_for_class(policies: dict[str, Any], class_name: str, room_type: str | None = None) -> dict[str, Any]:
+    base_policy = dict(policies.get(class_name) or policies["default"])
+    if room_type is None:
+        return base_policy
+    room_policies = select_room_policy_overrides(room_type, policies)
+    override = room_policies.get(class_name) or room_policies.get("default")
+    if override:
+        base_policy.update(override)
+    return base_policy
 
 
 def candidate_pose_for_policy(
@@ -1650,7 +1674,7 @@ class ProceduralFront3DGenerator:
             if entry is None:
                 return False
             record_asset_reuse(entry, attempt_scene_counts, attempt_room_counts)
-            policy = placement_policy_for_class(self.args.procedural_placement_policy, anchor_class)
+            policy = placement_policy_for_class(self.args.procedural_placement_policy, anchor_class, room.room_type)
             yaw, center_x, center_y, width, length, _zone = candidate_pose_for_policy(room, entry, policy, margin, rng)
             if width >= room.width - 2.0 * margin or length >= room.length - 2.0 * margin:
                 stats["size_reject_count"] = int(stats["size_reject_count"]) + 1
@@ -1863,7 +1887,7 @@ class ProceduralFront3DGenerator:
                     if entry is None:
                         break
                     margin = float(self.args.procedural_wall_margin_m)
-                    policy = placement_policy_for_class(self.args.procedural_placement_policy, class_name)
+                    policy = placement_policy_for_class(self.args.procedural_placement_policy, class_name, room.room_type)
                     yaw, center_x, center_y, width, length, zone = candidate_pose_for_policy(room, entry, policy, margin, rng)
                     if width >= room.width - 2.0 * margin or length >= room.length - 2.0 * margin:
                         stats["size_reject_count"] = int(stats["size_reject_count"]) + 1

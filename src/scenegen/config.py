@@ -166,6 +166,39 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "table": {"zone": "center", "wall_offset_m": 0.0, "center_radius_ratio": 0.25},
             "seat": {"zone": "anywhere", "wall_offset_m": 0.0, "center_radius_ratio": 0.35},
             "floor": {"zone": "wall", "wall_offset_m": 0.05, "center_radius_ratio": 0.35},
+            "by_room_type": {
+                "LivingRoom": {
+                    "table": {"zone": "center", "wall_offset_m": 0.0, "center_radius_ratio": 0.18},
+                    "seat": {"zone": "center", "wall_offset_m": 0.0, "center_radius_ratio": 0.35},
+                    "floor": {"zone": "wall", "wall_offset_m": 0.05, "center_radius_ratio": 0.35},
+                },
+                "Bedroom": {
+                    "table": {"zone": "wall", "wall_offset_m": 0.08, "center_radius_ratio": 0.35},
+                    "floor": {"zone": "wall", "wall_offset_m": 0.08, "center_radius_ratio": 0.35},
+                },
+                "DiningRoom": {
+                    "table": {"zone": "center", "wall_offset_m": 0.0, "center_radius_ratio": 0.12},
+                    "seat": {"zone": "center", "wall_offset_m": 0.0, "center_radius_ratio": 0.30},
+                },
+                "StudyRoom": {
+                    "table": {"zone": "wall", "wall_offset_m": 0.10, "center_radius_ratio": 0.35},
+                    "seat": {"zone": "wall", "wall_offset_m": 0.10, "center_radius_ratio": 0.35},
+                    "floor": {"zone": "wall", "wall_offset_m": 0.05, "center_radius_ratio": 0.35},
+                },
+                "Kitchen": {
+                    "table": {"zone": "wall", "wall_offset_m": 0.08, "center_radius_ratio": 0.35},
+                    "seat": {"zone": "center", "wall_offset_m": 0.0, "center_radius_ratio": 0.35},
+                    "floor": {"zone": "wall", "wall_offset_m": 0.08, "center_radius_ratio": 0.35},
+                },
+                "Bathroom": {
+                    "table": {"zone": "wall", "wall_offset_m": 0.08, "center_radius_ratio": 0.35},
+                    "floor": {"zone": "wall", "wall_offset_m": 0.08, "center_radius_ratio": 0.35},
+                },
+                "Hallway": {
+                    "table": {"zone": "wall", "wall_offset_m": 0.08, "center_radius_ratio": 0.35},
+                    "floor": {"zone": "wall", "wall_offset_m": 0.08, "center_radius_ratio": 0.35},
+                },
+            },
         },
         "placement_groups": {
             "enabled": True,
@@ -386,6 +419,15 @@ def unknown_config_fields(config: dict[str, Any], schema: dict[str, Any] | None 
                 for room_type, room_value in value.items():
                     if isinstance(room_value, dict):
                         unknown.extend(unknown_config_fields(room_value, object_count_schema, (*path, str(room_type))))
+                    else:
+                        unknown.append(".".join((*path, str(room_type))))
+            continue
+        if path == ("procedural", "placement_policy", "by_room_type"):
+            if isinstance(value, dict) and isinstance(schema_value, dict):
+                policy_schema = {key: child for key, child in DEFAULT_CONFIG["procedural"]["placement_policy"].items() if key != "by_room_type"}
+                for room_type, room_value in value.items():
+                    if isinstance(room_value, dict):
+                        unknown.extend(unknown_config_fields(room_value, policy_schema, (*path, str(room_type))))
                     else:
                         unknown.append(".".join((*path, str(room_type))))
             continue
@@ -696,25 +738,51 @@ def normalize_room_type_max_counts(value: Any, key: str = "procedural.room_type_
     return max_counts
 
 
-def normalize_placement_policy(value: Any, key: str = "procedural.placement_policy") -> dict[str, dict[str, Any]]:
+def normalize_placement_policy_spec(value: Any, key: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{key} must be a mapping")
+    return {
+        "zone": str(value.get("zone", "anywhere")).strip(),
+        "wall_offset_m": float(value.get("wall_offset_m", 0.0)),
+        "center_radius_ratio": float(value.get("center_radius_ratio", 0.35)),
+    }
+
+
+def normalize_placement_policy(value: Any, key: str = "procedural.placement_policy") -> dict[str, Any]:
     if not isinstance(value, dict) or not value:
         raise ValueError(f"{key} must be a non-empty mapping")
     allowed_classes = {"default", "table", "seat", "floor"}
-    policies: dict[str, dict[str, Any]] = {}
+    policies: dict[str, Any] = {}
     for raw_name, raw_policy in value.items():
+        if raw_name == "by_room_type":
+            continue
         class_name = str(raw_name).strip().lower()
         policy_key = f"{key}.{raw_name}"
         if class_name not in allowed_classes:
             raise ValueError(f"{policy_key} must be default, table, seat, or floor")
-        if not isinstance(raw_policy, dict):
-            raise ValueError(f"{policy_key} must be a mapping")
-        policies[class_name] = {
-            "zone": str(raw_policy.get("zone", "anywhere")).strip(),
-            "wall_offset_m": float(raw_policy.get("wall_offset_m", 0.0)),
-            "center_radius_ratio": float(raw_policy.get("center_radius_ratio", 0.35)),
-        }
+        policies[class_name] = normalize_placement_policy_spec(raw_policy, policy_key)
     if "default" not in policies:
         raise ValueError(f"{key}.default is required")
+    raw_by_room_type = value.get("by_room_type", {}) or {}
+    if not isinstance(raw_by_room_type, dict):
+        raise ValueError(f"{key}.by_room_type must be a mapping or null")
+    by_room_type: dict[str, dict[str, dict[str, Any]]] = {}
+    for raw_room_type, raw_room_policies in raw_by_room_type.items():
+        room_type = str(raw_room_type).strip()
+        room_key = f"{key}.by_room_type.{raw_room_type}"
+        if not room_type:
+            raise ValueError(f"{key}.by_room_type room type names must not be empty")
+        if not isinstance(raw_room_policies, dict) or not raw_room_policies:
+            raise ValueError(f"{room_key} must be a non-empty mapping")
+        room_policies: dict[str, dict[str, Any]] = {}
+        for raw_class_name, raw_policy in raw_room_policies.items():
+            class_name = str(raw_class_name).strip().lower()
+            policy_key = f"{room_key}.{raw_class_name}"
+            if class_name not in allowed_classes:
+                raise ValueError(f"{policy_key} must be default, table, seat, or floor")
+            room_policies[class_name] = normalize_placement_policy_spec(raw_policy, policy_key)
+        by_room_type[room_type] = room_policies
+    policies["by_room_type"] = by_room_type
     return policies
 
 
@@ -1131,13 +1199,23 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("procedural.wall_margin_m must be non-negative")
     if procedural["object_margin_m"] < 0:
         raise ValueError("procedural.object_margin_m must be non-negative")
-    for class_name, policy in procedural["placement_policy"].items():
+    top_level_policy = {key: value for key, value in procedural["placement_policy"].items() if key != "by_room_type"}
+    for class_name, policy in top_level_policy.items():
         if policy["zone"] not in {"anywhere", "center", "wall"}:
             raise ValueError(f"procedural.placement_policy.{class_name}.zone must be 'anywhere', 'center', or 'wall'")
         if policy["wall_offset_m"] < 0:
             raise ValueError(f"procedural.placement_policy.{class_name}.wall_offset_m must be non-negative")
         if not 0.0 <= policy["center_radius_ratio"] <= 1.0:
             raise ValueError(f"procedural.placement_policy.{class_name}.center_radius_ratio must be between 0 and 1")
+    for room_type, room_policies in procedural["placement_policy"]["by_room_type"].items():
+        for class_name, policy in room_policies.items():
+            key = f"procedural.placement_policy.by_room_type.{room_type}.{class_name}"
+            if policy["zone"] not in {"anywhere", "center", "wall"}:
+                raise ValueError(f"{key}.zone must be 'anywhere', 'center', or 'wall'")
+            if policy["wall_offset_m"] < 0:
+                raise ValueError(f"{key}.wall_offset_m must be non-negative")
+            if not 0.0 <= policy["center_radius_ratio"] <= 1.0:
+                raise ValueError(f"{key}.center_radius_ratio must be between 0 and 1")
     for room_type, specs in procedural["placement_groups"]["room_types"].items():
         for index, spec in enumerate(specs):
             if spec["companion_count"][0] < 0 or spec["companion_count"][1] < spec["companion_count"][0]:
