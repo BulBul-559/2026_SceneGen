@@ -823,7 +823,7 @@ wheels = [
 
 [[package]]
 name = "scenegen"
-version = "3.27.0"
+version = "3.28.0"
 source = { editable = "." }
 dependencies = [
     { name = "numpy" },

@@ -285,6 +285,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "require_connected_rooms": True,
             "min_room_area_m2": 8.0,
             "max_room_aspect_ratio": 4.0,
+            "min_footprint_fill_ratio": 0.25,
+            "max_footprint_fill_ratio": None,
+            "min_footprint_concavity_m2": None,
+            "max_footprint_concavity_m2": None,
             "room_type_geometry": {
                 "LivingRoom": {"min_area_m2": 16.0, "max_area_m2": None, "max_aspect_ratio": 3.5},
                 "Bedroom": {"min_area_m2": 10.0, "max_area_m2": None, "max_aspect_ratio": 3.5},
@@ -1066,6 +1070,26 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     procedural_precheck["max_room_aspect_ratio"] = (
         None if procedural_precheck["max_room_aspect_ratio"] is None else float(procedural_precheck["max_room_aspect_ratio"])
     )
+    procedural_precheck["min_footprint_fill_ratio"] = (
+        None
+        if procedural_precheck["min_footprint_fill_ratio"] is None
+        else float(procedural_precheck["min_footprint_fill_ratio"])
+    )
+    procedural_precheck["max_footprint_fill_ratio"] = (
+        None
+        if procedural_precheck["max_footprint_fill_ratio"] is None
+        else float(procedural_precheck["max_footprint_fill_ratio"])
+    )
+    procedural_precheck["min_footprint_concavity_m2"] = (
+        None
+        if procedural_precheck["min_footprint_concavity_m2"] is None
+        else float(procedural_precheck["min_footprint_concavity_m2"])
+    )
+    procedural_precheck["max_footprint_concavity_m2"] = (
+        None
+        if procedural_precheck["max_footprint_concavity_m2"] is None
+        else float(procedural_precheck["max_footprint_concavity_m2"])
+    )
     procedural_precheck["room_type_geometry"] = normalize_room_type_geometry_rules(
         procedural_precheck.get("room_type_geometry")
     )
@@ -1269,6 +1293,22 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("procedural.door_width_m must be non-negative")
     if procedural["door_clearance_m"] < 0:
         raise ValueError("procedural.door_clearance_m must be non-negative")
+    footprint_min = procedural["precheck"]["min_footprint_fill_ratio"]
+    footprint_max = procedural["precheck"]["max_footprint_fill_ratio"]
+    if footprint_min is not None and not 0.0 <= float(footprint_min) <= 1.0:
+        raise ValueError("procedural.precheck.min_footprint_fill_ratio must be between 0 and 1 or null")
+    if footprint_max is not None and not 0.0 <= float(footprint_max) <= 1.0:
+        raise ValueError("procedural.precheck.max_footprint_fill_ratio must be between 0 and 1 or null")
+    if footprint_min is not None and footprint_max is not None and float(footprint_max) < float(footprint_min):
+        raise ValueError("procedural.precheck.max_footprint_fill_ratio must be >= min_footprint_fill_ratio")
+    concavity_min = procedural["precheck"]["min_footprint_concavity_m2"]
+    concavity_max = procedural["precheck"]["max_footprint_concavity_m2"]
+    if concavity_min is not None and float(concavity_min) < 0:
+        raise ValueError("procedural.precheck.min_footprint_concavity_m2 must be non-negative or null")
+    if concavity_max is not None and float(concavity_max) < 0:
+        raise ValueError("procedural.precheck.max_footprint_concavity_m2 must be non-negative or null")
+    if concavity_min is not None and concavity_max is not None and float(concavity_max) < float(concavity_min):
+        raise ValueError("procedural.precheck.max_footprint_concavity_m2 must be >= min_footprint_concavity_m2")
     windows = procedural["windows"]
     if not 0.0 <= windows["room_probability"] <= 1.0:
         raise ValueError("procedural.windows.room_probability must be between 0 and 1")
@@ -1620,6 +1660,10 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         procedural_precheck_require_connected_rooms=procedural["precheck"]["require_connected_rooms"],
         procedural_precheck_min_room_area_m2=procedural["precheck"]["min_room_area_m2"],
         procedural_precheck_max_room_aspect_ratio=procedural["precheck"]["max_room_aspect_ratio"],
+        procedural_precheck_min_footprint_fill_ratio=procedural["precheck"]["min_footprint_fill_ratio"],
+        procedural_precheck_max_footprint_fill_ratio=procedural["precheck"]["max_footprint_fill_ratio"],
+        procedural_precheck_min_footprint_concavity_m2=procedural["precheck"]["min_footprint_concavity_m2"],
+        procedural_precheck_max_footprint_concavity_m2=procedural["precheck"]["max_footprint_concavity_m2"],
         procedural_precheck_room_type_geometry=procedural["precheck"]["room_type_geometry"],
         validate_sionna=validation["sionna"],
         quality_enabled=quality["enabled"],

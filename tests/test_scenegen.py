@@ -1633,6 +1633,67 @@ def test_procedural_room_type_geometry_rejects_invalid_bounds(tmp_path: Path) ->
         load_effective_config(config_path, root, parse_args([]))
 
 
+def test_procedural_precheck_rejects_invalid_footprint_threshold_config(tmp_path: Path) -> None:
+    root = find_project_root()
+    bad_fill = tmp_path / "bad_footprint_fill.yaml"
+    bad_fill.write_text(
+        "procedural:\n"
+        "  precheck:\n"
+        "    min_footprint_fill_ratio: 0.8\n"
+        "    max_footprint_fill_ratio: 0.4\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="max_footprint_fill_ratio"):
+        load_effective_config(bad_fill, root, parse_args([]))
+
+    bad_concavity = tmp_path / "bad_footprint_concavity.yaml"
+    bad_concavity.write_text(
+        "procedural:\n"
+        "  precheck:\n"
+        "    min_footprint_concavity_m2: -1\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="min_footprint_concavity_m2"):
+        load_effective_config(bad_concavity, root, parse_args([]))
+
+
+def test_procedural_precheck_rejects_bad_footprint_metrics() -> None:
+    args = Namespace(
+        mode="procedural_front3d",
+        procedural_precheck_enabled=True,
+        procedural_precheck_min_placements=1,
+        procedural_precheck_min_placement_ratio=0.5,
+        procedural_precheck_max_skipped_ratio=0.8,
+        procedural_precheck_require_connected_rooms=False,
+        procedural_precheck_min_room_area_m2=0.0,
+        procedural_precheck_max_room_aspect_ratio=None,
+        procedural_precheck_min_footprint_fill_ratio=0.5,
+        procedural_precheck_max_footprint_fill_ratio=0.9,
+        procedural_precheck_min_footprint_concavity_m2=1.0,
+        procedural_precheck_max_footprint_concavity_m2=12.0,
+        procedural_precheck_room_type_geometry=None,
+    )
+
+    result = evaluate_procedural_precheck(
+        args,
+        {"placement_count": 3},
+        {
+            "skipped_object_count": 0,
+            "procedural": {
+                "footprint": {"fill_ratio": 0.96, "concavity_area_m2": 0.2},
+                "placement_stats": {"desired_object_counts": {"room_a": 3}},
+            },
+        },
+    )
+
+    assert result["ok"] is False
+    assert result["footprint"] == {"fill_ratio": 0.96, "concavity_area_m2": 0.2}
+    assert {error["code"] for error in result["errors"]} == {
+        "footprint_fill_ratio_too_high",
+        "footprint_concavity_too_low",
+    }
+
+
 def test_prepare_run_dir_clean_only_replaces_named_run(tmp_path: Path) -> None:
     output_root = tmp_path / "results"
     keep_run = output_root / "keep_run"

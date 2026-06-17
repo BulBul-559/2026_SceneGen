@@ -220,6 +220,10 @@ uv run scenegen \
 | `require_connected_rooms` | boolean | `true` | 是否要求所有 room 通过带正宽门洞的 adjacency 连成一个可达图；失败时换 seed 重试。 |
 | `min_room_area_m2` | float, `>=0` | `8.0` | 单个 room 的最小面积；过小 room 会触发预检失败。 |
 | `max_room_aspect_ratio` | float, `>=1` / `null` | `4.0` | 单个 room 最长边 / 最短边的最大比例；设为 `null` 可关闭该检查。 |
+| `min_footprint_fill_ratio` | float, `0-1` / `null` | `0.25` | room union 面积 / bbox 面积的最低值；用于过滤过于稀疏、拉得太散的户型。 |
+| `max_footprint_fill_ratio` | float, `0-1` / `null` | `null` | room union 面积 / bbox 面积的最高值；想强制不规则外轮廓时可设为小于 `1.0`。 |
+| `min_footprint_concavity_m2` | float, `>=0` / `null` | `null` | 户型 bbox 面积减去 room union 面积的最低值；用于强制保留一定凹口/空缺面积。 |
+| `max_footprint_concavity_m2` | float, `>=0` / `null` | `null` | 户型凹口面积最高值；用于过滤凹口过大的样本。 |
 | `room_type_geometry` | mapping / `null` | 见模板 | 按 room type 配置 `min_area_m2`、`max_area_m2`、`max_aspect_ratio`；用于过滤过小客厅、过大卫浴等不自然样本。 |
 
 `room_type_geometry` 中的每个 room type 都可以只写部分字段，未写字段视为不检查。也可以写 `default` 作为兜底规则，或设为 `null` 关闭类型化几何检查。

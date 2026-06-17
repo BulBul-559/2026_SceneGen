@@ -148,6 +148,7 @@ def evaluate_procedural_precheck(
     placed_counts = placement_stats.get("placed_object_counts") if isinstance(placement_stats.get("placed_object_counts"), dict) else {}
     desired_total = sum(int(value) for value in desired_counts.values()) if desired_counts else 0
     skipped_count = int(record.get("skipped_object_count") or (procedural.get("skipped_object_count", 0) if procedural else 0))
+    footprint = procedural.get("footprint") if isinstance(procedural.get("footprint"), dict) else {}
 
     connectivity = evaluate_procedural_room_connectivity(procedural)
     if bool(getattr(args, "procedural_precheck_require_connected_rooms", True)) and not bool(connectivity["ok"]):
@@ -191,6 +192,45 @@ def evaluate_procedural_precheck(
         errors.append({"code": "room_type_area_too_large", "rooms": room_type_geometry["too_large"]})
     if room_type_geometry["too_elongated"]:
         errors.append({"code": "room_type_aspect_ratio_too_high", "rooms": room_type_geometry["too_elongated"]})
+
+    footprint_fill_ratio = float(footprint.get("fill_ratio", 0.0) or 0.0) if footprint else 0.0
+    footprint_concavity = float(footprint.get("concavity_area_m2", 0.0) or 0.0) if footprint else 0.0
+    min_fill = getattr(args, "procedural_precheck_min_footprint_fill_ratio", None)
+    max_fill = getattr(args, "procedural_precheck_max_footprint_fill_ratio", None)
+    min_concavity = getattr(args, "procedural_precheck_min_footprint_concavity_m2", None)
+    max_concavity = getattr(args, "procedural_precheck_max_footprint_concavity_m2", None)
+    if min_fill is not None and footprint_fill_ratio < float(min_fill):
+        errors.append(
+            {
+                "code": "footprint_fill_ratio_too_low",
+                "value": round(footprint_fill_ratio, 6),
+                "threshold": float(min_fill),
+            }
+        )
+    if max_fill is not None and footprint_fill_ratio > float(max_fill):
+        errors.append(
+            {
+                "code": "footprint_fill_ratio_too_high",
+                "value": round(footprint_fill_ratio, 6),
+                "threshold": float(max_fill),
+            }
+        )
+    if min_concavity is not None and footprint_concavity < float(min_concavity):
+        errors.append(
+            {
+                "code": "footprint_concavity_too_low",
+                "value": round(footprint_concavity, 6),
+                "threshold": float(min_concavity),
+            }
+        )
+    if max_concavity is not None and footprint_concavity > float(max_concavity):
+        errors.append(
+            {
+                "code": "footprint_concavity_too_high",
+                "value": round(footprint_concavity, 6),
+                "threshold": float(max_concavity),
+            }
+        )
 
     if desired_total > 0:
         placement_ratio = placement_count / desired_total
@@ -251,6 +291,10 @@ def evaluate_procedural_precheck(
     result["room_connectivity"] = connectivity
     result["room_geometry"] = room_geometry
     result["room_type_geometry"] = room_type_geometry
+    result["footprint"] = {
+        "fill_ratio": round(footprint_fill_ratio, 6),
+        "concavity_area_m2": round(footprint_concavity, 6),
+    }
     return result
 
 
@@ -482,6 +526,10 @@ def procedural_precheck_settings(args: argparse.Namespace) -> dict[str, object]:
         "require_connected_rooms": bool(args.procedural_precheck_require_connected_rooms),
         "min_room_area_m2": float(args.procedural_precheck_min_room_area_m2),
         "max_room_aspect_ratio": args.procedural_precheck_max_room_aspect_ratio,
+        "min_footprint_fill_ratio": args.procedural_precheck_min_footprint_fill_ratio,
+        "max_footprint_fill_ratio": args.procedural_precheck_max_footprint_fill_ratio,
+        "min_footprint_concavity_m2": args.procedural_precheck_min_footprint_concavity_m2,
+        "max_footprint_concavity_m2": args.procedural_precheck_max_footprint_concavity_m2,
         "room_type_geometry": getattr(args, "procedural_precheck_room_type_geometry", {}),
     }
 
