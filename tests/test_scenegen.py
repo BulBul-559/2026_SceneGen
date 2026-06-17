@@ -67,6 +67,7 @@ from scenegen.procedural import (
     procedural_asset_footprint_size,
     rotate_direction,
     room_adjacencies_for_rooms,
+    room_aspect_ratio,
     room_exterior_segments,
     rooms_footprint_metrics,
     room_type_sequence,
@@ -346,9 +347,52 @@ def test_procedural_mixed_layout_uses_configured_weights() -> None:
 
     assert choose_procedural_layout("split_tree", {"rect_union": 1.0}, rng) == "split_tree"
     assert choose_procedural_layout("mixed", {"split_tree": 0.0, "rect_union": 1.0, "grid": 0.0}, rng) == "rect_union"
+    assert (
+        choose_procedural_layout(
+            "mixed",
+            {"split_tree": 0.0, "rect_union": 0.0, "corridor_spine": 1.0, "grid": 0.0},
+            rng,
+        )
+        == "corridor_spine"
+    )
 
     with pytest.raises(ValueError, match="layout_weights"):
-        choose_procedural_layout("mixed", {"split_tree": 0.0, "rect_union": 0.0, "grid": 0.0}, rng)
+        choose_procedural_layout("mixed", {"split_tree": 0.0, "rect_union": 0.0, "corridor_spine": 0.0, "grid": 0.0}, rng)
+
+
+def test_procedural_corridor_spine_layout_connects_rooms_through_hallway() -> None:
+    rooms = make_room_layout(
+        random.Random(2031),
+        "corridor_spine",
+        (6, 6),
+        (3.2, 5.8),
+        (3.2, 6.4),
+        (2.8, 2.8),
+        ("LivingRoom", "Bedroom", "Kitchen", "Bathroom", "Hallway"),
+        required_room_types={"LivingRoom": 1, "Bedroom": 1, "Kitchen": 1},
+        room_type_assignment="geometry_fit",
+        room_type_area_priority=("LivingRoom", "Bedroom", "Kitchen", "Bathroom", "Hallway"),
+        room_type_max_counts={"LivingRoom": 2, "Bedroom": None, "Kitchen": 1, "Bathroom": 2, "Hallway": 2},
+        room_type_weights={"LivingRoom": 2.0, "Bedroom": 2.0, "Kitchen": 1.0, "Bathroom": 0.8},
+        room_type_geometry_rules=DEFAULT_CONFIG["procedural"]["precheck"]["room_type_geometry"],
+    )
+    hallway_ids = {room.room_id for room in rooms if room.room_type == "Hallway"}
+    assert hallway_ids
+    assert {"LivingRoom", "Bedroom", "Kitchen"}.issubset({room.room_type for room in rooms})
+    for room in rooms:
+        if room.room_type == "Hallway":
+            assert room.area <= 30.0
+            assert room_aspect_ratio(room.width, room.length) <= 4.0
+
+    adjacencies = room_adjacencies_for_rooms(rooms, wall_thickness=0.16, door_width=1.0)
+    graph = {room.room_id: set() for room in rooms}
+    for adjacency in adjacencies:
+        left, right = (str(value) for value in adjacency["rooms"])
+        graph[left].add(right)
+        graph[right].add(left)
+    for room in rooms:
+        if room.room_type != "Hallway":
+            assert graph[room.room_id] & hallway_ids
 
 
 def test_procedural_exterior_segments_follow_room_union_not_bbox() -> None:
@@ -1077,6 +1121,7 @@ def test_procedural_mixed_layout_config_validates_weights(tmp_path: Path) -> Non
         "  layout_weights:\n"
         "    split_tree: 0\n"
         "    rect_union: 1\n"
+        "    corridor_spine: 0\n"
         "    grid: 0\n",
         encoding="utf-8",
     )
@@ -1084,7 +1129,12 @@ def test_procedural_mixed_layout_config_validates_weights(tmp_path: Path) -> Non
     effective, _overrides = load_effective_config(config_path, root, parse_args([]))
 
     assert effective["procedural"]["layout"] == "mixed"
-    assert effective["procedural"]["layout_weights"] == {"split_tree": 0.0, "rect_union": 1.0, "grid": 0.0}
+    assert effective["procedural"]["layout_weights"] == {
+        "split_tree": 0.0,
+        "rect_union": 1.0,
+        "corridor_spine": 0.0,
+        "grid": 0.0,
+    }
 
     bad_zero = tmp_path / "bad_mixed_zero.yaml"
     bad_zero.write_text(
@@ -1093,6 +1143,7 @@ def test_procedural_mixed_layout_config_validates_weights(tmp_path: Path) -> Non
         "  layout_weights:\n"
         "    split_tree: 0\n"
         "    rect_union: 0\n"
+        "    corridor_spine: 0\n"
         "    grid: 0\n",
         encoding="utf-8",
     )

@@ -1051,6 +1051,105 @@ def make_rect_union_room_layout(
     ]
 
 
+def make_corridor_spine_room_layout(
+    rng: random.Random,
+    room_count_range: tuple[int, int],
+    room_width_range: tuple[float, float],
+    room_length_range: tuple[float, float],
+    height_range: tuple[float, float],
+    room_types: tuple[str, ...],
+    required_room_types: dict[str, int] | None = None,
+    room_type_assignment: str = "sequence",
+    room_type_area_priority: tuple[str, ...] = (),
+    room_type_max_counts: dict[str, int | None] | None = None,
+    room_type_weights: dict[str, float] | None = None,
+    room_type_geometry_rules: dict[str, dict[str, float | None]] | None = None,
+) -> list[ProceduralRoom]:
+    hall_type = "Hallway"
+    required = dict(required_room_types or {})
+    required_hall_count = max(0, int(required.pop(hall_type, 0)))
+    required_side_count = sum(max(0, int(count)) for count in required.values())
+    max_room_count = int(room_count_range[1])
+    hallway_limit = (room_type_max_counts or {}).get(hall_type)
+    hallway_capacity = max_room_count if hallway_limit is None else max(1, int(hallway_limit))
+    hall_count = min(max(2 if max_room_count >= required_side_count + 2 else 1, required_hall_count, 1), hallway_capacity)
+    if required_side_count + hall_count > max_room_count and hall_count > 1:
+        hall_count = 1
+    room_count = max(rng.randint(room_count_range[0], room_count_range[1]), required_side_count + hall_count)
+    room_count = min(room_count, hall_count * 3)
+    side_count = max(0, room_count - hall_count)
+    if side_count == 0:
+        side_count = 1
+        room_count = hall_count + side_count
+
+    hall_widths = [round(rng.uniform(room_width_range[0], min(room_width_range[1], room_width_range[0] + 1.4)), 3) for _ in range(hall_count)]
+    south_depth = round(rng.uniform(*room_length_range), 3)
+    north_depth = round(rng.uniform(*room_length_range), 3)
+    hallway_depth = round(rng.uniform(max(2.0, room_length_range[0] * 0.55), max(2.2, min(3.0, room_length_range[1] * 0.65))), 3)
+    height = round(rng.uniform(*height_range), 3)
+
+    side_regions: list[LayoutRegion] = []
+    slots: list[tuple[str, int]] = [("south", index) for index in range(hall_count)] + [("north", index) for index in range(hall_count)]
+    rng.shuffle(slots)
+    slots = sorted(slots[:side_count], key=lambda item: (item[0] != "south", item[1]))
+
+    x_offsets = [0.0]
+    for width in hall_widths:
+        x_offsets.append(round(x_offsets[-1] + width, 6))
+    for side, index in slots:
+        x0 = x_offsets[index]
+        x1 = x_offsets[index + 1]
+        if side == "south":
+            side_regions.append(LayoutRegion(x0, 0.0, x1, south_depth))
+        else:
+            side_regions.append(LayoutRegion(x0, south_depth + hallway_depth, x1, south_depth + hallway_depth + north_depth))
+
+    side_room_types = tuple(room_type for room_type in room_types if room_type != hall_type)
+    side_max_counts = {
+        room_type: max_count for room_type, max_count in (room_type_max_counts or {}).items() if room_type != hall_type
+    }
+    side_weights = {room_type: weight for room_type, weight in (room_type_weights or {}).items() if room_type != hall_type}
+    type_sequence = room_type_sequence(
+        len(side_regions),
+        side_room_types or room_types,
+        rng,
+        shuffle=True,
+        required_room_types=required,
+        room_type_max_counts=side_max_counts,
+        room_type_weights=side_weights,
+    )
+    type_sequence = assign_room_types_to_geometry(
+        type_sequence,
+        [(region.area, room_aspect_ratio(region.width, region.length)) for region in side_regions],
+        assignment=room_type_assignment,
+        area_priority=room_type_area_priority,
+        geometry_rules=room_type_geometry_rules,
+    )
+
+    room_specs: list[tuple[str, LayoutRegion]] = []
+    for index in range(hall_count):
+        room_specs.append(
+            (
+                hall_type,
+                LayoutRegion(x_offsets[index], south_depth, x_offsets[index + 1], south_depth + hallway_depth),
+            )
+        )
+    room_specs.extend(zip(type_sequence, side_regions, strict=False))
+    room_specs = sorted(room_specs, key=lambda item: (item[1].y0, item[1].x0))
+    return [
+        ProceduralRoom(
+            room_id=f"proc_room_{index:02d}",
+            room_type=room_type,
+            x0=round(region.x0, 6),
+            y0=round(region.y0, 6),
+            x1=round(region.x1, 6),
+            y1=round(region.y1, 6),
+            height=height,
+        )
+        for index, (room_type, region) in enumerate(room_specs)
+    ]
+
+
 def make_room_layout(
     rng: random.Random,
     layout: str,
@@ -1111,6 +1210,21 @@ def make_room_layout(
             room_type_weights=room_type_weights,
             room_type_geometry_rules=room_type_geometry_rules,
         )
+    if layout == "corridor_spine":
+        return make_corridor_spine_room_layout(
+            rng,
+            room_count_range,
+            room_width_range,
+            room_length_range,
+            height_range,
+            room_types,
+            required_room_types=required_room_types,
+            room_type_assignment=room_type_assignment,
+            room_type_area_priority=room_type_area_priority,
+            room_type_max_counts=room_type_max_counts,
+            room_type_weights=room_type_weights,
+            room_type_geometry_rules=room_type_geometry_rules,
+        )
     raise ValueError(f"Unsupported procedural layout: {layout}")
 
 
@@ -1121,7 +1235,7 @@ def choose_procedural_layout(
 ) -> str:
     if configured_layout != "mixed":
         return configured_layout
-    supported_layouts = ("grid", "split_tree", "rect_union")
+    supported_layouts = ("grid", "split_tree", "rect_union", "corridor_spine")
     weights = [max(0.0, float((layout_weights or {}).get(layout, 0.0))) for layout in supported_layouts]
     if not any(weight > 0.0 for weight in weights):
         raise ValueError("procedural.layout_weights must assign a positive weight for mixed layout")

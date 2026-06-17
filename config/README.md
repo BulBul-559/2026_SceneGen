@@ -110,8 +110,8 @@ uv run scenegen \
 
 | 字段 | 可选值 / 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `layout` | `grid` / `split_tree` / `rect_union` / `mixed` | `split_tree` | 户型布局策略。`grid` 是早期规整行列；`split_tree` 从完整 apartment footprint 递归切分房间；`rect_union` 从连通房间矩形集合拼出 L/T/凹口式不规则外轮廓；`mixed` 按 `layout_weights` 加权选择实际 layout。 |
-| `layout_weights` | mapping | `{split_tree: 1.0, rect_union: 1.0, grid: 0.2}` | 仅在 `layout: mixed` 时生效。权重必须非负，至少一个支持的 layout 权重大于 0；每个 scene 的实际 layout 会写入 manifest 和 `procedural_report.json`。 |
+| `layout` | `grid` / `split_tree` / `rect_union` / `corridor_spine` / `mixed` | `split_tree` | 户型布局策略。`grid` 是早期规整行列；`split_tree` 从完整 apartment footprint 递归切分房间；`rect_union` 从连通房间矩形集合拼出 L/T/凹口式不规则外轮廓；`corridor_spine` 生成走廊 spine + 两侧房间的公寓式拓扑；`mixed` 按 `layout_weights` 加权选择实际 layout。 |
+| `layout_weights` | mapping | `{split_tree: 1.0, rect_union: 1.0, corridor_spine: 0.8, grid: 0.2}` | 仅在 `layout: mixed` 时生效。权重必须非负，至少一个支持的 layout 权重大于 0；每个 scene 的实际 layout 会写入 manifest 和 `procedural_report.json`。 |
 | `room_count` | `[min, max]` | `[3, 6]` | 每个程序化场景的 room 数量范围。 |
 | `room_width_m` | `[min, max]` | `[3.2, 5.8]` | 单个 room 宽度范围。 |
 | `room_length_m` | `[min, max]` | `[3.2, 6.4]` | 单个 room 长度范围。 |
