@@ -2,7 +2,7 @@
 
 SceneGen 是一个面向 Linux 环境的轻量级室内场景生成项目。它基于空场景和归一化资产，随机生成带家具、桌椅、小物件的 3D 场景，并同步导出 Sionna/Mitsuba 可加载的场景文件和平面图。
 
-当前项目版本：`3.21.0`。
+当前项目版本：`3.22.0`。
 
 当前主工作流包括 Bistro 场景生成、3D-FRONT 已组合场景合成，以及实验性的自动场景生成：Bistro 以 `data/scene/scene.obj` 作为空场景，以 `data/catalogs/bistro.v1.json` 管理资产契约；3D-FRONT 以第一阶段整理出的 `data/3D-Front/scenegen_manifest.json` 为索引，合并建筑结构和已有家具实例；`procedural_front3d` 会自动采样多房间户型，并从 3D-FUTURE/3D-FRONT 资产池中摆放家具。`data/assets/manifest.json` 仍保留为兼容位置，但内容已经与 catalog 使用同一份清洗后的契约。
 
@@ -242,7 +242,7 @@ uv run scenegen-batch \
 8. 按 `procedural.precheck` 检查实际家具数、全局和单房间目标完成率、跳过比例、房间连通性、基础房间几何质量和 room type 几何规则；失败时自动换 seed 重试补齐同一输出编号。
 9. 复用现有 `scene.obj`、`scene.xml`、`label/`、`floorplan/`、`class_mask`、quality 和 statistics 输出链路。
 
-第一版仍是规则 baseline：房间拓扑和关系约束还比较轻量；建筑结构已支持外墙窗户玻璃面，并会输出相邻房间的连通关系和门洞位置；room 类型支持 `procedural.required_room_types` 必选组成、`procedural.room_type_weights` 加权分布、`procedural.room_type_max_counts` 类型上限和 `procedural.room_type_assignment: geometry_fit` 几何规则匹配；家具数量已经支持 `procedural.object_count` 面积自适应和 `object_count.by_room_type` 房型密度覆盖，家具组合已经迁移到 `procedural.room_profiles`，可以按房间类型配置 `table`、`seat`、`floor` 的组合序列，并可用 `category`、`super_category`、`name`、`material` 关键词筛选更合适的资产；默认客厅 table 会优先筛选 coffee/tea/side table，配合 sofa 类 seat 形成会客区；`procedural.asset_reuse` 会减少同一 3D-FUTURE model 在 room/scene 内重复出现；位置采样支持 `procedural.placement_policy` 的中心/靠墙偏置和 `placement_policy.by_room_type` 房型覆盖，局部组合支持 `procedural.placement_groups` 的 anchor + companion 关系；`procedural.door_clearance_m` 会保护门洞周围通行区域。程序化预检会在 label/floorplan 前过滤整体或单房间摆放过少、失败比例过高、room adjacency 不连通、room 过小、长宽比过大或 room type 几何尺寸不合理的样本。run 根目录的 `procedural_report.json` 会汇总 room 数量、room type、面积/长宽比、adjacency/window、家具完成率、关系组成功次数、precheck 通过率和 room type 几何问题统计，用于批量生产后快速质检。后续可以逐步替换为更强的 room planner、语义资产组、约束求解器和可达性验证。
+第一版仍是规则 baseline：房间拓扑和关系约束还比较轻量；建筑结构已支持外墙窗户玻璃面，并会输出相邻房间的连通关系和门洞位置；room 类型支持 `procedural.required_room_types` 必选组成、`procedural.room_type_weights` 加权分布、`procedural.room_type_max_counts` 类型上限和 `procedural.room_type_assignment: geometry_fit` 几何规则匹配；家具数量已经支持 `procedural.object_count` 面积自适应和 `object_count.by_room_type` 房型密度覆盖，家具组合已经迁移到 `procedural.room_profiles`，可以按房间类型配置 `table`、`seat`、`floor` 的组合序列，并可用 `category`、`super_category`、`name`、`material` 关键词筛选更合适的资产；默认客厅 table 会优先筛选 coffee/tea/side table，配合 sofa 类 seat 形成会客区；`procedural.asset_reuse` 会减少同一 3D-FUTURE model 在 room/scene 内重复出现；位置采样支持 `procedural.placement_policy` 的中心/靠墙偏置和 `placement_policy.by_room_type` 房型覆盖，局部组合支持 `procedural.placement_groups` 的 anchor + companion 关系；`procedural.door_clearance_m` 会保护门洞周围通行区域。程序化预检会在 label/floorplan 前过滤整体或单房间摆放过少、失败比例过高、room adjacency 不连通、room 过小、长宽比过大或 room type 几何尺寸不合理的样本。run 根目录的 `procedural_report.json` 会汇总 room 数量、room type、面积/长宽比、footprint fill ratio/凹口面积、adjacency/window、家具完成率、关系组成功次数、precheck 通过率和 room type 几何问题统计，用于批量生产后快速质检。后续可以逐步替换为更强的 room planner、语义资产组、约束求解器和可达性验证。
 
 ## 生产运行与日志
 

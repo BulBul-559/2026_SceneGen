@@ -81,6 +81,30 @@ def rounded(value: float) -> float:
     return round(float(value), 6)
 
 
+def rooms_footprint_metrics(rooms: list[ProceduralRoom]) -> dict[str, object]:
+    if not rooms:
+        return {
+            "room_area_m2": 0.0,
+            "bbox_area_m2": 0.0,
+            "bbox_xy": [0.0, 0.0, 0.0, 0.0],
+            "fill_ratio": 0.0,
+            "concavity_area_m2": 0.0,
+        }
+    min_x = min(room.x0 for room in rooms)
+    min_y = min(room.y0 for room in rooms)
+    max_x = max(room.x1 for room in rooms)
+    max_y = max(room.y1 for room in rooms)
+    room_area = sum(room.area for room in rooms)
+    bbox_area = max(0.0, max_x - min_x) * max(0.0, max_y - min_y)
+    return {
+        "room_area_m2": rounded(room_area),
+        "bbox_area_m2": rounded(bbox_area),
+        "bbox_xy": [rounded(min_x), rounded(min_y), rounded(max_x), rounded(max_y)],
+        "fill_ratio": rounded(room_area / bbox_area) if bbox_area > 0 else 0.0,
+        "concavity_area_m2": rounded(max(0.0, bbox_area - room_area)),
+    }
+
+
 def numeric_summary(values: list[float]) -> dict[str, float]:
     if not values:
         return {"min": 0.0, "max": 0.0, "mean": 0.0}
@@ -98,6 +122,8 @@ def aggregate_procedural_run_report(scene_records: list[dict[str, object]]) -> d
     window_counts: list[float] = []
     room_areas: list[float] = []
     room_aspects: list[float] = []
+    footprint_fill_ratios: list[float] = []
+    footprint_concavity_areas: list[float] = []
     desired_counts: list[float] = []
     placement_counts: list[float] = []
     skipped_counts: list[float] = []
@@ -142,6 +168,11 @@ def aggregate_procedural_run_report(scene_records: list[dict[str, object]]) -> d
                 scene_room_aspects.append(aspect)
 
         placement_stats = procedural.get("placement_stats") if isinstance(procedural.get("placement_stats"), dict) else {}
+        footprint = procedural.get("footprint") if isinstance(procedural.get("footprint"), dict) else {}
+        if isinstance(footprint.get("fill_ratio"), int | float):
+            footprint_fill_ratios.append(float(footprint["fill_ratio"]))
+        if isinstance(footprint.get("concavity_area_m2"), int | float):
+            footprint_concavity_areas.append(float(footprint["concavity_area_m2"]))
         desired_object_counts = (
             placement_stats.get("desired_object_counts")
             if isinstance(placement_stats.get("desired_object_counts"), dict)
@@ -192,6 +223,7 @@ def aggregate_procedural_run_report(scene_records: list[dict[str, object]]) -> d
                 "room_type_counts": dict(sorted(scene_type_counts.items())),
                 "room_area_m2": numeric_summary(scene_room_areas),
                 "room_aspect_ratio": numeric_summary(scene_room_aspects),
+                "footprint": footprint,
                 "adjacency_count": adjacency_count,
                 "window_count": window_count,
                 "desired_object_count": desired_total,
@@ -216,6 +248,8 @@ def aggregate_procedural_run_report(scene_records: list[dict[str, object]]) -> d
         else {},
         "room_area_m2": numeric_summary(room_areas),
         "room_aspect_ratio": numeric_summary(room_aspects),
+        "footprint_fill_ratio": numeric_summary(footprint_fill_ratios),
+        "footprint_concavity_area_m2": numeric_summary(footprint_concavity_areas),
         "adjacency_count": numeric_summary(adjacency_counts),
         "window_count": numeric_summary(window_counts),
         "desired_object_count": numeric_summary(desired_counts),
@@ -1697,6 +1731,7 @@ def write_procedural_source_files(
     )
     rooms_payload: list[dict[str, object]] = []
     children_by_index = {int(item["room_index"]): item["children"] for item in room_children}
+    footprint = rooms_footprint_metrics(rooms)
     for index, room in enumerate(rooms):
         rooms_payload.append(
             {
@@ -1715,7 +1750,7 @@ def write_procedural_source_files(
         "furniture": [],
         "mesh": meshes,
         "scene": {"room": rooms_payload},
-        "procedural": {"adjacency_count": len(adjacencies or []), "adjacency": adjacencies or []},
+        "procedural": {"footprint": footprint, "adjacency_count": len(adjacencies or []), "adjacency": adjacencies or []},
     }
     source_json.write_text(json.dumps(source_payload, ensure_ascii=False, indent=2), encoding="utf-8")
     metadata_payload = {
@@ -1740,6 +1775,7 @@ def write_procedural_source_files(
         },
         "procedural": {
             "room_count": len(rooms),
+            "footprint": footprint,
             "adjacency_count": len(adjacencies or []),
             "adjacency": adjacencies or [],
             "rooms": [
@@ -2264,6 +2300,7 @@ class ProceduralFront3DGenerator:
             "scene_id": scene_id,
             "layout": str(self.args.procedural_layout),
             "room_count": len(rooms),
+            "footprint": rooms_footprint_metrics(rooms),
             "adjacency_count": len(adjacencies),
             "adjacency": adjacencies,
             "window_count": sum(1 for mesh in meshes if str(mesh["type"]).lower() == "window"),

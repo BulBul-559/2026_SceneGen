@@ -67,6 +67,7 @@ from scenegen.procedural import (
     rotate_direction,
     room_adjacencies_for_rooms,
     room_exterior_segments,
+    rooms_footprint_metrics,
     room_type_sequence,
     select_room_group_specs,
     select_room_profile,
@@ -352,6 +353,22 @@ def test_procedural_exterior_segments_follow_room_union_not_bbox() -> None:
     assert segments["east"] == []
     assert segments["south"] == [(0.0, 4.0)]
     assert segments["west"] == [(0.0, 4.0)]
+
+
+def test_procedural_footprint_metrics_measure_concavity() -> None:
+    rooms = [
+        ProceduralRoom("a", "LivingRoom", 0.0, 0.0, 4.0, 4.0, 3.0),
+        ProceduralRoom("b", "Bedroom", 4.0, 0.0, 8.0, 4.0, 3.0),
+        ProceduralRoom("c", "Kitchen", 0.0, 4.0, 4.0, 8.0, 3.0),
+    ]
+
+    metrics = rooms_footprint_metrics(rooms)
+
+    assert metrics["room_area_m2"] == pytest.approx(48.0)
+    assert metrics["bbox_area_m2"] == pytest.approx(64.0)
+    assert metrics["fill_ratio"] == pytest.approx(0.75)
+    assert metrics["concavity_area_m2"] == pytest.approx(16.0)
+    assert metrics["bbox_xy"] == [0.0, 0.0, 8.0, 8.0]
 
 
 def test_procedural_room_type_sequence_supports_weights() -> None:
@@ -1609,6 +1626,7 @@ def test_aggregate_procedural_run_report_summarizes_structure() -> None:
                 "procedural": {
                     "scene_id": "scene-a",
                     "room_count": 2,
+                    "footprint": {"room_area_m2": 21.0, "bbox_area_m2": 28.0, "fill_ratio": 0.75, "concavity_area_m2": 7.0},
                     "adjacency_count": 1,
                     "window_count": 1,
                     "rooms": [
@@ -1642,6 +1660,7 @@ def test_aggregate_procedural_run_report_summarizes_structure() -> None:
                 "procedural": {
                     "scene_id": "scene-b",
                     "room_count": 1,
+                    "footprint": {"room_area_m2": 16.0, "bbox_area_m2": 16.0, "fill_ratio": 1.0, "concavity_area_m2": 0.0},
                     "adjacency_count": 0,
                     "window_count": 2,
                     "rooms": [
@@ -1658,6 +1677,8 @@ def test_aggregate_procedural_run_report_summarizes_structure() -> None:
     assert report["room_count"] == {"min": 1.0, "max": 2.0, "mean": 1.5}
     assert report["room_type_counts_total"] == {"Bedroom": 1, "LivingRoom": 2}
     assert report["room_area_m2"] == {"min": 9.0, "max": 16.0, "mean": 12.333333}
+    assert report["footprint_fill_ratio"] == {"min": 0.75, "max": 1.0, "mean": 0.875}
+    assert report["footprint_concavity_area_m2"] == {"min": 0.0, "max": 7.0, "mean": 3.5}
     assert report["placement_ratio"] == {"min": 0.75, "max": 1.0, "mean": 0.875}
     assert report["placement_group_success_total"] == {"bed_side_tables": 1}
     assert report["precheck_ok_count"] == 1
@@ -1667,6 +1688,7 @@ def test_aggregate_procedural_run_report_summarizes_structure() -> None:
     assert report["room_type_geometry_failed_count"] == 1
     assert report["room_type_geometry_issue_counts"] == {"too_small": 1}
     assert report["scenes"][0]["room_type_counts"] == {"Bedroom": 1, "LivingRoom": 1}
+    assert report["scenes"][0]["footprint"]["fill_ratio"] == 0.75
     assert report["scenes"][0]["room_type_geometry_ok"] is True
     assert report["scenes"][1]["room_type_geometry_ok"] is False
 
