@@ -292,6 +292,34 @@ def plane_mesh(x0: float, y0: float, z: float, x1: float, y1: float) -> tuple[li
     return vertices, [[0, 1, 2], [0, 2, 3]]
 
 
+def vertical_plane_mesh(
+    *,
+    constant_axis: str,
+    constant_value: float,
+    a0: float,
+    a1: float,
+    z0: float,
+    z1: float,
+) -> tuple[list[Vec3], list[list[int]]]:
+    if constant_axis == "x":
+        vertices = [
+            (constant_value, a0, z0),
+            (constant_value, a1, z0),
+            (constant_value, a1, z1),
+            (constant_value, a0, z1),
+        ]
+    elif constant_axis == "y":
+        vertices = [
+            (a0, constant_value, z0),
+            (a1, constant_value, z0),
+            (a1, constant_value, z1),
+            (a0, constant_value, z1),
+        ]
+    else:
+        raise ValueError("constant_axis must be 'x' or 'y'")
+    return vertices, [[0, 1, 2], [0, 2, 3]]
+
+
 def write_architecture_obj(path: Path, rooms: list[ProceduralRoom], meshes: list[dict[str, object]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="\n") as handle:
@@ -299,7 +327,14 @@ def write_architecture_obj(path: Path, rooms: list[ProceduralRoom], meshes: list
         vertex_offset = 0
         for mesh in meshes:
             mesh_type = str(mesh["type"]).lower()
-            material = "floor" if "floor" in mesh_type else "ceiling" if "ceiling" in mesh_type else "wall"
+            if "floor" in mesh_type:
+                material = "floor"
+            elif "ceiling" in mesh_type:
+                material = "ceiling"
+            elif "window" in mesh_type:
+                material = "window"
+            else:
+                material = "wall"
             handle.write(f"o {mesh['uid']}\n")
             handle.write(f"usemtl {material}\n")
             xyz = list(mesh["xyz"])
@@ -628,10 +663,110 @@ def append_wall_with_center_door(
     meshes.append(mesh_payload(f"door_vertical_{len(meshes):04d}", "Door", door_vertices, door_faces))
 
 
+def exterior_window_sides(
+    room: ProceduralRoom,
+    min_x: float,
+    min_y: float,
+    max_x: float,
+    max_y: float,
+) -> list[str]:
+    sides: list[str] = []
+    if abs(room.y0 - min_y) < 1e-6:
+        sides.append("south")
+    if abs(room.y1 - max_y) < 1e-6:
+        sides.append("north")
+    if abs(room.x0 - min_x) < 1e-6:
+        sides.append("west")
+    if abs(room.x1 - max_x) < 1e-6:
+        sides.append("east")
+    return sides
+
+
+def append_room_windows(
+    meshes: list[dict[str, object]],
+    room_children: list[dict[str, object]],
+    *,
+    room: ProceduralRoom,
+    room_index: int,
+    sides: list[str],
+    wall_thickness: float,
+    config: dict[str, Any],
+    rng: random.Random,
+) -> int:
+    if not config.get("enabled", True) or not sides or rng.random() > float(config["room_probability"]):
+        return 0
+    max_per_room = min(int(config["max_per_room"]), len(sides))
+    if max_per_room <= 0:
+        return 0
+    rng.shuffle(sides)
+    selected_sides = sides[:max_per_room]
+    width_min, width_max = (float(value) for value in config["width_m"])
+    height_min, height_max = (float(value) for value in config["height_m"])
+    sill_min, sill_max = (float(value) for value in config["sill_height_m"])
+    edge_margin = float(config["wall_margin_m"])
+    created = 0
+    for side in selected_sides:
+        horizontal = side in {"south", "north"}
+        side_length = room.width if horizontal else room.length
+        if side_length <= 2.0 * edge_margin + width_min:
+            continue
+        width = min(rng.uniform(width_min, width_max), side_length - 2.0 * edge_margin)
+        z0 = min(rng.uniform(sill_min, sill_max), max(0.0, room.height - height_min))
+        z1 = min(room.height - 0.15, z0 + rng.uniform(height_min, height_max))
+        if z1 <= z0:
+            continue
+        center = rng.uniform(edge_margin + width / 2.0, side_length - edge_margin - width / 2.0)
+        if side == "south":
+            vertices, faces = vertical_plane_mesh(
+                constant_axis="y",
+                constant_value=room.y0 + wall_thickness / 2.0,
+                a0=room.x0 + center - width / 2.0,
+                a1=room.x0 + center + width / 2.0,
+                z0=z0,
+                z1=z1,
+            )
+        elif side == "north":
+            vertices, faces = vertical_plane_mesh(
+                constant_axis="y",
+                constant_value=room.y1 - wall_thickness / 2.0,
+                a0=room.x0 + center - width / 2.0,
+                a1=room.x0 + center + width / 2.0,
+                z0=z0,
+                z1=z1,
+            )
+        elif side == "west":
+            vertices, faces = vertical_plane_mesh(
+                constant_axis="x",
+                constant_value=room.x0 + wall_thickness / 2.0,
+                a0=room.y0 + center - width / 2.0,
+                a1=room.y0 + center + width / 2.0,
+                z0=z0,
+                z1=z1,
+            )
+        else:
+            vertices, faces = vertical_plane_mesh(
+                constant_axis="x",
+                constant_value=room.x1 - wall_thickness / 2.0,
+                a0=room.y0 + center - width / 2.0,
+                a1=room.y0 + center + width / 2.0,
+                z0=z0,
+                z1=z1,
+            )
+        uid = f"{room.room_id}/window_{created:02d}_{side}"
+        meshes.append(mesh_payload(uid, "Window", vertices, faces))
+        room_children[room_index]["children"].append(
+            {"ref": uid, "instanceid": f"{uid}/instance", "pos": [0, 0, 0], "rot": [0, 0, 0, 1], "scale": [1, 1, 1]}
+        )
+        created += 1
+    return created
+
+
 def architecture_meshes_for_rooms(
     rooms: list[ProceduralRoom],
     wall_thickness: float,
     door_width: float,
+    window_config: dict[str, Any] | None = None,
+    rng: random.Random | None = None,
 ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     meshes: list[dict[str, object]] = []
     room_children: list[dict[str, object]] = []
@@ -665,6 +800,19 @@ def architecture_meshes_for_rooms(
                 ],
             }
         )
+
+    if window_config is not None and rng is not None:
+        for room_index, room in enumerate(rooms):
+            append_room_windows(
+                meshes,
+                room_children,
+                room=room,
+                room_index=room_index,
+                sides=exterior_window_sides(room, min_x, min_y, max_x, max_y),
+                wall_thickness=wall_thickness,
+                config=window_config,
+                rng=rng,
+            )
 
     wall_specs: list[tuple[float, float, float, float, str]] = [
         (min_x, min_y, max_x, min_y + wall_thickness, "Wall"),
@@ -775,11 +923,12 @@ def write_procedural_source_files(
             "size": {"x": bbox_max[0] - bbox_min[0], "y": bbox_max[1] - bbox_min[1], "z": bbox_max[2] - bbox_min[2]},
         },
         "materials": {
-            "sionna": ["itu-concrete"],
+            "sionna": ["itu-concrete", "itu-glass"],
             "source_to_sionna": [
                 {"source": "floor", "sionna": "itu-concrete", "itu_type": "concrete", "confidence": "high"},
                 {"source": "ceiling", "sionna": "itu-concrete", "itu_type": "concrete", "confidence": "high"},
                 {"source": "wall", "sionna": "itu-concrete", "itu_type": "concrete", "confidence": "high"},
+                {"source": "window", "sionna": "itu-glass", "itu_type": "glass", "confidence": "medium"},
             ],
         },
         "procedural": {
@@ -1164,6 +1313,8 @@ class ProceduralFront3DGenerator:
             rooms,
             wall_thickness=float(self.args.procedural_wall_thickness_m),
             door_width=float(self.args.procedural_door_width_m),
+            window_config=dict(self.args.procedural_windows),
+            rng=rng,
         )
         scene_id = f"procedural_{scene_index:04d}_{rng.randrange(1, 2**31):08x}"
         timings["architecture_mesh"] = time.perf_counter() - stage_start
@@ -1186,8 +1337,8 @@ class ProceduralFront3DGenerator:
             source_bbox_min=bbox_min,
             source_bbox_max=bbox_max,
             world_offset=(0.0, 0.0, 0.0),
-            source_to_sionna_material={"floor": "itu-concrete", "ceiling": "itu-concrete", "wall": "itu-concrete"},
-            sionna_material_names=("itu-concrete",),
+            source_to_sionna_material={"floor": "itu-concrete", "ceiling": "itu-concrete", "wall": "itu-concrete", "window": "itu-glass"},
+            sionna_material_names=("itu-concrete", "itu-glass"),
         )
         stage_start = time.perf_counter()
         placements, skipped, placement_stats = self.place_assets(rooms, scene_index, rng)
@@ -1197,6 +1348,7 @@ class ProceduralFront3DGenerator:
             "scene_id": scene_id,
             "layout": str(self.args.procedural_layout),
             "room_count": len(rooms),
+            "window_count": sum(1 for mesh in meshes if str(mesh["type"]).lower() == "window"),
             "rooms": [
                 self._room_report(
                     room,

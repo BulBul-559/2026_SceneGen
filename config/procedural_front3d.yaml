@@ -29,6 +29,14 @@ procedural:
   room_types: [LivingRoom, Bedroom, DiningRoom, StudyRoom]
   wall_thickness_m: 0.16
   door_width_m: 1.0
+  windows:
+    enabled: true
+    room_probability: 0.65
+    max_per_room: 1
+    width_m: [0.8, 1.6]
+    height_m: [0.8, 1.2]
+    sill_height_m: [0.85, 1.1]
+    wall_margin_m: 0.8
   object_count:
     strategy: area_adaptive
     range: [3, 7]

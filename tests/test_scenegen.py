@@ -179,12 +179,28 @@ def test_procedural_architecture_source_contract(tmp_path: Path) -> None:
         ProceduralRoom("proc_room_01", "Bedroom", 4.0, 0.0, 8.0, 3.0, 3.0),
     ]
 
-    meshes, room_children = architecture_meshes_for_rooms(rooms, wall_thickness=0.2, door_width=1.0)
+    window_config = {
+        "enabled": True,
+        "room_probability": 1.0,
+        "max_per_room": 1,
+        "width_m": [1.0, 1.0],
+        "height_m": [0.8, 0.8],
+        "sill_height_m": [1.0, 1.0],
+        "wall_margin_m": 0.5,
+    }
+    meshes, room_children = architecture_meshes_for_rooms(
+        rooms,
+        wall_thickness=0.2,
+        door_width=1.0,
+        window_config=window_config,
+        rng=random.Random(7),
+    )
     mesh_types = {str(mesh["type"]) for mesh in meshes}
     all_x = [float(value) for mesh in meshes for value in mesh["xyz"][0::3]]
     all_y = [float(value) for mesh in meshes for value in mesh["xyz"][1::3]]
 
-    assert {"Floor", "Ceiling", "Wall", "Door"} <= mesh_types
+    assert {"Floor", "Ceiling", "Wall", "Door", "Window"} <= mesh_types
+    assert any("/window_" in str(child["ref"]) for item in room_children for child in item["children"])
     assert min(all_x) == pytest.approx(0.0)
     assert min(all_y) == pytest.approx(0.0)
     assert max(all_x) == pytest.approx(8.0)
@@ -199,15 +215,20 @@ def test_procedural_architecture_source_contract(tmp_path: Path) -> None:
     )
     source_payload = json.loads(source_json.read_text(encoding="utf-8"))
     metadata = json.loads(metadata_json.read_text(encoding="utf-8"))
+    obj_text = architecture_obj.read_text(encoding="utf-8")
 
     assert architecture_obj.is_file()
+    assert "usemtl window" in obj_text
     assert source_payload["uid"] == "procedural_test_scene"
     assert len(source_payload["scene"]["room"]) == 2
     assert any(mesh["type"] == "Door" for mesh in source_payload["mesh"])
+    assert any(mesh["type"] == "Window" for mesh in source_payload["mesh"])
     assert bbox_min == pytest.approx((0.0, 0.0, 0.0))
     assert bbox_max == pytest.approx((8.0, 3.0, 3.0))
     assert metadata["asset_kind"] == "architecture"
     assert metadata["procedural"]["room_count"] == 2
+    assert "itu-glass" in metadata["materials"]["sionna"]
+    assert any(mapping["source"] == "window" and mapping["sionna"] == "itu-glass" for mapping in metadata["materials"]["source_to_sionna"])
 
 
 def test_procedural_split_tree_layout_tiles_complete_positive_footprint() -> None:

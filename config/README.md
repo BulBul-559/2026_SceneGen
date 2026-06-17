@@ -118,6 +118,7 @@ uv run scenegen \
 | `room_types` | list of string | `[LivingRoom, Bedroom, DiningRoom, StudyRoom]` | 程序化 room 类型循环池，后续家具筛选会参考该类型。 |
 | `wall_thickness_m` | float, `>0` | `0.16` | 生成墙体厚度。 |
 | `door_width_m` | float, `>=0` | `1.0` | 内墙门洞宽度；为 `0` 时基本不保留门洞。 |
+| `windows` | mapping | 见模板 | 外墙窗户生成配置。当前窗户是贴在外墙上的玻璃面，不切掉整段墙体。 |
 | `object_count` | mapping | 见模板 | 每个 room 尝试摆放的家具数量策略。支持固定范围和按面积自适应。 |
 | `room_profiles` | mapping | 见模板 | 房间类型到 furniture class 序列和语义筛选规则的映射。必须包含 `default`；可新增任意 room type 名。 |
 | `wall_margin_m` | float, `>=0` | `0.25` | 家具 bbox 与 room 边界的最小距离。 |
@@ -142,6 +143,20 @@ uv run scenegen \
 | `jitter` | `[min, max]` | `[-1, 1]` | `area_adaptive` 估算后的整数随机扰动。 |
 
 `area_adaptive` 计算方式为 `round(room_area / area_per_object_m2) + random(jitter)`，再裁剪到 `[min, max]`。因此小房间会自然少放，大房间会自然多放，同时保留少量随机性。
+
+### procedural.windows
+
+控制程序化建筑的外墙窗户。窗户作为 `Window` mesh 写入 `procedural_source/scene.json` 和 `architecture.obj`，OBJ 材质为 `window`，Sionna 材质映射为 `itu-glass`。第一版不切外墙洞，因此默认不会改变 wall/floorplan/UE 采样边界；如果后续需要把窗户视作开口，可用 `front3d.openings.mode: windows` 或 `doors_and_windows` 让 class mask/label 开口逻辑读取 `Window` mesh。
+
+| 字段 | 可选值 / 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `enabled` | boolean | `true` | 是否生成外墙窗户。 |
+| `room_probability` | float, `0-1` | `0.65` | 每个有外墙边的 room 生成窗户的概率。 |
+| `max_per_room` | integer, `>=0` | `1` | 每个 room 最多生成几个窗户。 |
+| `width_m` | `[min, max]` | `[0.8, 1.6]` | 窗户宽度范围。 |
+| `height_m` | `[min, max]` | `[0.8, 1.2]` | 窗户高度范围。 |
+| `sill_height_m` | `[min, max]` | `[0.85, 1.1]` | 窗台离地高度范围。 |
+| `wall_margin_m` | float, `>=0` | `0.8` | 窗户距离 room 外墙边端点的最小水平间隔。 |
 
 ### procedural.placement_policy
 

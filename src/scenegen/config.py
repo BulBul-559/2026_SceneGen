@@ -74,6 +74,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "room_types": ["LivingRoom", "Bedroom", "DiningRoom", "StudyRoom"],
         "wall_thickness_m": 0.16,
         "door_width_m": 1.0,
+        "windows": {
+            "enabled": True,
+            "room_probability": 0.65,
+            "max_per_room": 1,
+            "width_m": [0.8, 1.6],
+            "height_m": [0.8, 1.2],
+            "sill_height_m": [0.85, 1.1],
+            "wall_margin_m": 0.8,
+        },
         "object_count": {
             "strategy": "area_adaptive",
             "range": [3, 7],
@@ -632,6 +641,14 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     procedural["room_types"] = parse_string_sequence(procedural["room_types"], "procedural.room_types")
     procedural["wall_thickness_m"] = float(procedural["wall_thickness_m"])
     procedural["door_width_m"] = float(procedural["door_width_m"])
+    windows = procedural["windows"]
+    windows["enabled"] = as_bool(windows["enabled"], "procedural.windows.enabled")
+    windows["room_probability"] = float(windows["room_probability"])
+    windows["max_per_room"] = int(windows["max_per_room"])
+    windows["width_m"] = parse_float_pair(windows["width_m"], "procedural.windows.width_m")
+    windows["height_m"] = parse_float_pair(windows["height_m"], "procedural.windows.height_m")
+    windows["sill_height_m"] = parse_float_pair(windows["sill_height_m"], "procedural.windows.sill_height_m")
+    windows["wall_margin_m"] = float(windows["wall_margin_m"])
     object_count = procedural["object_count"]
     object_count["strategy"] = str(object_count["strategy"])
     object_count["range"] = parse_int_pair(object_count["range"], "procedural.object_count.range")
@@ -795,6 +812,17 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("procedural.wall_thickness_m must be positive")
     if procedural["door_width_m"] < 0:
         raise ValueError("procedural.door_width_m must be non-negative")
+    windows = procedural["windows"]
+    if not 0.0 <= windows["room_probability"] <= 1.0:
+        raise ValueError("procedural.windows.room_probability must be between 0 and 1")
+    if windows["max_per_room"] < 0:
+        raise ValueError("procedural.windows.max_per_room must be non-negative")
+    for key in ("width_m", "height_m", "sill_height_m"):
+        values = windows[key]
+        if values[0] < 0 or values[1] < values[0]:
+            raise ValueError(f"procedural.windows.{key} must be [min, max] with max >= min >= 0")
+    if windows["wall_margin_m"] < 0:
+        raise ValueError("procedural.windows.wall_margin_m must be non-negative")
     object_count = procedural["object_count"]
     if object_count["strategy"] not in {"range", "area_adaptive"}:
         raise ValueError("procedural.object_count.strategy must be 'range' or 'area_adaptive'")
@@ -1097,6 +1125,7 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         procedural_room_types=procedural["room_types"],
         procedural_wall_thickness_m=procedural["wall_thickness_m"],
         procedural_door_width_m=procedural["door_width_m"],
+        procedural_windows=procedural["windows"],
         procedural_object_count=procedural["object_count"],
         procedural_room_profiles=procedural["room_profiles"],
         procedural_wall_margin_m=procedural["wall_margin_m"],
