@@ -149,6 +149,7 @@ def evaluate_procedural_precheck(
     desired_total = sum(int(value) for value in desired_counts.values()) if desired_counts else 0
     skipped_count = int(record.get("skipped_object_count") or (procedural.get("skipped_object_count", 0) if procedural else 0))
     footprint = procedural.get("footprint") if isinstance(procedural.get("footprint"), dict) else {}
+    topology = procedural.get("topology") if isinstance(procedural.get("topology"), dict) else {}
 
     connectivity = evaluate_procedural_room_connectivity(procedural)
     if bool(getattr(args, "procedural_precheck_require_connected_rooms", True)) and not bool(connectivity["ok"]):
@@ -232,6 +233,20 @@ def evaluate_procedural_precheck(
             }
         )
 
+    for metric_name, error_prefix in (
+        ("edge_count", "topology_edge_count"),
+        ("leaf_room_count", "topology_leaf_room_count"),
+        ("branch_room_count", "topology_branch_room_count"),
+        ("graph_diameter", "topology_graph_diameter"),
+    ):
+        value = int(topology.get(metric_name, 0) or 0) if topology else 0
+        min_threshold = getattr(args, f"procedural_precheck_min_{error_prefix}", None)
+        max_threshold = getattr(args, f"procedural_precheck_max_{error_prefix}", None)
+        if min_threshold is not None and value < int(min_threshold):
+            errors.append({"code": f"{error_prefix}_too_low", "value": value, "threshold": int(min_threshold)})
+        if max_threshold is not None and value > int(max_threshold):
+            errors.append({"code": f"{error_prefix}_too_high", "value": value, "threshold": int(max_threshold)})
+
     if desired_total > 0:
         placement_ratio = placement_count / desired_total
         skipped_ratio = skipped_count / desired_total
@@ -294,6 +309,12 @@ def evaluate_procedural_precheck(
     result["footprint"] = {
         "fill_ratio": round(footprint_fill_ratio, 6),
         "concavity_area_m2": round(footprint_concavity, 6),
+    }
+    result["topology"] = {
+        "edge_count": int(topology.get("edge_count", 0) or 0) if topology else 0,
+        "leaf_room_count": int(topology.get("leaf_room_count", 0) or 0) if topology else 0,
+        "branch_room_count": int(topology.get("branch_room_count", 0) or 0) if topology else 0,
+        "graph_diameter": int(topology.get("graph_diameter", 0) or 0) if topology else 0,
     }
     return result
 
@@ -530,6 +551,14 @@ def procedural_precheck_settings(args: argparse.Namespace) -> dict[str, object]:
         "max_footprint_fill_ratio": args.procedural_precheck_max_footprint_fill_ratio,
         "min_footprint_concavity_m2": args.procedural_precheck_min_footprint_concavity_m2,
         "max_footprint_concavity_m2": args.procedural_precheck_max_footprint_concavity_m2,
+        "min_topology_edge_count": args.procedural_precheck_min_topology_edge_count,
+        "max_topology_edge_count": args.procedural_precheck_max_topology_edge_count,
+        "min_topology_leaf_room_count": args.procedural_precheck_min_topology_leaf_room_count,
+        "max_topology_leaf_room_count": args.procedural_precheck_max_topology_leaf_room_count,
+        "min_topology_branch_room_count": args.procedural_precheck_min_topology_branch_room_count,
+        "max_topology_branch_room_count": args.procedural_precheck_max_topology_branch_room_count,
+        "min_topology_graph_diameter": args.procedural_precheck_min_topology_graph_diameter,
+        "max_topology_graph_diameter": args.procedural_precheck_max_topology_graph_diameter,
         "room_type_geometry": getattr(args, "procedural_precheck_room_type_geometry", {}),
     }
 

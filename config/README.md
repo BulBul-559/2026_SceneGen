@@ -224,9 +224,15 @@ uv run scenegen \
 | `max_footprint_fill_ratio` | float, `0-1` / `null` | `null` | room union 面积 / bbox 面积的最高值；想强制不规则外轮廓时可设为小于 `1.0`。 |
 | `min_footprint_concavity_m2` | float, `>=0` / `null` | `null` | 户型 bbox 面积减去 room union 面积的最低值；用于强制保留一定凹口/空缺面积。 |
 | `max_footprint_concavity_m2` | float, `>=0` / `null` | `null` | 户型凹口面积最高值；用于过滤凹口过大的样本。 |
+| `min_topology_edge_count` / `max_topology_edge_count` | integer, `>=0` / `null` | `null` | room graph 边数上下限。用于过滤过于稀疏或过于复杂的房间连通关系。 |
+| `min_topology_leaf_room_count` / `max_topology_leaf_room_count` | integer, `>=0` / `null` | `null` | 度数为 1 的叶子房间数量上下限。可用于控制尽端房间数量。 |
+| `min_topology_branch_room_count` / `max_topology_branch_room_count` | integer, `>=0` / `null` | `null` | 度数大于等于 3 的分支房间数量上下限。可用于强制或限制多分叉户型。 |
+| `min_topology_graph_diameter` / `max_topology_graph_diameter` | integer, `>=0` / `null` | `null` | room graph 最短路直径上下限。可用于过滤过短的规整户型或过长的链式户型。 |
 | `room_type_geometry` | mapping / `null` | 见模板 | 按 room type 配置 `min_area_m2`、`max_area_m2`、`max_aspect_ratio`；用于过滤过小客厅、过大卫浴等不自然样本。 |
 
 `room_type_geometry` 中的每个 room type 都可以只写部分字段，未写字段视为不检查。也可以写 `default` 作为兜底规则，或设为 `null` 关闭类型化几何检查。
+
+topology 阈值默认都是 `null`，不会改变模板分布。需要做数据集分桶或强约束时，可以按 `procedural_report.json` 中观察到的 `topology` 分布再反向设置这些阈值。
 
 ### procedural.room_profiles
 

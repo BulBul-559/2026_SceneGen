@@ -292,6 +292,14 @@ procedural:
     max_footprint_fill_ratio: null
     min_footprint_concavity_m2: null
     max_footprint_concavity_m2: null
+    min_topology_edge_count: null
+    max_topology_edge_count: null
+    min_topology_leaf_room_count: null
+    max_topology_leaf_room_count: null
+    min_topology_branch_room_count: null
+    max_topology_branch_room_count: null
+    min_topology_graph_diameter: null
+    max_topology_graph_diameter: null
     room_type_geometry:
       LivingRoom: {min_area_m2: 16.0, max_area_m2: null, max_aspect_ratio: 3.5}
       Bedroom: {min_area_m2: 10.0, max_area_m2: null, max_aspect_ratio: 3.5}

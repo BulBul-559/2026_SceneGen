@@ -1682,6 +1682,17 @@ def test_procedural_precheck_rejects_invalid_footprint_threshold_config(tmp_path
     with pytest.raises(ValueError, match="min_footprint_concavity_m2"):
         load_effective_config(bad_concavity, root, parse_args([]))
 
+    bad_topology = tmp_path / "bad_topology_threshold.yaml"
+    bad_topology.write_text(
+        "procedural:\n"
+        "  precheck:\n"
+        "    min_topology_graph_diameter: 4\n"
+        "    max_topology_graph_diameter: 2\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="max_topology_graph_diameter"):
+        load_effective_config(bad_topology, root, parse_args([]))
+
 
 def test_procedural_precheck_rejects_bad_footprint_metrics() -> None:
     args = Namespace(
@@ -1717,6 +1728,64 @@ def test_procedural_precheck_rejects_bad_footprint_metrics() -> None:
     assert {error["code"] for error in result["errors"]} == {
         "footprint_fill_ratio_too_high",
         "footprint_concavity_too_low",
+    }
+
+
+def test_procedural_precheck_rejects_bad_topology_metrics() -> None:
+    args = Namespace(
+        mode="procedural_front3d",
+        procedural_precheck_enabled=True,
+        procedural_precheck_min_placements=1,
+        procedural_precheck_min_placement_ratio=0.0,
+        procedural_precheck_min_room_placement_ratio=0.0,
+        procedural_precheck_max_skipped_ratio=1.0,
+        procedural_precheck_require_connected_rooms=False,
+        procedural_precheck_min_room_area_m2=0.0,
+        procedural_precheck_max_room_aspect_ratio=None,
+        procedural_precheck_min_footprint_fill_ratio=None,
+        procedural_precheck_max_footprint_fill_ratio=None,
+        procedural_precheck_min_footprint_concavity_m2=None,
+        procedural_precheck_max_footprint_concavity_m2=None,
+        procedural_precheck_min_topology_edge_count=3,
+        procedural_precheck_max_topology_edge_count=None,
+        procedural_precheck_min_topology_leaf_room_count=None,
+        procedural_precheck_max_topology_leaf_room_count=1,
+        procedural_precheck_min_topology_branch_room_count=1,
+        procedural_precheck_max_topology_branch_room_count=None,
+        procedural_precheck_min_topology_graph_diameter=3,
+        procedural_precheck_max_topology_graph_diameter=None,
+        procedural_precheck_room_type_geometry=None,
+    )
+
+    result = evaluate_procedural_precheck(
+        args,
+        {"placement_count": 3},
+        {
+            "skipped_object_count": 0,
+            "procedural": {
+                "topology": {
+                    "edge_count": 2,
+                    "leaf_room_count": 2,
+                    "branch_room_count": 0,
+                    "graph_diameter": 2,
+                },
+                "placement_stats": {"desired_object_counts": {"room_a": 3}},
+            },
+        },
+    )
+
+    assert result["ok"] is False
+    assert result["topology"] == {
+        "edge_count": 2,
+        "leaf_room_count": 2,
+        "branch_room_count": 0,
+        "graph_diameter": 2,
+    }
+    assert {error["code"] for error in result["errors"]} == {
+        "topology_edge_count_too_low",
+        "topology_leaf_room_count_too_high",
+        "topology_branch_room_count_too_low",
+        "topology_graph_diameter_too_low",
     }
 
 

@@ -289,6 +289,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "max_footprint_fill_ratio": None,
             "min_footprint_concavity_m2": None,
             "max_footprint_concavity_m2": None,
+            "min_topology_edge_count": None,
+            "max_topology_edge_count": None,
+            "min_topology_leaf_room_count": None,
+            "max_topology_leaf_room_count": None,
+            "min_topology_branch_room_count": None,
+            "max_topology_branch_room_count": None,
+            "min_topology_graph_diameter": None,
+            "max_topology_graph_diameter": None,
             "room_type_geometry": {
                 "LivingRoom": {"min_area_m2": 16.0, "max_area_m2": None, "max_aspect_ratio": 3.5},
                 "Bedroom": {"min_area_m2": 10.0, "max_area_m2": None, "max_aspect_ratio": 3.5},
@@ -1090,6 +1098,17 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
         if procedural_precheck["max_footprint_concavity_m2"] is None
         else float(procedural_precheck["max_footprint_concavity_m2"])
     )
+    for key in (
+        "min_topology_edge_count",
+        "max_topology_edge_count",
+        "min_topology_leaf_room_count",
+        "max_topology_leaf_room_count",
+        "min_topology_branch_room_count",
+        "max_topology_branch_room_count",
+        "min_topology_graph_diameter",
+        "max_topology_graph_diameter",
+    ):
+        procedural_precheck[key] = None if procedural_precheck[key] is None else int(procedural_precheck[key])
     procedural_precheck["room_type_geometry"] = normalize_room_type_geometry_rules(
         procedural_precheck.get("room_type_geometry")
     )
@@ -1309,6 +1328,21 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("procedural.precheck.max_footprint_concavity_m2 must be non-negative or null")
     if concavity_min is not None and concavity_max is not None and float(concavity_max) < float(concavity_min):
         raise ValueError("procedural.precheck.max_footprint_concavity_m2 must be >= min_footprint_concavity_m2")
+    topology_threshold_pairs = (
+        ("min_topology_edge_count", "max_topology_edge_count"),
+        ("min_topology_leaf_room_count", "max_topology_leaf_room_count"),
+        ("min_topology_branch_room_count", "max_topology_branch_room_count"),
+        ("min_topology_graph_diameter", "max_topology_graph_diameter"),
+    )
+    for min_key, max_key in topology_threshold_pairs:
+        min_value = procedural["precheck"][min_key]
+        max_value = procedural["precheck"][max_key]
+        if min_value is not None and int(min_value) < 0:
+            raise ValueError(f"procedural.precheck.{min_key} must be non-negative or null")
+        if max_value is not None and int(max_value) < 0:
+            raise ValueError(f"procedural.precheck.{max_key} must be non-negative or null")
+        if min_value is not None and max_value is not None and int(max_value) < int(min_value):
+            raise ValueError(f"procedural.precheck.{max_key} must be >= {min_key}")
     windows = procedural["windows"]
     if not 0.0 <= windows["room_probability"] <= 1.0:
         raise ValueError("procedural.windows.room_probability must be between 0 and 1")
@@ -1664,6 +1698,14 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         procedural_precheck_max_footprint_fill_ratio=procedural["precheck"]["max_footprint_fill_ratio"],
         procedural_precheck_min_footprint_concavity_m2=procedural["precheck"]["min_footprint_concavity_m2"],
         procedural_precheck_max_footprint_concavity_m2=procedural["precheck"]["max_footprint_concavity_m2"],
+        procedural_precheck_min_topology_edge_count=procedural["precheck"]["min_topology_edge_count"],
+        procedural_precheck_max_topology_edge_count=procedural["precheck"]["max_topology_edge_count"],
+        procedural_precheck_min_topology_leaf_room_count=procedural["precheck"]["min_topology_leaf_room_count"],
+        procedural_precheck_max_topology_leaf_room_count=procedural["precheck"]["max_topology_leaf_room_count"],
+        procedural_precheck_min_topology_branch_room_count=procedural["precheck"]["min_topology_branch_room_count"],
+        procedural_precheck_max_topology_branch_room_count=procedural["precheck"]["max_topology_branch_room_count"],
+        procedural_precheck_min_topology_graph_diameter=procedural["precheck"]["min_topology_graph_diameter"],
+        procedural_precheck_max_topology_graph_diameter=procedural["precheck"]["max_topology_graph_diameter"],
         procedural_precheck_room_type_geometry=procedural["precheck"]["room_type_geometry"],
         validate_sionna=validation["sionna"],
         quality_enabled=quality["enabled"],
