@@ -208,6 +208,9 @@ def evaluate_procedural_precheck(
         errors.append({"code": "room_type_area_too_large", "rooms": room_type_geometry["too_large"]})
     if room_type_geometry["too_elongated"]:
         errors.append({"code": "room_type_aspect_ratio_too_high", "rooms": room_type_geometry["too_elongated"]})
+    required_room_classes = evaluate_procedural_required_room_classes(procedural, placement_stats)
+    if required_room_classes["missing_rooms"]:
+        errors.append({"code": "room_required_classes_missing", "rooms": required_room_classes["missing_rooms"]})
 
     footprint_fill_ratio = float(footprint.get("fill_ratio", 0.0) or 0.0) if footprint else 0.0
     footprint_concavity = float(footprint.get("concavity_area_m2", 0.0) or 0.0) if footprint else 0.0
@@ -379,6 +382,7 @@ def evaluate_procedural_precheck(
     result["room_connectivity"] = connectivity
     result["room_geometry"] = room_geometry
     result["room_type_geometry"] = room_type_geometry
+    result["required_room_classes"] = required_room_classes
     result["footprint"] = {
         "fill_ratio": round(footprint_fill_ratio, 6),
         "concavity_area_m2": round(footprint_concavity, 6),
@@ -507,6 +511,58 @@ def evaluate_procedural_room_type_geometry(
         "too_small": too_small,
         "too_large": too_large,
         "too_elongated": too_elongated,
+    }
+
+
+def evaluate_procedural_required_room_classes(
+    procedural: dict[str, object],
+    placement_stats: dict[str, object],
+) -> dict[str, object]:
+    rooms_payload = procedural.get("rooms") if isinstance(procedural.get("rooms"), list) else []
+    placed_by_room = placement_stats.get("placed_class_by_room") if isinstance(placement_stats.get("placed_class_by_room"), dict) else {}
+    missing_rooms: list[dict[str, object]] = []
+    checked_rooms = 0
+    required_class_count = 0
+    for index, room in enumerate(rooms_payload):
+        if not isinstance(room, dict):
+            continue
+        required_classes = room.get("profile_required_classes")
+        if not isinstance(required_classes, list) or not required_classes:
+            continue
+        checked_rooms += 1
+        room_id = str(room.get("room_id") or f"room_{index}")
+        room_type = str(room.get("room_type") or "Unknown")
+        placed_counts_raw = placed_by_room.get(room_id)
+        placed_counts = placed_counts_raw if isinstance(placed_counts_raw, dict) else {}
+        missing_classes: list[dict[str, object]] = []
+        for class_name in sorted({str(value) for value in required_classes}):
+            required_count = sum(1 for value in required_classes if str(value) == class_name)
+            required_class_count += required_count
+            placed_count = int(placed_counts.get(class_name, 0) or 0)
+            if placed_count < required_count:
+                missing_classes.append(
+                    {
+                        "class": class_name,
+                        "required_count": required_count,
+                        "placed_count": placed_count,
+                    }
+                )
+        if missing_classes:
+            missing_rooms.append(
+                {
+                    "room_id": room_id,
+                    "room_type": room_type,
+                    "profile": room.get("profile"),
+                    "missing_classes": missing_classes,
+                    "placed_class_counts": dict(placed_counts),
+                }
+            )
+    return {
+        "ok": not missing_rooms,
+        "enabled": checked_rooms > 0,
+        "checked_room_count": checked_rooms,
+        "required_class_count": required_class_count,
+        "missing_rooms": missing_rooms,
     }
 
 

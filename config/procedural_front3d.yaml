@@ -85,9 +85,11 @@ procedural:
   room_profiles:
     default:
       classes: [seat, table, floor, seat, table]
+      required_classes: []
       filters: {}
     LivingRoom:
       classes: [seat, table, floor, seat, table]
+      required_classes: [seat, table]
       filters:
         seat:
           super_category: [sofa]
@@ -95,6 +97,7 @@ procedural:
           category: [coffee table, tea table, corner/side table, side table]
     Bedroom:
       classes: [floor, table, table, seat]
+      required_classes: [floor]
       filters:
         floor:
           super_category: [bed]
@@ -102,6 +105,7 @@ procedural:
           category: [nightstand]
     DiningRoom:
       classes: [table, seat, seat, seat, seat]
+      required_classes: [table, seat]
       filters:
         table:
           category: [dining]
@@ -109,6 +113,7 @@ procedural:
           category: [dining chair]
     StudyRoom:
       classes: [table, seat, floor]
+      required_classes: [table, seat]
       filters:
         table:
           category: [desk]
@@ -116,6 +121,7 @@ procedural:
           category: [chair]
     Kitchen:
       classes: [floor, table, floor, seat]
+      required_classes: [floor]
       filters:
         floor:
           category: [cabinet, kitchen, shelf]
@@ -126,6 +132,7 @@ procedural:
           category: [stool, chair]
     Bathroom:
       classes: [floor, floor, table]
+      required_classes: [floor]
       filters:
         floor:
           category: [toilet, bath, bathroom, cabinet]
@@ -134,6 +141,7 @@ procedural:
           category: [sink, vanity, cabinet]
     Hallway:
       classes: [floor, table]
+      required_classes: []
       filters:
         floor:
           category: [cabinet, shelf, wardrobe, shoe]

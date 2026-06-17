@@ -63,6 +63,7 @@ from scenegen.procedural import (
     object_count_config_for_room,
     object_count_for_room_area,
     placement_policy_for_class,
+    profile_required_classes,
     procedural_asset_approx_bbox,
     procedural_asset_footprint_size,
     procedural_asset_pool_coverage,
@@ -683,14 +684,16 @@ def test_procedural_asset_approx_footprint_uses_scenegen_xy() -> None:
 
 def test_procedural_room_profiles_select_and_expand_classes() -> None:
     profiles = {
-        "default": {"classes": ["seat"]},
-        "Bedroom": {"classes": ["floor", "table"]},
-        "LivingRoom": {"classes": ["seat", "table", "floor"]},
+        "default": {"classes": ["seat"], "required_classes": []},
+        "Bedroom": {"classes": ["floor", "table"], "required_classes": ["floor"]},
+        "LivingRoom": {"classes": ["seat", "table", "floor"], "required_classes": ["seat", "table"]},
     }
 
     assert select_room_profile("MasterBedroom", profiles)[0] == "Bedroom"
     assert desired_classes_from_profile("Bedroom", profiles, 2, random.Random(1)) == ["floor", "table"]
     assert desired_classes_from_profile("Kitchen", profiles, 3, random.Random(2)) == ["seat", "seat", "seat"]
+    assert desired_classes_from_profile("LivingRoom", profiles, 2, random.Random(3)) == ["seat", "table"]
+    assert profile_required_classes("LargeLivingRoom", profiles) == ["seat", "table"]
 
 
 def test_procedural_object_count_supports_range_and_area_adaptive() -> None:
@@ -1452,6 +1455,7 @@ def test_procedural_room_profiles_accept_custom_names_and_reject_bad_classes(tmp
     effective, _overrides = load_effective_config(config_path, root, parse_args([]))
 
     assert effective["procedural"]["room_profiles"]["Kitchen"]["classes"] == ["table", "floor"]
+    assert effective["procedural"]["room_profiles"]["Kitchen"]["required_classes"] == ["floor"]
     assert effective["procedural"]["room_profiles"]["Kitchen"]["filters"]["floor"]["category"] == ["cabinet", "kitchen", "shelf"]
 
     bad_path = tmp_path / "bad_procedural_profiles.yaml"
@@ -1478,6 +1482,18 @@ def test_procedural_room_profiles_accept_custom_names_and_reject_bad_classes(tmp
     )
     with pytest.raises(ValueError, match="procedural.room_profiles.default.filters.seat.unknown_field"):
         load_effective_config(bad_filter_path, root, parse_args([]))
+
+    bad_required_path = tmp_path / "bad_procedural_required_profile_class.yaml"
+    bad_required_path.write_text(
+        "procedural:\n"
+        "  room_profiles:\n"
+        "    default:\n"
+        "      classes: [seat]\n"
+        "      required_classes: [table]\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="procedural.room_profiles.default.required_classes"):
+        load_effective_config(bad_required_path, root, parse_args([]))
 
     bad_policy_path = tmp_path / "bad_procedural_policy.yaml"
     bad_policy_path.write_text(
@@ -2061,6 +2077,62 @@ def test_procedural_precheck_rejects_low_class_placement_ratio() -> None:
     assert error["thresholds"] == {"seat": 0.75, "table": 0.5}
     assert error["classes"] == [
         {"class": "seat", "value": 0.5, "placement_count": 2, "desired_count": 4},
+    ]
+
+
+def test_procedural_precheck_rejects_missing_required_room_classes() -> None:
+    args = Namespace(
+        mode="procedural_front3d",
+        procedural_precheck_enabled=True,
+        procedural_precheck_min_placements=1,
+        procedural_precheck_min_placement_ratio=0.0,
+        procedural_precheck_min_room_placement_ratio=0.0,
+        procedural_precheck_min_class_placement_ratio={},
+        procedural_precheck_max_skipped_ratio=1.0,
+        procedural_precheck_require_connected_rooms=False,
+        procedural_precheck_min_room_area_m2=0.0,
+        procedural_precheck_max_room_aspect_ratio=None,
+        procedural_precheck_room_type_geometry=None,
+    )
+
+    result = evaluate_procedural_precheck(
+        args,
+        {"placement_count": 1},
+        {
+            "skipped_object_count": 0,
+            "procedural": {
+                "rooms": [
+                    {
+                        "room_id": "bedroom_0",
+                        "room_type": "Bedroom",
+                        "profile": "Bedroom",
+                        "profile_required_classes": ["floor"],
+                        "area_m2": 12.0,
+                        "aspect_ratio": 1.2,
+                    }
+                ],
+                "placement_stats": {
+                    "desired_object_counts": {"bedroom_0": 1},
+                    "placed_object_counts": {"bedroom_0": 1},
+                    "desired_class_counts": {"floor": 1},
+                    "placed_class_counts": {"table": 1},
+                    "placed_class_by_room": {"bedroom_0": {"table": 1}},
+                },
+            },
+        },
+    )
+
+    assert result["ok"] is False
+    assert result["required_room_classes"]["checked_room_count"] == 1
+    error = next(error for error in result["errors"] if error["code"] == "room_required_classes_missing")
+    assert error["rooms"] == [
+        {
+            "room_id": "bedroom_0",
+            "room_type": "Bedroom",
+            "profile": "Bedroom",
+            "missing_classes": [{"class": "floor", "required_count": 1, "placed_count": 0}],
+            "placed_class_counts": {"table": 1},
+        }
     ]
 
 
@@ -3162,6 +3234,9 @@ def make_procedural_runtime_fixture(tmp_path: Path) -> Path:
                     },
                     "object_count": {"strategy": "range", "range": [1, 1]},
                     "asset_pool_limit": 5,
+                    "room_profiles": {
+                        "LivingRoom": {"classes": ["seat"], "required_classes": ["seat"]},
+                    },
                     "precheck": {"room_type_geometry": None},
                 },
                 "label": {"enabled": False},

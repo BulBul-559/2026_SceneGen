@@ -243,9 +243,10 @@ topology、class placement 和 asset diversity 阈值默认多为空值，不会
 每个 profile 包含：
 
 - `classes`：必须是 `table`、`seat`、`floor` 的序列。
+- `required_classes`：可选，必须是 `classes` 的子集。生成器会优先尝试这些核心类别，precheck 会逐房间检查是否实际放到；例如 Bedroom 默认要求 `floor`，DiningRoom 默认要求 `table` 和 `seat`。
 - `filters`：可选，按 furniture class 配置 semantic 关键词筛选。支持字段为 `category`、`super_category`、`name`、`material`。
 
-生成时先按 room type 精确匹配 profile；找不到时做大小写/子串匹配；仍找不到就使用 `default`。`object_count` 会决定本次实际取多少个 class：数量少于 profile 序列时从前往后截断，数量多于 profile 序列时从该 profile 内随机补齐。
+生成时先按 room type 精确匹配 profile；找不到时做大小写/子串匹配；仍找不到就使用 `default`。`object_count` 会决定本次实际取多少个 class：数量少于 profile 序列时会优先保留 `required_classes`，再按 profile 序列补齐；数量多于 profile 序列时从该 profile 内随机补齐。配置是深合并的，如果覆盖某个房型的 `classes` 但想取消默认核心类别，需要显式写 `required_classes: []`。
 
 `filters` 使用大小写不敏感的包含匹配。例如 `LivingRoom.filters.seat.super_category: [sofa]` 会让客厅的 `seat` 优先选择 `super_category` 含有 sofa 的资产；如果没有任何资产匹配，系统会回退到该 class 的完整资产池，避免因为 3D-FUTURE 标注不齐导致房间完全摆不出家具。
 

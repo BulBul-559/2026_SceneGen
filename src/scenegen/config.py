@@ -132,9 +132,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
             },
         },
         "room_profiles": {
-            "default": {"classes": ["seat", "table", "floor", "seat", "table"], "filters": {}},
+            "default": {"classes": ["seat", "table", "floor", "seat", "table"], "required_classes": [], "filters": {}},
             "LivingRoom": {
                 "classes": ["seat", "table", "floor", "seat", "table"],
+                "required_classes": ["seat", "table"],
                 "filters": {
                     "seat": {"super_category": ["sofa"]},
                     "table": {"category": ["coffee table", "tea table", "corner/side table", "side table"]},
@@ -142,15 +143,22 @@ DEFAULT_CONFIG: dict[str, Any] = {
             },
             "Bedroom": {
                 "classes": ["floor", "table", "table", "seat"],
+                "required_classes": ["floor"],
                 "filters": {"floor": {"super_category": ["bed"]}, "table": {"category": ["nightstand"]}},
             },
             "DiningRoom": {
                 "classes": ["table", "seat", "seat", "seat", "seat"],
+                "required_classes": ["table", "seat"],
                 "filters": {"table": {"category": ["dining"]}, "seat": {"category": ["dining chair"]}},
             },
-            "StudyRoom": {"classes": ["table", "seat", "floor"], "filters": {"table": {"category": ["desk"]}, "seat": {"category": ["chair"]}}},
+            "StudyRoom": {
+                "classes": ["table", "seat", "floor"],
+                "required_classes": ["table", "seat"],
+                "filters": {"table": {"category": ["desk"]}, "seat": {"category": ["chair"]}},
+            },
             "Kitchen": {
                 "classes": ["floor", "table", "floor", "seat"],
+                "required_classes": ["floor"],
                 "filters": {
                     "floor": {"category": ["cabinet", "kitchen", "shelf"], "super_category": ["cabinet"]},
                     "table": {"category": ["counter", "kitchen", "dining", "table"]},
@@ -159,6 +167,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             },
             "Bathroom": {
                 "classes": ["floor", "floor", "table"],
+                "required_classes": ["floor"],
                 "filters": {
                     "floor": {"category": ["toilet", "bath", "bathroom", "cabinet"], "super_category": ["toilet", "bath", "cabinet"]},
                     "table": {"category": ["sink", "vanity", "cabinet"]},
@@ -166,6 +175,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             },
             "Hallway": {
                 "classes": ["floor", "table"],
+                "required_classes": [],
                 "filters": {
                     "floor": {"category": ["cabinet", "shelf", "wardrobe", "shoe"]},
                     "table": {"category": ["console", "side table", "table"]},
@@ -640,6 +650,16 @@ def normalize_room_profiles(value: Any, key: str = "procedural.room_profiles") -
         classes = [item.lower() for item in parse_string_sequence(raw_profile.get("classes"), classes_key)]
         if any(item not in allowed_classes for item in classes):
             raise ValueError(f"{classes_key} values must be table, seat, or floor")
+        required_key = f"{key}.{profile_name}.required_classes"
+        required_classes = [
+            item.lower()
+            for item in parse_optional_string_sequence(raw_profile.get("required_classes"), required_key)
+        ]
+        if any(item not in allowed_classes for item in required_classes):
+            raise ValueError(f"{required_key} values must be table, seat, or floor")
+        missing_required = sorted(set(required_classes) - set(classes))
+        if missing_required:
+            raise ValueError(f"{required_key} must be a subset of {classes_key}; missing {missing_required}")
         filters_key = f"{key}.{profile_name}.filters"
         raw_filters = raw_profile.get("filters") or {}
         if not isinstance(raw_filters, dict):
@@ -661,7 +681,7 @@ def normalize_room_profiles(value: Any, key: str = "procedural.room_profiles") -
                 terms = [term.lower() for term in parse_string_sequence(raw_terms, field_key)]
                 class_filter[field_name] = terms
             filters[class_name] = class_filter
-        profiles[profile_name] = {"classes": classes, "filters": filters}
+        profiles[profile_name] = {"classes": classes, "required_classes": required_classes, "filters": filters}
     if "default" not in profiles:
         raise ValueError(f"{key}.default is required")
     return profiles

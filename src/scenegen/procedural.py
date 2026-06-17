@@ -170,6 +170,7 @@ def _sorted_nested_counter(values: dict[str, Counter[str]]) -> dict[str, dict[st
 def _record_desired_class_stats(stats: dict[str, object], room: ProceduralRoom, class_name: str) -> None:
     class_key = str(class_name)
     _bump_stats_counter(stats, "desired_class_counts", class_key)
+    _bump_stats_nested_counter(stats, "desired_class_by_room", room.room_id, class_key)
     _bump_stats_nested_counter(stats, "desired_class_by_room_type", room.room_type, class_key)
 
 
@@ -177,6 +178,7 @@ def _record_placed_asset_stats(stats: dict[str, object], room: ProceduralRoom, e
     class_key = str(entry.asset.placement_class or "unknown")
     _bump_stats_counter(stats, "placed_class_counts", class_key)
     _bump_stats_counter(stats, "placed_room_type_counts", room.room_type)
+    _bump_stats_nested_counter(stats, "placed_class_by_room", room.room_id, class_key)
     _bump_stats_nested_counter(stats, "placed_class_by_room_type", room.room_type, class_key)
 
 
@@ -189,6 +191,7 @@ def _record_skipped_class_stats(
     class_key = str(class_name)
     _bump_stats_counter(stats, "skipped_class_counts", class_key)
     _bump_stats_counter(stats, "skipped_reason_counts", reason)
+    _bump_stats_nested_counter(stats, "skipped_class_by_room", room.room_id, class_key)
     _bump_stats_nested_counter(stats, "skipped_class_by_room_type", room.room_type, class_key)
 
 
@@ -1864,6 +1867,13 @@ def select_room_profile(room_type: str, profiles: dict[str, dict[str, Any]]) -> 
     return profile_name, list(profile["classes"])
 
 
+def profile_required_classes(room_type: str, profiles: dict[str, dict[str, Any]]) -> list[str]:
+    """Return class requirements for the selected room profile."""
+
+    _profile_name, profile = select_room_profile_spec(room_type, profiles)
+    return [str(class_name) for class_name in profile.get("required_classes", [])]
+
+
 def desired_classes_from_profile(
     room_type: str,
     profiles: dict[str, dict[str, Any]],
@@ -1872,9 +1882,26 @@ def desired_classes_from_profile(
 ) -> list[str]:
     """Expand a room furnishing profile to the sampled object count."""
 
-    _profile_name, classes = select_room_profile(room_type, profiles)
+    _profile_name, profile = select_room_profile_spec(room_type, profiles)
+    classes = [str(class_name) for class_name in profile.get("classes", [])]
+    required_classes = [str(class_name) for class_name in profile.get("required_classes", [])]
     if target_count <= len(classes):
-        return classes[:target_count]
+        desired: list[str] = []
+        remaining_required = Counter(required_classes)
+        remaining_profile_classes: list[str] = []
+        for class_name in classes:
+            if remaining_required[class_name] > 0:
+                desired.append(class_name)
+                remaining_required[class_name] -= 1
+                if len(desired) >= target_count:
+                    return desired
+            else:
+                remaining_profile_classes.append(class_name)
+        for class_name in remaining_profile_classes:
+            if len(desired) >= target_count:
+                return desired
+            desired.append(class_name)
+        return desired
     return classes + [rng.choice(classes) for _ in range(target_count - len(classes))]
 
 
@@ -1990,6 +2017,7 @@ def procedural_asset_pool_coverage(
     for room_type in sorted({str(room_type) for room_type in room_types}):
         profile_name, profile = select_room_profile_spec(room_type, room_profiles)
         classes = [str(class_name) for class_name in profile.get("classes", [])]
+        required_classes = [str(class_name) for class_name in profile.get("required_classes", [])]
         filters_by_class = dict(profile.get("filters") or {})
         class_report: dict[str, object] = {}
         for class_name in sorted(set(classes)):
@@ -2028,6 +2056,7 @@ def procedural_asset_pool_coverage(
                 )
         report_by_room[room_type] = {
             "profile": profile_name,
+            "required_classes": required_classes,
             "classes": class_report,
         }
     return {
@@ -2701,9 +2730,9 @@ class ProceduralFront3DGenerator:
     def room_profile_for_room(self, room_type: str) -> tuple[str, list[str]]:
         return select_room_profile(room_type, self.args.procedural_room_profiles)
 
-    def room_profile_detail_for_room(self, room_type: str) -> tuple[str, list[str], dict[str, dict[str, list[str]]]]:
+    def room_profile_detail_for_room(self, room_type: str) -> tuple[str, list[str], list[str], dict[str, dict[str, list[str]]]]:
         profile_name, profile = select_room_profile_spec(room_type, self.args.procedural_room_profiles)
-        return profile_name, list(profile["classes"]), dict(profile.get("filters") or {})
+        return profile_name, list(profile["classes"]), list(profile.get("required_classes") or []), dict(profile.get("filters") or {})
 
     def desired_classes_for_room(self, room: ProceduralRoom, rng: random.Random) -> list[str]:
         object_count_config = object_count_config_for_room(room.room_type, self.args.procedural_object_count)
@@ -3006,6 +3035,9 @@ class ProceduralFront3DGenerator:
             "skipped_class_counts": {},
             "placed_room_type_counts": {},
             "skipped_reason_counts": {},
+            "desired_class_by_room": {},
+            "placed_class_by_room": {},
+            "skipped_class_by_room": {},
             "desired_class_by_room_type": {},
             "placed_class_by_room_type": {},
             "skipped_class_by_room_type": {},
@@ -3222,7 +3254,7 @@ class ProceduralFront3DGenerator:
         )
 
     def _room_report(self, room: ProceduralRoom, desired_object_count: int | None = None) -> dict[str, object]:
-        profile_name, profile_classes, profile_filters = self.room_profile_detail_for_room(room.room_type)
+        profile_name, profile_classes, profile_required, profile_filters = self.room_profile_detail_for_room(room.room_type)
         min_side = min(room.width, room.length)
         max_side = max(room.width, room.length)
         return {
@@ -3230,6 +3262,7 @@ class ProceduralFront3DGenerator:
             "room_type": room.room_type,
             "profile": profile_name,
             "profile_classes": profile_classes,
+            "profile_required_classes": profile_required,
             "profile_filters": profile_filters,
             "desired_object_count": desired_object_count,
             "bounds_xy": [room.x0, room.y0, room.x1, room.y1],
