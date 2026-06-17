@@ -246,6 +246,7 @@ def aggregate_procedural_run_report(
     layout_totals: Counter[str] = Counter()
     configured_layout_totals: Counter[str] = Counter()
     model_totals: Counter[str] = Counter()
+    asset_pool_coverage: dict[str, object] | None = None
     precheck_error_totals: Counter[str] = Counter()
     group_attempt_totals: Counter[str] = Counter()
     group_success_totals: Counter[str] = Counter()
@@ -306,6 +307,8 @@ def aggregate_procedural_run_report(
                 scene_room_aspects.append(aspect)
 
         placement_stats = procedural.get("placement_stats") if isinstance(procedural.get("placement_stats"), dict) else {}
+        if asset_pool_coverage is None and isinstance(procedural.get("asset_pool_coverage"), dict):
+            asset_pool_coverage = procedural["asset_pool_coverage"]
         footprint = procedural.get("footprint") if isinstance(procedural.get("footprint"), dict) else {}
         if isinstance(footprint.get("fill_ratio"), int | float):
             footprint_fill_ratios.append(float(footprint["fill_ratio"]))
@@ -469,6 +472,9 @@ def aggregate_procedural_run_report(
         "duplicate_model_count": numeric_summary(duplicate_model_counts),
         "unique_model_ratio": numeric_summary(unique_model_ratios),
         "top_reused_models": top_reused_models,
+        "asset_pool_coverage": asset_pool_coverage or {},
+        "asset_pool_empty_candidate_count": len(asset_pool_coverage.get("empty_candidates", [])) if asset_pool_coverage else 0,
+        "asset_pool_fallback_filter_count": len(asset_pool_coverage.get("fallback_filters", [])) if asset_pool_coverage else 0,
         "desired_class_counts_total": dict(sorted(desired_class_totals.items())),
         "placed_class_counts_total": dict(sorted(placed_class_totals.items())),
         "skipped_class_counts_total": dict(sorted(skipped_class_totals.items())),
@@ -1972,6 +1978,66 @@ def entries_matching_profile_filter(
     return (filtered or entries), bool(filtered)
 
 
+def procedural_asset_pool_coverage(
+    asset_pool: dict[str, list[ProceduralAssetEntry]],
+    room_types: list[str] | tuple[str, ...],
+    room_profiles: dict[str, Any],
+) -> dict[str, object]:
+    class_pool_counts = {class_name: len(entries) for class_name, entries in sorted(asset_pool.items())}
+    report_by_room: dict[str, object] = {}
+    empty_candidates: list[dict[str, object]] = []
+    fallback_filters: list[dict[str, object]] = []
+    for room_type in sorted({str(room_type) for room_type in room_types}):
+        profile_name, profile = select_room_profile_spec(room_type, room_profiles)
+        classes = [str(class_name) for class_name in profile.get("classes", [])]
+        filters_by_class = dict(profile.get("filters") or {})
+        class_report: dict[str, object] = {}
+        for class_name in sorted(set(classes)):
+            entries = asset_pool.get(class_name, [])
+            filtered, filter_matched = entries_matching_profile_filter(entries, profile, class_name)
+            class_filter = filters_by_class.get(class_name, {})
+            fallback_to_unfiltered = bool(class_filter) and bool(entries) and not filter_matched
+            item = {
+                "target_count_in_profile": count_class(classes, class_name),
+                "pool_count": len(entries),
+                "candidate_count": len(filtered),
+                "filter": class_filter,
+                "filter_matched": bool(filter_matched),
+                "fallback_to_unfiltered": fallback_to_unfiltered,
+                "empty": not bool(filtered),
+            }
+            class_report[class_name] = item
+            if not filtered:
+                empty_candidates.append(
+                    {
+                        "room_type": room_type,
+                        "profile": profile_name,
+                        "class": class_name,
+                        "pool_count": len(entries),
+                    }
+                )
+            if fallback_to_unfiltered:
+                fallback_filters.append(
+                    {
+                        "room_type": room_type,
+                        "profile": profile_name,
+                        "class": class_name,
+                        "pool_count": len(entries),
+                        "filter": class_filter,
+                    }
+                )
+        report_by_room[room_type] = {
+            "profile": profile_name,
+            "classes": class_report,
+        }
+    return {
+        "class_pool_counts": class_pool_counts,
+        "room_types": report_by_room,
+        "empty_candidates": empty_candidates,
+        "fallback_filters": fallback_filters,
+    }
+
+
 def select_room_group_specs(room_type: str, placement_groups: dict[str, Any]) -> list[dict[str, Any]]:
     """Select relationship placement groups for a room type."""
 
@@ -2593,6 +2659,11 @@ class ProceduralFront3DGenerator:
         self.args = args
         self.repo_root = find_project_root()
         self.asset_pool = self._build_asset_pool()
+        self.asset_pool_coverage = procedural_asset_pool_coverage(
+            self.asset_pool,
+            tuple(str(room_type) for room_type in self.args.procedural_room_types),
+            dict(self.args.procedural_room_profiles),
+        )
 
     def _build_asset_pool(self) -> dict[str, list[ProceduralAssetEntry]]:
         pool: dict[str, list[ProceduralAssetEntry]] = {"table": [], "seat": [], "floor": []}
@@ -3135,6 +3206,7 @@ class ProceduralFront3DGenerator:
                 for room in rooms
             ],
             "asset_pool_counts": {key: len(value) for key, value in sorted(self.asset_pool.items())},
+            "asset_pool_coverage": self.asset_pool_coverage,
             "skipped_object_count": len(skipped),
             "skipped_objects": skipped,
             "placement_stats": placement_stats,

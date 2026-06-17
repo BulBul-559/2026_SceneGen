@@ -251,6 +251,8 @@ topology、class placement 和 asset diversity 阈值默认多为空值，不会
 
 默认 profile 覆盖 `LivingRoom`、`Bedroom`、`DiningRoom`、`StudyRoom`、`Kitchen`、`Bathroom` 和 `Hallway`。后三类主要通过 `category` / `super_category` 关键词偏向橱柜、卫浴、置物柜、鞋柜、console table 等资产；如果本地 3D-FUTURE 标注不足，仍会回退到同 placement class 的完整资产池。
 
+每次 `procedural_front3d` run 会在 `procedural_report.json.asset_pool_coverage` 中记录每个 room type + furniture class 的 `pool_count`、`candidate_count`、`filter_matched` 和 `fallback_to_unfiltered`。`asset_pool_empty_candidate_count` 用于发现某类资产池完全为空；`asset_pool_fallback_filter_count` 用于发现某些 semantic filter 太窄、实际回退到了未过滤资产池。
+
 `required_room_types` 会先占用一部分 room 名额，再由 `room_type_weights` 或旧循环/洗牌逻辑补齐剩余房间。必选类型必须同时出现在 `room_types` 中，必选总数不能超过 `room_count` 的最大值。
 
 `room_type_assignment: area_priority` 会先生成本场景的 room type 序列，再把 `room_type_area_priority` 中靠前的类型分给面积更大的几何房间。例如会让 `LivingRoom`、`DiningRoom`、`Bedroom` 更容易落在大房间，让 `Bathroom` 和 `Hallway` 更容易落在小房间。`sequence` 用于对照实验或需要完全保留旧顺序分配的情况。

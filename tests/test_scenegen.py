@@ -65,6 +65,7 @@ from scenegen.procedural import (
     placement_policy_for_class,
     procedural_asset_approx_bbox,
     procedural_asset_footprint_size,
+    procedural_asset_pool_coverage,
     rotate_direction,
     room_adjacencies_for_rooms,
     room_aspect_ratio,
@@ -935,6 +936,65 @@ def test_procedural_room_profile_filters_match_asset_semantics() -> None:
     assert [entry.model_id for entry in filtered] == ["sofa"]
     assert fallback_matched is False
     assert fallback == [chair, sofa]
+
+
+def test_procedural_asset_pool_coverage_reports_filter_gaps() -> None:
+    seat_asset = Asset(
+        name="seat",
+        export_name="seat",
+        obj_file=Path("seat.obj"),
+        width=1.0,
+        length=1.0,
+        height=1.0,
+        placement_class="seat",
+        source_to_sionna_material={},
+        sionna_material_names=("itu-wood",),
+    )
+    table_asset = Asset(
+        name="table",
+        export_name="table",
+        obj_file=Path("table.obj"),
+        width=1.0,
+        length=1.0,
+        height=1.0,
+        placement_class="table",
+        source_to_sionna_material={},
+        sionna_material_names=("itu-wood",),
+    )
+    sofa = ProceduralAssetEntry("sofa", seat_asset, {}, {"category": "sofa", "super_category": "sofa", "material": "fabric"})
+    chair = ProceduralAssetEntry("chair", seat_asset, {}, {"category": "chair", "super_category": "chair", "material": "wood"})
+    dining_table = ProceduralAssetEntry("dining", table_asset, {}, {"category": "dining table", "super_category": "table", "material": "wood"})
+    coverage = procedural_asset_pool_coverage(
+        {"seat": [chair, sofa], "table": [dining_table], "floor": []},
+        ("LivingRoom", "Bathroom"),
+        {
+            "default": {"classes": ["floor"]},
+            "LivingRoom": {"classes": ["seat", "table"], "filters": {"seat": {"super_category": ["sofa"]}}},
+            "Bathroom": {"classes": ["floor", "table"], "filters": {"table": {"category": ["sink"]}}},
+        },
+    )
+
+    living_seat = coverage["room_types"]["LivingRoom"]["classes"]["seat"]
+    bathroom_floor = coverage["room_types"]["Bathroom"]["classes"]["floor"]
+    bathroom_table = coverage["room_types"]["Bathroom"]["classes"]["table"]
+
+    assert coverage["class_pool_counts"] == {"floor": 0, "seat": 2, "table": 1}
+    assert living_seat["candidate_count"] == 1
+    assert living_seat["filter_matched"] is True
+    assert bathroom_floor["empty"] is True
+    assert bathroom_table["fallback_to_unfiltered"] is True
+    assert coverage["empty_candidates"] == [
+        {"room_type": "Bathroom", "profile": "Bathroom", "class": "floor", "pool_count": 0}
+    ]
+    assert coverage["fallback_filters"] == [
+        {
+            "room_type": "Bathroom",
+            "profile": "Bathroom",
+            "class": "table",
+            "pool_count": 1,
+            "filter": {"category": ["sink"]},
+        }
+    ]
 
 
 def write_height_filtered_fixture_obj(path: Path) -> None:
@@ -2215,6 +2275,35 @@ def test_aggregate_procedural_run_report_summarizes_structure() -> None:
                         {"room_id": "a", "room_type": "LivingRoom", "area_m2": 12.0, "aspect_ratio": 1.5},
                         {"room_id": "b", "room_type": "Bedroom", "area_m2": 9.0, "aspect_ratio": 1.2},
                     ],
+                    "asset_pool_coverage": {
+                        "class_pool_counts": {"floor": 0, "seat": 2, "table": 1},
+                        "room_types": {
+                            "LivingRoom": {
+                                "profile": "LivingRoom",
+                                "classes": {
+                                    "seat": {
+                                        "target_count_in_profile": 1,
+                                        "pool_count": 2,
+                                        "candidate_count": 2,
+                                        "filter": {},
+                                        "filter_matched": False,
+                                        "fallback_to_unfiltered": False,
+                                        "empty": False,
+                                    }
+                                },
+                            }
+                        },
+                        "empty_candidates": [{"room_type": "Bathroom", "profile": "Bathroom", "class": "floor", "pool_count": 0}],
+                        "fallback_filters": [
+                            {
+                                "room_type": "Bathroom",
+                                "profile": "Bathroom",
+                                "class": "table",
+                                "pool_count": 1,
+                                "filter": {"category": ["sink"]},
+                            }
+                        ],
+                    },
                     "placement_stats": {
                         "desired_object_counts": {"a": 2, "b": 2},
                         "model_counts": {"model-a": 2, "model-b": 1},
@@ -2331,6 +2420,9 @@ def test_aggregate_procedural_run_report_summarizes_structure() -> None:
         {"model_id": "model-a", "count": 2},
         {"model_id": "model-c", "count": 2},
     ]
+    assert report["asset_pool_empty_candidate_count"] == 1
+    assert report["asset_pool_fallback_filter_count"] == 1
+    assert report["asset_pool_coverage"]["class_pool_counts"] == {"floor": 0, "seat": 2, "table": 1}
     assert report["desired_class_counts_total"] == {"floor": 1, "seat": 3, "table": 2}
     assert report["placed_class_counts_total"] == {"floor": 1, "seat": 3, "table": 1}
     assert report["skipped_class_counts_total"] == {"table": 1}
