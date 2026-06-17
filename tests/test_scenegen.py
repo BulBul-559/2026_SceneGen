@@ -1601,6 +1601,15 @@ def make_procedural_runtime_fixture(tmp_path: Path) -> Path:
                     "room_length_m": [3.0, 3.0],
                     "room_height_m": [2.8, 2.8],
                     "room_types": ["LivingRoom"],
+                    "windows": {
+                        "enabled": True,
+                        "room_probability": 1.0,
+                        "max_per_room": 1,
+                        "width_m": [1.0, 1.0],
+                        "height_m": [0.8, 0.8],
+                        "sill_height_m": [1.0, 1.0],
+                        "wall_margin_m": 0.5,
+                    },
                     "object_count": {"strategy": "range", "range": [1, 1]},
                     "asset_pool_limit": 5,
                 },
@@ -1847,6 +1856,8 @@ def test_procedural_front3d_batch_runner_uses_procedural_scene_prefix(tmp_path: 
     assert manifest["mode"] == "procedural_front3d"
     assert manifest["succeeded_scenes"] == 2
     assert all("procedural" in scene for scene in manifest["scenes"])
+    assert all(scene["procedural"]["window_count"] >= 1 for scene in manifest["scenes"])
+    assert all("itu-glass" in scene["sionna_materials"] for scene in manifest["scenes"])
     assert all(scene["scene_dir"].startswith("procedural_front3d_") for scene in manifest["scenes"])
 
 
