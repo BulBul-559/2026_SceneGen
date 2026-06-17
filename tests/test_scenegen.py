@@ -16,7 +16,7 @@ from scenegen import __version__
 from scenegen.assets import AssetSpec, group_assets_by_class, legacy_item_to_spec, load_assets, resolve_obj_file
 from scenegen.batch import main as batch_main
 from scenegen.batch import parse_args as parse_batch_args
-from scenegen.cli import evaluate_front3d_precheck, main, parse_args, prepare_run_dir
+from scenegen.cli import evaluate_front3d_precheck, evaluate_procedural_precheck, main, parse_args, prepare_run_dir
 from scenegen.config import DEFAULT_CONFIG, load_effective_config
 from scenegen.exporters import write_clean_obj_full_from_source
 from scenegen.floorplan import floorplan_layer_filename, generate_front3d_class_mask, process_scene
@@ -568,12 +568,12 @@ def test_front3d_class_mask_mesh_furniture_mode_uses_mesh_footprint(tmp_path: Pa
 
 
 def test_cli_version_matches_package_version(capsys: pytest.CaptureFixture[str]) -> None:
-    assert __version__ == "3.3.0"
+    assert __version__ == "3.4.0"
     with pytest.raises(SystemExit) as exc_info:
         parse_args(["--version"])
 
     assert exc_info.value.code == 0
-    assert capsys.readouterr().out.strip() == "SceneGen 3.3.0"
+    assert capsys.readouterr().out.strip() == "SceneGen 3.4.0"
 
 
 def test_bistro_config_is_mode_specific_default_overlay() -> None:
@@ -752,6 +752,38 @@ def test_front3d_precheck_rejects_anomalous_statistics() -> None:
         "too_few_placements",
         "z_range_too_high",
         "footprint_ratio_too_high",
+    }
+
+
+def test_procedural_precheck_rejects_low_placement_ratio() -> None:
+    args = Namespace(
+        mode="procedural_front3d",
+        procedural_precheck_enabled=True,
+        procedural_precheck_min_placements=1,
+        procedural_precheck_min_placement_ratio=0.5,
+        procedural_precheck_max_skipped_ratio=0.8,
+    )
+
+    result = evaluate_procedural_precheck(
+        args,
+        {"placement_count": 3},
+        {
+            "skipped_object_count": 7,
+            "procedural": {
+                "placement_stats": {
+                    "desired_object_counts": {
+                        "room_a": 5,
+                        "room_b": 5,
+                    }
+                }
+            },
+        },
+    )
+
+    assert result["ok"] is False
+    assert result["desired_object_count"] == 10
+    assert {error["code"] for error in result["errors"]} == {
+        "placement_ratio_too_low",
     }
 
 

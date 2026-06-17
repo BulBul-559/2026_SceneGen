@@ -124,6 +124,7 @@ uv run scenegen \
 | `object_margin_m` | float, `>=0` | `0.15` | 家具 bbox 之间的额外间距。 |
 | `max_attempts_per_object` | integer, `>=1` | `80` | 每个家具候选最多尝试多少次随机位置和朝向。 |
 | `asset_pool_limit` | integer, `>=1` | `500` | 每个 placement class 最多缓存多少个 3D-FUTURE 资产用于采样。 |
+| `precheck` | mapping | 见模板 | 程序化场景预检和失败重试设置。 |
 
 ### procedural.object_count
 
@@ -139,6 +140,18 @@ uv run scenegen \
 | `jitter` | `[min, max]` | `[-1, 1]` | `area_adaptive` 估算后的整数随机扰动。 |
 
 `area_adaptive` 计算方式为 `round(room_area / area_per_object_m2) + random(jitter)`，再裁剪到 `[min, max]`。因此小房间会自然少放，大房间会自然多放，同时保留少量随机性。
+
+### procedural.precheck
+
+程序化场景生成后、label/floorplan 之前执行。预检失败时会删除本次尝试目录，换一个 scene seed 重新生成同一输出编号，直到通过或达到 `max_attempts_per_scene`。
+
+| 字段 | 可选值 / 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `enabled` | boolean | `true` | 是否启用程序化场景预检。 |
+| `max_attempts_per_scene` | integer, `>=1` | `5` | 每个输出编号最多尝试多少个 procedural scene。 |
+| `min_placements` | integer, `>=0` | `1` | 至少需要实际摆放出的家具数量。 |
+| `min_placement_ratio` | float, `0-1` | `0.5` | 实际摆放数量 / 目标家具数量的最低比例。 |
+| `max_skipped_ratio` | float, `0-1` | `0.8` | 跳过或摆放失败数量 / 目标家具数量的最高比例。 |
 
 ### procedural.room_profiles
 

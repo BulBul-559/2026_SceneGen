@@ -120,6 +120,71 @@ def evaluate_front3d_precheck(args: argparse.Namespace, statistics: dict[str, ob
     return result
 
 
+def evaluate_procedural_precheck(
+    args: argparse.Namespace,
+    statistics: dict[str, object],
+    record: dict[str, object],
+) -> dict[str, object]:
+    enabled = args.mode == "procedural_front3d" and bool(args.procedural_precheck_enabled)
+    result: dict[str, object] = {"enabled": enabled, "ok": True, "errors": []}
+    if not enabled:
+        return result
+
+    errors: list[dict[str, object]] = []
+    placement_count = int(statistics.get("placement_count", 0))
+    if placement_count < int(args.procedural_precheck_min_placements):
+        errors.append(
+            {
+                "code": "too_few_placements",
+                "value": placement_count,
+                "threshold": int(args.procedural_precheck_min_placements),
+            }
+        )
+
+    procedural = record.get("procedural") if isinstance(record.get("procedural"), dict) else {}
+    placement_stats = procedural.get("placement_stats") if isinstance(procedural.get("placement_stats"), dict) else {}
+    desired_counts = placement_stats.get("desired_object_counts") if isinstance(placement_stats.get("desired_object_counts"), dict) else {}
+    desired_total = sum(int(value) for value in desired_counts.values()) if desired_counts else 0
+    skipped_count = int(record.get("skipped_object_count") or (procedural.get("skipped_object_count", 0) if procedural else 0))
+
+    if desired_total > 0:
+        placement_ratio = placement_count / desired_total
+        skipped_ratio = skipped_count / desired_total
+        if placement_ratio < float(args.procedural_precheck_min_placement_ratio):
+            errors.append(
+                {
+                    "code": "placement_ratio_too_low",
+                    "value": round(placement_ratio, 6),
+                    "threshold": float(args.procedural_precheck_min_placement_ratio),
+                    "placement_count": placement_count,
+                    "desired_count": desired_total,
+                }
+            )
+        if skipped_ratio > float(args.procedural_precheck_max_skipped_ratio):
+            errors.append(
+                {
+                    "code": "skipped_ratio_too_high",
+                    "value": round(skipped_ratio, 6),
+                    "threshold": float(args.procedural_precheck_max_skipped_ratio),
+                    "skipped_count": skipped_count,
+                    "desired_count": desired_total,
+                }
+            )
+
+    result["ok"] = not errors
+    result["errors"] = errors
+    result["desired_object_count"] = desired_total
+    result["placement_count"] = placement_count
+    result["skipped_object_count"] = skipped_count
+    return result
+
+
+def evaluate_scene_precheck(args: argparse.Namespace, statistics: dict[str, object], record: dict[str, object]) -> dict[str, object]:
+    if args.mode == "procedural_front3d":
+        return evaluate_procedural_precheck(args, statistics, record)
+    return evaluate_front3d_precheck(args, statistics)
+
+
 def front3d_precheck_settings(args: argparse.Namespace) -> dict[str, object]:
     if args.mode != "front3d":
         return {}
@@ -130,6 +195,26 @@ def front3d_precheck_settings(args: argparse.Namespace) -> dict[str, object]:
         "max_z_m": float(args.front3d_precheck_max_z),
         "max_footprint_ratio": float(args.front3d_precheck_max_footprint_ratio),
     }
+
+
+def procedural_precheck_settings(args: argparse.Namespace) -> dict[str, object]:
+    if args.mode != "procedural_front3d":
+        return {}
+    return {
+        "enabled": bool(args.procedural_precheck_enabled),
+        "max_attempts_per_scene": int(args.procedural_precheck_max_attempts_per_scene),
+        "min_placements": int(args.procedural_precheck_min_placements),
+        "min_placement_ratio": float(args.procedural_precheck_min_placement_ratio),
+        "max_skipped_ratio": float(args.procedural_precheck_max_skipped_ratio),
+    }
+
+
+def max_precheck_attempts(args: argparse.Namespace) -> int:
+    if args.mode == "front3d" and bool(args.front3d_precheck_enabled):
+        return int(args.front3d_precheck_max_attempts_per_scene)
+    if args.mode == "procedural_front3d" and bool(args.procedural_precheck_enabled):
+        return int(args.procedural_precheck_max_attempts_per_scene)
+    return 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -195,11 +280,7 @@ def main(argv: list[str] | None = None) -> int:
     stop_generation = False
     while len(scene_records) < args.scenes and not stop_generation:
         scene_index = int(args.scene_index_start) + len(scene_records)
-        max_attempts = (
-            int(args.front3d_precheck_max_attempts_per_scene)
-            if args.mode == "front3d" and bool(args.front3d_precheck_enabled)
-            else 1
-        )
+        max_attempts = max_precheck_attempts(args)
         accepted = False
         for attempt_index in range(max_attempts):
             scene_seed = master_rng.randrange(1, 2**31)
@@ -253,16 +334,18 @@ def main(argv: list[str] | None = None) -> int:
                 scene_index=scene_index,
                 attempt_no=attempt_no,
             ):
-                precheck = evaluate_front3d_precheck(args, statistics)
+                precheck = evaluate_scene_precheck(args, statistics, record)
             record["precheck"] = precheck
             if not bool(precheck["ok"]):
-                scene_id = str(record.get("front3d_scene_id") or "")
+                procedural_record = record.get("procedural") if isinstance(record.get("procedural"), dict) else {}
+                scene_id = str(record.get("front3d_scene_id") or procedural_record.get("scene_id") or "")
                 precheck_skipped_scenes.append(
                     {
                         "target_index": scene_index,
                         "attempt": attempt_index + 1,
                         "scene_seed": scene_seed,
-                        "front3d_scene_id": scene_id,
+                        "front3d_scene_id": scene_id if args.mode == "front3d" else "",
+                        "source_scene_id": scene_id,
                         "errors": precheck["errors"],
                         "statistics": statistics,
                         "skipped_object_count": int(record.get("skipped_object_count", 0)),
@@ -280,7 +363,7 @@ def main(argv: list[str] | None = None) -> int:
                     attempt_no=attempt_no,
                     metrics={"scene_seed": scene_seed},
                     extra={
-                        "front3d_scene_id": scene_id,
+                        "source_scene_id": scene_id,
                         "precheck_errors": precheck["errors"],
                         "timings_s": scene_timings,
                     },
@@ -512,7 +595,7 @@ def main(argv: list[str] | None = None) -> int:
             break
         if not accepted:
             precheck_failed = True
-            print(f"3D-FRONT precheck could not fill scene index {scene_index} after {max_attempts} attempts.")
+            print(f"{args.mode} precheck could not fill scene index {scene_index} after {max_attempts} attempts.")
             break
 
     final_timings: dict[str, float] = {}
@@ -557,6 +640,10 @@ def main(argv: list[str] | None = None) -> int:
         "front3d_precheck_ok": (not precheck_failed) if args.mode == "front3d" else None,
         "front3d_precheck_skipped_count": len(precheck_skipped_scenes) if args.mode == "front3d" else 0,
         "front3d_precheck_skipped_scenes": precheck_skipped_scenes if args.mode == "front3d" else [],
+        "procedural_precheck": procedural_precheck_settings(args),
+        "procedural_precheck_ok": (not precheck_failed) if args.mode == "procedural_front3d" else None,
+        "procedural_precheck_skipped_count": len(precheck_skipped_scenes) if args.mode == "procedural_front3d" else 0,
+        "procedural_precheck_skipped_scenes": precheck_skipped_scenes if args.mode == "procedural_front3d" else [],
         "forbidden_xy_rects": (
             [{"x_min": rect[0], "y_min": rect[1], "x_max": rect[2], "y_max": rect[3]} for rect in args.forbidden_xy_rects]
             if args.mode == "bistro"
@@ -637,7 +724,7 @@ def main(argv: list[str] | None = None) -> int:
         print("Quality checks failed for at least one scene.")
         exit_code = 1
     if precheck_failed:
-        print("3D-FRONT precheck failed to backfill all requested scenes.")
+        print(f"{args.mode} precheck failed to backfill all requested scenes.")
         exit_code = 1
     if label_failed and label_config.fail_on_error:
         print("Label generation failed for at least one scene.")

@@ -102,6 +102,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "object_margin_m": 0.15,
         "max_attempts_per_object": 80,
         "asset_pool_limit": 500,
+        "precheck": {
+            "enabled": True,
+            "max_attempts_per_scene": 5,
+            "min_placements": 1,
+            "min_placement_ratio": 0.5,
+            "max_skipped_ratio": 0.8,
+        },
     },
     "validation": {
         "sionna": False,
@@ -529,6 +536,12 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     procedural["object_margin_m"] = float(procedural["object_margin_m"])
     procedural["max_attempts_per_object"] = int(procedural["max_attempts_per_object"])
     procedural["asset_pool_limit"] = int(procedural["asset_pool_limit"])
+    procedural_precheck = procedural["precheck"]
+    procedural_precheck["enabled"] = as_bool(procedural_precheck["enabled"], "procedural.precheck.enabled")
+    procedural_precheck["max_attempts_per_scene"] = int(procedural_precheck["max_attempts_per_scene"])
+    procedural_precheck["min_placements"] = int(procedural_precheck["min_placements"])
+    procedural_precheck["min_placement_ratio"] = float(procedural_precheck["min_placement_ratio"])
+    procedural_precheck["max_skipped_ratio"] = float(procedural_precheck["max_skipped_ratio"])
 
     normalized["validation"]["sionna"] = as_bool(normalized["validation"]["sionna"], "validation.sionna")
 
@@ -696,6 +709,15 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("procedural.max_attempts_per_object must be at least 1")
     if procedural["asset_pool_limit"] < 1:
         raise ValueError("procedural.asset_pool_limit must be at least 1")
+    procedural_precheck = procedural["precheck"]
+    if procedural_precheck["max_attempts_per_scene"] < 1:
+        raise ValueError("procedural.precheck.max_attempts_per_scene must be at least 1")
+    if procedural_precheck["min_placements"] < 0:
+        raise ValueError("procedural.precheck.min_placements must be non-negative")
+    if not 0.0 <= procedural_precheck["min_placement_ratio"] <= 1.0:
+        raise ValueError("procedural.precheck.min_placement_ratio must be between 0 and 1")
+    if not 0.0 <= procedural_precheck["max_skipped_ratio"] <= 1.0:
+        raise ValueError("procedural.precheck.max_skipped_ratio must be between 0 and 1")
 
     quality = config["quality"]
     if quality["collision_padding_m"] < 0:
@@ -952,6 +974,11 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         procedural_object_margin_m=procedural["object_margin_m"],
         procedural_max_attempts_per_object=procedural["max_attempts_per_object"],
         procedural_asset_pool_limit=procedural["asset_pool_limit"],
+        procedural_precheck_enabled=procedural["precheck"]["enabled"],
+        procedural_precheck_max_attempts_per_scene=procedural["precheck"]["max_attempts_per_scene"],
+        procedural_precheck_min_placements=procedural["precheck"]["min_placements"],
+        procedural_precheck_min_placement_ratio=procedural["precheck"]["min_placement_ratio"],
+        procedural_precheck_max_skipped_ratio=procedural["precheck"]["max_skipped_ratio"],
         validate_sionna=validation["sionna"],
         quality_enabled=quality["enabled"],
         quality_fail_on_error=quality["fail_on_error"],
