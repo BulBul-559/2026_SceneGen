@@ -49,6 +49,7 @@ from scenegen.procedural import (
     ProceduralRoom,
     aggregate_procedural_run_report,
     architecture_meshes_for_rooms,
+    assign_room_types_to_areas,
     candidate_pose_for_policy,
     companion_directions,
     desired_classes_from_profile,
@@ -303,6 +304,24 @@ def test_procedural_room_type_sequence_keeps_required_types() -> None:
     assert sequence.count("Bedroom") == 1
     assert sequence.count("Kitchen") == 1
     assert sequence.count("Bathroom") == 2
+
+
+def test_procedural_room_type_area_priority_maps_large_rooms() -> None:
+    assigned = assign_room_types_to_areas(
+        ["Bathroom", "Bedroom", "LivingRoom"],
+        [12.0, 30.0, 18.0],
+        assignment="area_priority",
+        area_priority=("LivingRoom", "Bedroom", "Bathroom"),
+    )
+    unchanged = assign_room_types_to_areas(
+        ["Bathroom", "Bedroom", "LivingRoom"],
+        [12.0, 30.0, 18.0],
+        assignment="sequence",
+        area_priority=("LivingRoom", "Bedroom", "Bathroom"),
+    )
+
+    assert assigned == ["Bathroom", "LivingRoom", "Bedroom"]
+    assert unchanged == ["Bathroom", "Bedroom", "LivingRoom"]
 
 
 def test_procedural_asset_approx_footprint_uses_scenegen_xy() -> None:
@@ -930,6 +949,33 @@ def test_procedural_required_room_types_reject_inconsistent_config(tmp_path: Pat
     )
     with pytest.raises(ValueError, match="procedural.required_room_types"):
         load_effective_config(fractional_path, root, parse_args([]))
+
+
+def test_procedural_room_type_assignment_rejects_invalid_mode(tmp_path: Path) -> None:
+    root = find_project_root()
+    config_path = tmp_path / "bad_room_type_assignment.yaml"
+    config_path.write_text(
+        "procedural:\n"
+        "  room_type_assignment: largest_first\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="procedural.room_type_assignment"):
+        load_effective_config(config_path, root, parse_args([]))
+
+
+def test_procedural_sequence_assignment_allows_empty_area_priority(tmp_path: Path) -> None:
+    root = find_project_root()
+    config_path = tmp_path / "sequence_room_type_assignment.yaml"
+    config_path.write_text(
+        "procedural:\n"
+        "  room_type_assignment: sequence\n"
+        "  room_type_area_priority: []\n",
+        encoding="utf-8",
+    )
+
+    effective, _ = load_effective_config(config_path, root, parse_args([]))
+    assert effective["procedural"]["room_type_area_priority"] == []
 
 
 def test_prepare_run_dir_clean_only_replaces_named_run(tmp_path: Path) -> None:
