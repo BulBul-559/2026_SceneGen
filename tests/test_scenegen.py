@@ -535,8 +535,18 @@ def test_procedural_placement_groups_select_by_room_type_and_directions() -> Non
 
     specs = select_room_group_specs("LargeDiningRoom", groups)
     assert specs[0]["name"] == "dining_table_set"
+    living_specs = select_room_group_specs("LivingRoom", DEFAULT_CONFIG["procedural"]["placement_groups"])
+    kitchen_specs = select_room_group_specs("CompactKitchen", DEFAULT_CONFIG["procedural"]["placement_groups"])
+    assert living_specs[0]["name"] == "living_seating_set"
+    assert kitchen_specs[0]["name"] == "counter_stool_pair"
     assert select_room_group_specs("Bedroom", DEFAULT_CONFIG["procedural"]["placement_groups"])[0]["name"] == "bed_side_tables"
     assert DEFAULT_CONFIG["procedural"]["room_profiles"]["Bedroom"]["filters"]["table"]["category"] == ["nightstand"]
+    assert DEFAULT_CONFIG["procedural"]["room_profiles"]["LivingRoom"]["filters"]["table"]["category"] == [
+        "coffee table",
+        "tea table",
+        "corner/side table",
+        "side table",
+    ]
     assert "Kitchen" in DEFAULT_CONFIG["procedural"]["room_types"]
     assert DEFAULT_CONFIG["procedural"]["room_profiles"]["Kitchen"]["filters"]["floor"]["category"] == ["cabinet", "kitchen", "shelf"]
     assert DEFAULT_CONFIG["procedural"]["room_profiles"]["Bathroom"]["filters"]["floor"]["super_category"] == ["toilet", "bath", "cabinet"]

@@ -125,7 +125,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "default": {"classes": ["seat", "table", "floor", "seat", "table"], "filters": {}},
             "LivingRoom": {
                 "classes": ["seat", "table", "floor", "seat", "table"],
-                "filters": {"seat": {"super_category": ["sofa"]}},
+                "filters": {
+                    "seat": {"super_category": ["sofa"]},
+                    "table": {"category": ["coffee table", "tea table", "corner/side table", "side table"]},
+                },
             },
             "Bedroom": {
                 "classes": ["floor", "table", "table", "seat"],
@@ -203,6 +206,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "placement_groups": {
             "enabled": True,
             "room_types": {
+                "LivingRoom": [
+                    {
+                        "name": "living_seating_set",
+                        "anchor_class": "table",
+                        "companion_class": "seat",
+                        "companion_count": [1, 2],
+                        "companion_gap_m": [0.15, 0.45],
+                        "max_attempts": 30,
+                    }
+                ],
                 "DiningRoom": [
                     {
                         "name": "dining_table_set",
@@ -226,6 +239,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
                 "StudyRoom": [
                     {
                         "name": "desk_chair_pair",
+                        "anchor_class": "table",
+                        "companion_class": "seat",
+                        "companion_count": [1, 1],
+                        "companion_gap_m": [0.1, 0.3],
+                        "max_attempts": 20,
+                    }
+                ],
+                "Kitchen": [
+                    {
+                        "name": "counter_stool_pair",
                         "anchor_class": "table",
                         "companion_class": "seat",
                         "companion_count": [1, 1],

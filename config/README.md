@@ -184,11 +184,13 @@ uv run scenegen \
 
 关系组用于提升程序化房间的语义结构。它不会替代 `room_profiles` 和 `placement_policy`：生成时先从 profile 得到目标 class 列表，如果当前 room type 配置了关系组且目标 class 足够，就尝试生成一组 anchor furniture 和若干 companion furniture；成功后从目标列表中扣掉这些 class，剩余家具继续走普通 placement policy。
 
-当前第一版支持 `anchor_class + companion_class` 的局部组合，适合餐桌椅、书桌椅这类结构。默认：
+当前第一版支持 `anchor_class + companion_class` 的局部组合，适合客厅会客区、餐桌椅、书桌椅这类结构。默认：
 
+- `LivingRoom`: `living_seating_set`，1 张 `table` 茶几/边几 + 1 到 2 个 `seat` 沙发/座椅。
 - `DiningRoom`: `dining_table_set`，1 张 `table` + 2 到 4 把 `seat`。
 - `Bedroom`: `bed_side_tables`，1 个 `floor` 大件床 + 1 到 2 个 `table` 床头柜。
 - `StudyRoom`: `desk_chair_pair`，1 张 `table` + 1 把 `seat`。
+- `Kitchen`: `counter_stool_pair`，1 个 `table` 台面/餐台 + 1 个 `seat` 椅凳。
 
 | 字段 | 可选值 / 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
