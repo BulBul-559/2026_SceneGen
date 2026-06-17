@@ -1162,8 +1162,8 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("placement.max_attempts must be at least 1")
 
     procedural = config["procedural"]
-    if procedural["layout"] not in {"grid", "split_tree"}:
-        raise ValueError("procedural.layout must be 'grid' or 'split_tree'")
+    if procedural["layout"] not in {"grid", "split_tree", "rect_union"}:
+        raise ValueError("procedural.layout must be 'grid', 'split_tree', or 'rect_union'")
     if procedural["room_count"][0] < 1 or procedural["room_count"][1] < procedural["room_count"][0]:
         raise ValueError("procedural.room_count must be [min, max] with max >= min >= 1")
     for key in ("room_width_m", "room_length_m", "room_height_m"):

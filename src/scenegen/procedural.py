@@ -892,6 +892,121 @@ def make_split_tree_room_layout(
     ]
 
 
+def grow_connected_grid_cells(
+    rng: random.Random,
+    *,
+    rows: int,
+    columns: int,
+    target_count: int,
+) -> set[tuple[int, int]]:
+    start = (rng.randrange(rows), rng.randrange(columns))
+    selected = {start}
+    while len(selected) < target_count:
+        frontier: list[tuple[int, int]] = []
+        for row, col in selected:
+            for candidate in ((row - 1, col), (row + 1, col), (row, col - 1), (row, col + 1)):
+                c_row, c_col = candidate
+                if 0 <= c_row < rows and 0 <= c_col < columns and candidate not in selected:
+                    frontier.append(candidate)
+        if not frontier:
+            break
+        selected.add(rng.choice(frontier))
+    return selected
+
+
+def cells_fill_bounding_rectangle(cells: set[tuple[int, int]]) -> bool:
+    if not cells:
+        return False
+    rows = [row for row, _col in cells]
+    cols = [col for _row, col in cells]
+    return len(cells) == (max(rows) - min(rows) + 1) * (max(cols) - min(cols) + 1)
+
+
+def make_rect_union_room_layout(
+    rng: random.Random,
+    room_count_range: tuple[int, int],
+    room_width_range: tuple[float, float],
+    room_length_range: tuple[float, float],
+    height_range: tuple[float, float],
+    room_types: tuple[str, ...],
+    required_room_types: dict[str, int] | None = None,
+    room_type_assignment: str = "sequence",
+    room_type_area_priority: tuple[str, ...] = (),
+    room_type_max_counts: dict[str, int | None] | None = None,
+    room_type_weights: dict[str, float] | None = None,
+    room_type_geometry_rules: dict[str, dict[str, float | None]] | None = None,
+) -> list[ProceduralRoom]:
+    required_total = sum(max(0, int(count)) for count in (required_room_types or {}).values())
+    room_count = max(rng.randint(room_count_range[0], room_count_range[1]), required_total)
+    capacity = max(room_count + 1, 4)
+    columns = max(2, math.ceil(math.sqrt(capacity)))
+    rows = max(2, math.ceil(capacity / columns))
+    while rows * columns <= room_count:
+        if columns <= rows:
+            columns += 1
+        else:
+            rows += 1
+
+    selected_cells: set[tuple[int, int]] = set()
+    for _attempt in range(24):
+        candidate = grow_connected_grid_cells(rng, rows=rows, columns=columns, target_count=room_count)
+        if len(candidate) == room_count and not cells_fill_bounding_rectangle(candidate):
+            selected_cells = candidate
+            break
+        if len(candidate) == room_count:
+            selected_cells = candidate
+    if not selected_cells:
+        selected_cells = grow_connected_grid_cells(rng, rows=rows, columns=columns, target_count=room_count)
+
+    column_widths = [round(rng.uniform(*room_width_range), 3) for _ in range(columns)]
+    row_lengths = [round(rng.uniform(*room_length_range), 3) for _ in range(rows)]
+    x_offsets = [0.0]
+    for width in column_widths:
+        x_offsets.append(round(x_offsets[-1] + width, 6))
+    y_offsets = [0.0]
+    for length in row_lengths:
+        y_offsets.append(round(y_offsets[-1] + length, 6))
+
+    regions = [
+        LayoutRegion(
+            x_offsets[col],
+            y_offsets[row],
+            x_offsets[col + 1],
+            y_offsets[row + 1],
+        )
+        for row, col in sorted(selected_cells)
+    ]
+    height = round(rng.uniform(*height_range), 3)
+    type_sequence = room_type_sequence(
+        len(regions),
+        room_types,
+        rng,
+        shuffle=True,
+        required_room_types=required_room_types,
+        room_type_max_counts=room_type_max_counts,
+        room_type_weights=room_type_weights,
+    )
+    type_sequence = assign_room_types_to_geometry(
+        type_sequence,
+        [(region.area, room_aspect_ratio(region.width, region.length)) for region in regions],
+        assignment=room_type_assignment,
+        area_priority=room_type_area_priority,
+        geometry_rules=room_type_geometry_rules,
+    )
+    return [
+        ProceduralRoom(
+            room_id=f"proc_room_{index:02d}",
+            room_type=type_sequence[index],
+            x0=round(region.x0, 6),
+            y0=round(region.y0, 6),
+            x1=round(region.x1, 6),
+            y1=round(region.y1, 6),
+            height=height,
+        )
+        for index, region in enumerate(regions)
+    ]
+
+
 def make_room_layout(
     rng: random.Random,
     layout: str,
@@ -924,6 +1039,21 @@ def make_room_layout(
         )
     if layout == "split_tree":
         return make_split_tree_room_layout(
+            rng,
+            room_count_range,
+            room_width_range,
+            room_length_range,
+            height_range,
+            room_types,
+            required_room_types=required_room_types,
+            room_type_assignment=room_type_assignment,
+            room_type_area_priority=room_type_area_priority,
+            room_type_max_counts=room_type_max_counts,
+            room_type_weights=room_type_weights,
+            room_type_geometry_rules=room_type_geometry_rules,
+        )
+    if layout == "rect_union":
+        return make_rect_union_room_layout(
             rng,
             room_count_range,
             room_width_range,
@@ -1278,21 +1408,90 @@ def door_keepout_boxes_for_rooms(
 
 def exterior_window_sides(
     room: ProceduralRoom,
-    min_x: float,
-    min_y: float,
-    max_x: float,
-    max_y: float,
+    rooms: list[ProceduralRoom],
 ) -> list[str]:
     sides: list[str] = []
-    if abs(room.y0 - min_y) < 1e-6:
+    segments = room_exterior_segments(room, rooms)
+    if segments["south"] and sum(end - start for start, end in segments["south"]) >= room.width - 1e-6:
         sides.append("south")
-    if abs(room.y1 - max_y) < 1e-6:
+    if segments["north"] and sum(end - start for start, end in segments["north"]) >= room.width - 1e-6:
         sides.append("north")
-    if abs(room.x0 - min_x) < 1e-6:
+    if segments["west"] and sum(end - start for start, end in segments["west"]) >= room.length - 1e-6:
         sides.append("west")
-    if abs(room.x1 - max_x) < 1e-6:
+    if segments["east"] and sum(end - start for start, end in segments["east"]) >= room.length - 1e-6:
         sides.append("east")
     return sides
+
+
+def subtract_intervals(
+    base: tuple[float, float],
+    blockers: list[tuple[float, float]],
+) -> list[tuple[float, float]]:
+    segments = [base]
+    for blocker_start, blocker_end in sorted(blockers):
+        next_segments: list[tuple[float, float]] = []
+        for start, end in segments:
+            if blocker_end <= start + 1e-6 or blocker_start >= end - 1e-6:
+                next_segments.append((start, end))
+                continue
+            if blocker_start > start + 1e-6:
+                next_segments.append((start, min(blocker_start, end)))
+            if blocker_end < end - 1e-6:
+                next_segments.append((max(blocker_end, start), end))
+        segments = next_segments
+        if not segments:
+            break
+    return [(round(start, 6), round(end, 6)) for start, end in segments if end - start > 1e-6]
+
+
+def room_exterior_segments(
+    room: ProceduralRoom,
+    rooms: list[ProceduralRoom],
+) -> dict[str, list[tuple[float, float]]]:
+    blockers: dict[str, list[tuple[float, float]]] = {"south": [], "north": [], "west": [], "east": []}
+    for other in rooms:
+        if other.room_id == room.room_id:
+            continue
+        if abs(other.y1 - room.y0) < 1e-6:
+            interval = overlapping_interval(room.x0, room.x1, other.x0, other.x1)
+            if interval is not None:
+                blockers["south"].append(interval)
+        if abs(other.y0 - room.y1) < 1e-6:
+            interval = overlapping_interval(room.x0, room.x1, other.x0, other.x1)
+            if interval is not None:
+                blockers["north"].append(interval)
+        if abs(other.x1 - room.x0) < 1e-6:
+            interval = overlapping_interval(room.y0, room.y1, other.y0, other.y1)
+            if interval is not None:
+                blockers["west"].append(interval)
+        if abs(other.x0 - room.x1) < 1e-6:
+            interval = overlapping_interval(room.y0, room.y1, other.y0, other.y1)
+            if interval is not None:
+                blockers["east"].append(interval)
+    return {
+        "south": subtract_intervals((room.x0, room.x1), blockers["south"]),
+        "north": subtract_intervals((room.x0, room.x1), blockers["north"]),
+        "west": subtract_intervals((room.y0, room.y1), blockers["west"]),
+        "east": subtract_intervals((room.y0, room.y1), blockers["east"]),
+    }
+
+
+def append_exterior_wall_specs(
+    wall_specs: list[tuple[float, float, float, float, str]],
+    *,
+    room: ProceduralRoom,
+    rooms: list[ProceduralRoom],
+    wall_thickness: float,
+) -> None:
+    segments = room_exterior_segments(room, rooms)
+    for start, end in segments["south"]:
+        wall_specs.append((start, room.y0, end, room.y0 + wall_thickness, "Wall"))
+    for start, end in segments["north"]:
+        wall_specs.append((start, room.y1 - wall_thickness, end, room.y1, "Wall"))
+    for start, end in segments["west"]:
+        wall_specs.append((room.x0, start, room.x0 + wall_thickness, end, "Wall"))
+    for start, end in segments["east"]:
+        wall_specs.append((room.x1 - wall_thickness, start, room.x1, end, "Wall"))
 
 
 def append_room_windows(
@@ -1385,10 +1584,6 @@ def architecture_meshes_for_rooms(
     room_children: list[dict[str, object]] = []
     if not rooms:
         return meshes, room_children
-    min_x = min(room.x0 for room in rooms)
-    min_y = min(room.y0 for room in rooms)
-    max_x = max(room.x1 for room in rooms)
-    max_y = max(room.y1 for room in rooms)
     height = max(room.height for room in rooms)
 
     for room_index, room in enumerate(rooms):
@@ -1421,18 +1616,15 @@ def architecture_meshes_for_rooms(
                 room_children,
                 room=room,
                 room_index=room_index,
-                sides=exterior_window_sides(room, min_x, min_y, max_x, max_y),
+                sides=exterior_window_sides(room, rooms),
                 wall_thickness=wall_thickness,
                 config=window_config,
                 rng=rng,
             )
 
-    wall_specs: list[tuple[float, float, float, float, str]] = [
-        (min_x, min_y, max_x, min_y + wall_thickness, "Wall"),
-        (min_x, max_y - wall_thickness, max_x, max_y, "Wall"),
-        (min_x, min_y, min_x + wall_thickness, max_y, "Wall"),
-        (max_x - wall_thickness, min_y, max_x, max_y, "Wall"),
-    ]
+    wall_specs: list[tuple[float, float, float, float, str]] = []
+    for room in rooms:
+        append_exterior_wall_specs(wall_specs, room=room, rooms=rooms, wall_thickness=wall_thickness)
 
     # Internal walls are generated only on true shared room edges. This supports split-tree
     # layouts where not every room boundary aligns to a global grid line.

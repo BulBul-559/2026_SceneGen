@@ -66,6 +66,7 @@ from scenegen.procedural import (
     procedural_asset_footprint_size,
     rotate_direction,
     room_adjacencies_for_rooms,
+    room_exterior_segments,
     room_type_sequence,
     select_room_group_specs,
     select_room_profile,
@@ -294,6 +295,63 @@ def test_procedural_split_tree_layout_tiles_complete_positive_footprint() -> Non
             x_overlap = min(left_room.x1, right_room.x1) - max(left_room.x0, right_room.x0)
             y_overlap = min(left_room.y1, right_room.y1) - max(left_room.y0, right_room.y0)
             assert x_overlap <= 1e-6 or y_overlap <= 1e-6
+
+
+def test_procedural_rect_union_layout_creates_irregular_connected_footprint() -> None:
+    rooms = make_room_layout(
+        random.Random(2027),
+        "rect_union",
+        (6, 6),
+        (3.0, 5.0),
+        (3.0, 5.0),
+        (2.8, 2.8),
+        ("LivingRoom", "Bedroom", "Kitchen", "Bathroom"),
+        required_room_types={"LivingRoom": 1, "Bedroom": 1, "Kitchen": 1},
+        room_type_assignment="geometry_fit",
+        room_type_area_priority=("LivingRoom", "Bedroom", "Kitchen", "Bathroom"),
+    )
+    assert len(rooms) == 6
+    assert {"LivingRoom", "Bedroom", "Kitchen"}.issubset({room.room_type for room in rooms})
+    assert min(room.x0 for room in rooms) == pytest.approx(0.0)
+    assert min(room.y0 for room in rooms) == pytest.approx(0.0)
+    assert all(room.width >= 3.0 for room in rooms)
+    assert all(room.length >= 3.0 for room in rooms)
+
+    total_area = sum(room.area for room in rooms)
+    bbox_area = (max(room.x1 for room in rooms) - min(room.x0 for room in rooms)) * (
+        max(room.y1 for room in rooms) - min(room.y0 for room in rooms)
+    )
+    assert total_area < bbox_area
+
+    adjacencies = room_adjacencies_for_rooms(rooms, wall_thickness=0.16, door_width=1.0)
+    graph = {room.room_id: set() for room in rooms}
+    for adjacency in adjacencies:
+        left, right = adjacency["rooms"]
+        graph[str(left)].add(str(right))
+        graph[str(right)].add(str(left))
+    visited = {rooms[0].room_id}
+    frontier = [rooms[0].room_id]
+    while frontier:
+        room_id = frontier.pop()
+        for neighbor in graph[room_id] - visited:
+            visited.add(neighbor)
+            frontier.append(neighbor)
+    assert visited == set(graph)
+
+
+def test_procedural_exterior_segments_follow_room_union_not_bbox() -> None:
+    rooms = [
+        ProceduralRoom("a", "LivingRoom", 0.0, 0.0, 4.0, 4.0, 3.0),
+        ProceduralRoom("b", "Bedroom", 4.0, 0.0, 8.0, 4.0, 3.0),
+        ProceduralRoom("c", "Kitchen", 0.0, 4.0, 4.0, 8.0, 3.0),
+    ]
+
+    segments = room_exterior_segments(rooms[0], rooms)
+
+    assert segments["north"] == []
+    assert segments["east"] == []
+    assert segments["south"] == [(0.0, 4.0)]
+    assert segments["west"] == [(0.0, 4.0)]
 
 
 def test_procedural_room_type_sequence_supports_weights() -> None:
