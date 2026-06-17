@@ -21,7 +21,7 @@ front3d:
     include_windows_as_wall: true
 
 procedural:
-  layout: split_tree
+  layout: mixed
   layout_weights:
     split_tree: 1.0
     rect_union: 1.0

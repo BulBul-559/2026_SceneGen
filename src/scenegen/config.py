@@ -67,7 +67,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_attempts": 300,
     },
     "procedural": {
-        "layout": "split_tree",
+        "layout": "mixed",
         "layout_weights": {
             "split_tree": 1.0,
             "rect_union": 1.0,

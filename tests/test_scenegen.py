@@ -1221,6 +1221,7 @@ def test_procedural_front3d_config_is_mode_specific_default_overlay() -> None:
     assert "bistro" not in payload
     assert "placement" not in payload
     assert payload["pipeline"]["mode"] == "procedural_front3d"
+    assert payload["procedural"]["layout"] == "mixed"
     assert payload["procedural"] == DEFAULT_CONFIG["procedural"]
     assert payload["floorplan"]["class_mask"]["enabled"] is True
     assert payload["floorplan"]["class_mask"]["furniture_height_m"] == 1.6
@@ -1505,6 +1506,7 @@ def test_procedural_room_type_weights_reject_all_zero_for_configured_rooms(tmp_p
     config_path = tmp_path / "bad_room_type_weights.yaml"
     config_path.write_text(
         "procedural:\n"
+        "  layout: split_tree\n"
         "  room_types: [Kitchen, Bathroom]\n"
         "  room_count: [2, 2]\n"
         "  required_room_types: null\n"
@@ -1560,6 +1562,7 @@ def test_procedural_room_type_max_counts_filters_disabled_room_types(tmp_path: P
     config_path = tmp_path / "filtered_room_type_max_counts.yaml"
     config_path.write_text(
         "procedural:\n"
+        "  layout: split_tree\n"
         "  room_types: [LivingRoom]\n"
         "  room_count: [1, 1]\n"
         "  required_room_types: null\n"
@@ -2848,6 +2851,7 @@ def make_procedural_runtime_fixture(tmp_path: Path) -> Path:
                     "object_variant": "raw",
                 },
                 "procedural": {
+                    "layout": "split_tree",
                     "room_count": [1, 1],
                     "room_width_m": [3.0, 3.0],
                     "room_length_m": [3.0, 3.0],
