@@ -44,6 +44,7 @@ from scenegen.paths import (
     default_config_path,
     find_project_root,
 )
+from scenegen.procedural import ProceduralRoom, architecture_meshes_for_rooms, write_procedural_source_files
 
 
 def iter_json_strings(value: object) -> list[str]:
@@ -70,6 +71,14 @@ def assert_subset_of_default(payload: dict[str, object], defaults: dict[str, obj
             assert_subset_of_default(value, default_value)
         else:
             assert value == default_value
+
+
+def assert_keys_subset_of_default(payload: dict[str, object], defaults: dict[str, object]) -> None:
+    for key, value in payload.items():
+        assert key in defaults
+        default_value = defaults[key]
+        if isinstance(value, dict) and isinstance(default_value, dict):
+            assert_keys_subset_of_default(value, default_value)
 
 
 def make_label_config(
@@ -145,6 +154,43 @@ def test_write_clean_obj_full_from_source_removes_material_references(tmp_path: 
     assert "vt 0 0" in lines
     assert "vn 0 0 1" in lines
     assert "f 1/1/1 2/1/1 3/1/1" in lines
+
+
+def test_procedural_architecture_source_contract(tmp_path: Path) -> None:
+    rooms = [
+        ProceduralRoom("proc_room_00", "LivingRoom", 0.0, 0.0, 4.0, 3.0, 3.0),
+        ProceduralRoom("proc_room_01", "Bedroom", 4.0, 0.0, 8.0, 3.0, 3.0),
+    ]
+
+    meshes, room_children = architecture_meshes_for_rooms(rooms, wall_thickness=0.2, door_width=1.0)
+    mesh_types = {str(mesh["type"]) for mesh in meshes}
+    all_x = [float(value) for mesh in meshes for value in mesh["xyz"][0::3]]
+    all_y = [float(value) for mesh in meshes for value in mesh["xyz"][1::3]]
+
+    assert {"Floor", "Ceiling", "Wall", "Door"} <= mesh_types
+    assert min(all_x) == pytest.approx(0.0)
+    assert min(all_y) == pytest.approx(0.0)
+    assert max(all_x) == pytest.approx(8.0)
+    assert max(all_y) == pytest.approx(3.0)
+
+    architecture_obj, source_json, metadata_json, bbox_min, bbox_max = write_procedural_source_files(
+        tmp_path / "scene",
+        "procedural_test_scene",
+        rooms,
+        meshes,
+        room_children,
+    )
+    source_payload = json.loads(source_json.read_text(encoding="utf-8"))
+    metadata = json.loads(metadata_json.read_text(encoding="utf-8"))
+
+    assert architecture_obj.is_file()
+    assert source_payload["uid"] == "procedural_test_scene"
+    assert len(source_payload["scene"]["room"]) == 2
+    assert any(mesh["type"] == "Door" for mesh in source_payload["mesh"])
+    assert bbox_min == pytest.approx((0.0, 0.0, 0.0))
+    assert bbox_max == pytest.approx((8.0, 3.0, 3.0))
+    assert metadata["asset_kind"] == "architecture"
+    assert metadata["procedural"]["room_count"] == 2
 
 
 def write_height_filtered_fixture_obj(path: Path) -> None:
@@ -392,12 +438,12 @@ def test_front3d_class_mask_mesh_furniture_mode_uses_mesh_footprint(tmp_path: Pa
 
 
 def test_cli_version_matches_package_version(capsys: pytest.CaptureFixture[str]) -> None:
-    assert __version__ == "2.1.1"
+    assert __version__ == "3.0.0"
     with pytest.raises(SystemExit) as exc_info:
         parse_args(["--version"])
 
     assert exc_info.value.code == 0
-    assert capsys.readouterr().out.strip() == "SceneGen 2.1.1"
+    assert capsys.readouterr().out.strip() == "SceneGen 3.0.0"
 
 
 def test_bistro_config_is_mode_specific_default_overlay() -> None:
@@ -424,7 +470,21 @@ def test_front3d_config_is_mode_specific_default_overlay() -> None:
     assert_subset_of_default(overlay_payload, DEFAULT_CONFIG)
 
 
-@pytest.mark.parametrize("config_name", ["bistro.yaml", "front3d.yaml"])
+def test_procedural_front3d_config_is_mode_specific_default_overlay() -> None:
+    root = find_project_root()
+    payload = yaml.safe_load((root / "config" / "procedural_front3d.yaml").read_text(encoding="utf-8"))
+
+    assert "assets" not in payload
+    assert "bistro" not in payload
+    assert "placement" not in payload
+    assert payload["pipeline"]["mode"] == "procedural_front3d"
+    assert payload["procedural"] == DEFAULT_CONFIG["procedural"]
+    assert payload["floorplan"]["class_mask"]["enabled"] is True
+    assert payload["floorplan"]["class_mask"]["furniture_height_m"] == 1.6
+    assert_keys_subset_of_default(payload, DEFAULT_CONFIG)
+
+
+@pytest.mark.parametrize("config_name", ["bistro.yaml", "front3d.yaml", "procedural_front3d.yaml"])
 def test_project_configs_load_through_config_pipeline(config_name: str) -> None:
     root = find_project_root()
 

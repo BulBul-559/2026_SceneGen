@@ -79,7 +79,7 @@ def floor_area_for_scene(
         return room.width * room.length
     if mode == "bistro" and base_scene is not None:
         return sum(triangle.area for triangle in base_scene.floor_triangles)
-    if mode == "front3d" and front3d_base_scene is not None:
+    if mode in {"front3d", "procedural_front3d"} and front3d_base_scene is not None:
         return box_xy_area(
             (
                 front3d_base_scene.bbox_min[0],
@@ -184,7 +184,7 @@ def check_scene_quality(
                 issues.append(
                     issue("error", "bistro_static_collision", "Floor placement overlaps Bistro static geometry.", placement.instance_name)
                 )
-        elif mode == "front3d" and front3d_base_scene is not None:
+        elif mode in {"front3d", "procedural_front3d"} and front3d_base_scene is not None:
             scene_box = (
                 front3d_base_scene.bbox_min[0],
                 front3d_base_scene.bbox_max[0],

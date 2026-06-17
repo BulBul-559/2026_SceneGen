@@ -2076,7 +2076,7 @@ def generate_label_for_scene(
         if base_scene is None:
             raise ValueError("Bistro label requires a base scene")
         return generate_bistro_label(scene_dir, base_scene, config, rng, path_root)
-    if mode == "front3d":
+    if mode in {"front3d", "procedural_front3d"}:
         if front3d_base_scene is None:
             raise ValueError("3D-FRONT label requires a base scene")
         return generate_front3d_label(scene_dir, front3d_base_scene, placements or [], config, path_root, cache)

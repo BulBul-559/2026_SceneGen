@@ -11,15 +11,17 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 - `bistro`: 主实验模式。读取 `data/scene/scene.obj` 和 `data/catalogs/bistro.v1.json`，随机摆放桌椅、地面物体、桌面小物和 Bistro 已有台面小物。
 - `generated`: 简单矩形房间 smoke/test 模式，保留用于快速验证生成链路。
 - `front3d`: 复现并合成 3D-FRONT 原始已有组合场景。读取 `data/3D-Front/scenegen_manifest.json`，使用整理后的建筑结构和家具实例输出与 Bistro 一致的目录结构。
+- `procedural_front3d`: 实验性自动生成模式。随机采样多房间矩形户型，写出 Front3D-like 建筑 `procedural_source/scene.json` / `architecture.obj`，再从 3D-FUTURE 资产池中按 placement class 和简单 room 语义摆放家具，复用 front3d 的 OBJ/XML、label、floorplan、class mask、quality 和 statistics 输出链路。
 
-`front3d` v1 只合成已有 3D-FRONT 场景，不做基于 3D-FRONT 资产池的随机重排。
+`front3d` v1 只合成已有 3D-FRONT 场景，不做基于 3D-FRONT 资产池的随机重排。`procedural_front3d` 是正在开发的无限场景生成 baseline，当前仍是规则系统，不是完整 ProcTHOR/Infinigen 级别的语义约束生成器。
 
 ## 关键目录
 
 - `src/scenegen/cli.py`: CLI 入口和主生成流程。
 - `src/scenegen/config.py`: 配置默认值、YAML 读取、CLI 覆盖、类型归一化、字段和值校验。
-- `src/scenegen/sources.py`: `generated`、`bistro`、`front3d` 三种 source adapter。
+- `src/scenegen/sources.py`: `generated`、`bistro`、`front3d`、`procedural_front3d` 四种 source adapter。
 - `src/scenegen/front3d.py`: 3D-FRONT manifest、scene JSON、实例矩阵、坐标转换和 asset 解析。
+- `src/scenegen/procedural.py`: 自动生成类 Front3D 场景的第一版 baseline，包括 room layout、建筑 OBJ/JSON 写出、资产池筛选和家具摆放。
 - `src/scenegen/exporters.py`: OBJ、XML、placements、manifest 和 summary 输出。
 - `src/scenegen/labels.py`: BS/UE label v1.1 生成、验证和 floorplan overlay。
 - `src/scenegen/floorplan.py`: 几何 floorplan 和 3D-FRONT 四分类 class mask。
@@ -30,6 +32,7 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 - `tools/prepare_front3d_phase1.py`: 3D-FRONT 第一阶段离线整理脚本。
 - `config/bistro.yaml`: Bistro 专用模板，也是默认 YAML 入口。
 - `config/front3d.yaml`: 3D-FRONT 专用模板。
+- `config/procedural_front3d.yaml`: 自动生成类 3D-FRONT 场景的实验模板。
 - `data/3D-Front/`: 本地 3D-FRONT 原始数据和整理结果，默认 git ignored。
 
 ## 配置链路
@@ -47,7 +50,7 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 
 维护规则：
 
-- `config/bistro.yaml` 和 `config/front3d.yaml` 是模式专用覆盖文件，不需要包含无关模式配置。
+- `config/bistro.yaml`、`config/front3d.yaml` 和 `config/procedural_front3d.yaml` 是模式专用覆盖文件，不需要包含无关模式配置。
 - `DEFAULT_CONFIG` 仍是完整 schema；模板缺失的字段会在配置合并时由默认值补齐。
 - 需要实验配置时复制对应模板到其他位置，或通过 CLI 覆盖。
 - 配置 v2 不兼容旧 YAML 字段和旧显式 CLI 参数。
@@ -118,6 +121,12 @@ uv run scenegen
 
 ```bash
 uv run scenegen --config config/front3d.yaml --set pipeline.scenes=3 --set pipeline.run_name=front3d_preview
+```
+
+自动生成类 3D-FRONT 场景：
+
+```bash
+uv run scenegen --config config/procedural_front3d.yaml --set pipeline.scenes=1 --set pipeline.run_name=procedural_front3d_preview
 ```
 
 正式 front3d batch 生产：

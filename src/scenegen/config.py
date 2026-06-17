@@ -65,6 +65,20 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "bistro_support_items": 18,
         "max_attempts": 300,
     },
+    "procedural": {
+        "room_count": [3, 6],
+        "room_width_m": [3.2, 5.8],
+        "room_length_m": [3.2, 6.4],
+        "room_height_m": [2.8, 3.4],
+        "room_types": ["LivingRoom", "Bedroom", "DiningRoom", "StudyRoom"],
+        "wall_thickness_m": 0.16,
+        "door_width_m": 1.0,
+        "objects_per_room": [3, 7],
+        "wall_margin_m": 0.25,
+        "object_margin_m": 0.15,
+        "max_attempts_per_object": 80,
+        "asset_pool_limit": 500,
+    },
     "validation": {
         "sionna": False,
     },
@@ -327,6 +341,13 @@ def parse_int_pair(value: Any, key: str) -> list[int]:
     return [int(parts[0]), int(parts[1])]
 
 
+def parse_float_pair(value: Any, key: str) -> list[float]:
+    parts = parse_sequence(value, key)
+    if len(parts) != 2:
+        raise ValueError(f"{key} must contain exactly two values")
+    return [float(parts[0]), float(parts[1])]
+
+
 def normalize_label_strategy(value: Any, key: str) -> str:
     text = str(value).strip()
     if text == "panel":
@@ -409,6 +430,20 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     placement["tabletop_items"] = parse_int_pair(placement["tabletop_items"], "placement.tabletop_items")
     placement["bistro_support_items"] = int(placement["bistro_support_items"])
     placement["max_attempts"] = int(placement["max_attempts"])
+
+    procedural = normalized["procedural"]
+    procedural["room_count"] = parse_int_pair(procedural["room_count"], "procedural.room_count")
+    procedural["room_width_m"] = parse_float_pair(procedural["room_width_m"], "procedural.room_width_m")
+    procedural["room_length_m"] = parse_float_pair(procedural["room_length_m"], "procedural.room_length_m")
+    procedural["room_height_m"] = parse_float_pair(procedural["room_height_m"], "procedural.room_height_m")
+    procedural["room_types"] = parse_string_sequence(procedural["room_types"], "procedural.room_types")
+    procedural["wall_thickness_m"] = float(procedural["wall_thickness_m"])
+    procedural["door_width_m"] = float(procedural["door_width_m"])
+    procedural["objects_per_room"] = parse_int_pair(procedural["objects_per_room"], "procedural.objects_per_room")
+    procedural["wall_margin_m"] = float(procedural["wall_margin_m"])
+    procedural["object_margin_m"] = float(procedural["object_margin_m"])
+    procedural["max_attempts_per_object"] = int(procedural["max_attempts_per_object"])
+    procedural["asset_pool_limit"] = int(procedural["asset_pool_limit"])
 
     normalized["validation"]["sionna"] = as_bool(normalized["validation"]["sionna"], "validation.sionna")
 
@@ -511,8 +546,8 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
 def validate_effective_config(config: dict[str, Any]) -> None:
     pipeline = config["pipeline"]
     mode = pipeline["mode"]
-    if mode not in {"generated", "bistro", "front3d"}:
-        raise ValueError("pipeline.mode must be 'generated', 'bistro', or 'front3d'")
+    if mode not in {"generated", "bistro", "front3d", "procedural_front3d"}:
+        raise ValueError("pipeline.mode must be 'generated', 'bistro', 'front3d', or 'procedural_front3d'")
     if pipeline["scenes"] < 1:
         raise ValueError("pipeline.scenes must be at least 1")
     if pipeline["index_start"] < 0:
@@ -536,6 +571,30 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("placement.bistro_support_items must be non-negative")
     if placement["max_attempts"] < 1:
         raise ValueError("placement.max_attempts must be at least 1")
+
+    procedural = config["procedural"]
+    if procedural["room_count"][0] < 1 or procedural["room_count"][1] < procedural["room_count"][0]:
+        raise ValueError("procedural.room_count must be [min, max] with max >= min >= 1")
+    for key in ("room_width_m", "room_length_m", "room_height_m"):
+        values = procedural[key]
+        if values[0] <= 0 or values[1] < values[0]:
+            raise ValueError(f"procedural.{key} must be [min, max] with max >= min > 0")
+    if not procedural["room_types"]:
+        raise ValueError("procedural.room_types must not be empty")
+    if procedural["wall_thickness_m"] <= 0:
+        raise ValueError("procedural.wall_thickness_m must be positive")
+    if procedural["door_width_m"] < 0:
+        raise ValueError("procedural.door_width_m must be non-negative")
+    if procedural["objects_per_room"][0] < 0 or procedural["objects_per_room"][1] < procedural["objects_per_room"][0]:
+        raise ValueError("procedural.objects_per_room must be [min, max] with max >= min >= 0")
+    if procedural["wall_margin_m"] < 0:
+        raise ValueError("procedural.wall_margin_m must be non-negative")
+    if procedural["object_margin_m"] < 0:
+        raise ValueError("procedural.object_margin_m must be non-negative")
+    if procedural["max_attempts_per_object"] < 1:
+        raise ValueError("procedural.max_attempts_per_object must be at least 1")
+    if procedural["asset_pool_limit"] < 1:
+        raise ValueError("procedural.asset_pool_limit must be at least 1")
 
     quality = config["quality"]
     if quality["collision_padding_m"] < 0:
@@ -647,8 +706,8 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("At least one of floorplan.geometry.enabled or floorplan.class_mask.enabled must be true")
     if geometry["projection"] not in {"sampling", "ray_height_filtered"}:
         raise ValueError("floorplan.geometry.projection must be 'sampling' or 'ray_height_filtered'")
-    if class_mask["enabled"] and mode != "front3d":
-        raise ValueError("floorplan.class_mask.enabled currently supports only front3d mode")
+    if class_mask["enabled"] and mode not in {"front3d", "procedural_front3d"}:
+        raise ValueError("floorplan.class_mask.enabled currently supports only front3d/procedural_front3d mode")
     if class_mask["wall_dilation_m"] < 0:
         raise ValueError("floorplan.class_mask.wall_dilation_m must be non-negative")
     if class_mask["furniture_dilation_m"] < 0:
@@ -728,6 +787,7 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
     front3d = config["front3d"]
     precheck = front3d["precheck"]
     placement = config["placement"]
+    procedural = config["procedural"]
     validation = config["validation"]
     quality = config["quality"]
     label = config["label"]
@@ -777,6 +837,18 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         max_tabletop_items=placement["tabletop_items"][1],
         bistro_support_items=placement["bistro_support_items"],
         max_attempts=placement["max_attempts"],
+        procedural_room_count=procedural["room_count"],
+        procedural_room_width_m=procedural["room_width_m"],
+        procedural_room_length_m=procedural["room_length_m"],
+        procedural_room_height_m=procedural["room_height_m"],
+        procedural_room_types=procedural["room_types"],
+        procedural_wall_thickness_m=procedural["wall_thickness_m"],
+        procedural_door_width_m=procedural["door_width_m"],
+        procedural_objects_per_room=procedural["objects_per_room"],
+        procedural_wall_margin_m=procedural["wall_margin_m"],
+        procedural_object_margin_m=procedural["object_margin_m"],
+        procedural_max_attempts_per_object=procedural["max_attempts_per_object"],
+        procedural_asset_pool_limit=procedural["asset_pool_limit"],
         validate_sionna=validation["sionna"],
         quality_enabled=quality["enabled"],
         quality_fail_on_error=quality["fail_on_error"],

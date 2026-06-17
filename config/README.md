@@ -1,6 +1,6 @@
 # SceneGen Config v2 Reference
 
-`config/` 下提供两个模式专用模板：`bistro.yaml` 和 `front3d.yaml`。CLI 默认读取 `config/bistro.yaml`；需要合成 3D-FRONT 时使用 `--config config/front3d.yaml`。模板只保留对应模式常用的配置段，未写出的字段由代码内置默认值补齐。配置 v2 是破坏性版本：旧 YAML 字段和旧显式 CLI 参数不再兼容，未知字段会直接报错。
+`config/` 下提供三个模式专用模板：`bistro.yaml`、`front3d.yaml` 和 `procedural_front3d.yaml`。CLI 默认读取 `config/bistro.yaml`；需要合成 3D-FRONT 时使用 `--config config/front3d.yaml`；需要自动生成类 3D-FRONT 场景时使用 `--config config/procedural_front3d.yaml`。模板只保留对应模式常用的配置段，未写出的字段由代码内置默认值补齐。配置 v2 是破坏性版本：旧 YAML 字段和旧显式 CLI 参数不再兼容，未知字段会直接报错。
 
 每次运行都会在 run 目录写出 `effective_config.yaml`，它记录最终真正生效的配置。
 
@@ -30,7 +30,7 @@ uv run scenegen \
 
 | 字段 | 可选值 / 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `mode` | `bistro` / `generated` / `front3d` | `bistro` | 生成模式。 |
+| `mode` | `bistro` / `generated` / `front3d` / `procedural_front3d` | `bistro` | 生成模式。 |
 | `scenes` | integer, `>=1` | `10` | 本次生成场景数量。 |
 | `seed` | integer | `20260517` | 主随机种子。 |
 | `output_dir` | path | `results` | run 输出根目录。 |
@@ -101,6 +101,27 @@ uv run scenegen \
 | `tabletop_items` | `[min, max]` | `[3, 9]` | 每张桌面小物数量范围。 |
 | `bistro_support_items` | integer, `>=0` | `18` | Bistro 已有台面/吧台上的额外小物数量。 |
 | `max_attempts` | integer, `>=1` | `300` | 摆放采样最大尝试次数。 |
+
+## procedural
+
+只影响 `pipeline.mode: procedural_front3d`。这是自动生成类 Front3D 场景的第一版 baseline：随机采样多房间矩形户型，生成 Front3D-like 建筑 JSON/OBJ，再从 3D-FUTURE 物体池中按类别和简单房间语义摆放家具。
+
+`procedural_front3d` 仍会读取 `front3d.manifest` 和 `front3d.object_variant` 来构建 3D-FUTURE 家具资产池；建筑结构不来自 3D-FRONT 原始场景，而是在每个输出 scene 目录下生成 `procedural_source/architecture.obj` 和 `procedural_source/scene.json`。模板中 `front3d.arch_variant: raw` 用来保持索引和 manifest 记录清晰。
+
+| 字段 | 可选值 / 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `room_count` | `[min, max]` | `[3, 6]` | 每个程序化场景的 room 数量范围。 |
+| `room_width_m` | `[min, max]` | `[3.2, 5.8]` | 单个 room 宽度范围。 |
+| `room_length_m` | `[min, max]` | `[3.2, 6.4]` | 单个 room 长度范围。 |
+| `room_height_m` | `[min, max]` | `[2.8, 3.4]` | 建筑层高范围。 |
+| `room_types` | list of string | `[LivingRoom, Bedroom, DiningRoom, StudyRoom]` | 程序化 room 类型循环池，后续家具筛选会参考该类型。 |
+| `wall_thickness_m` | float, `>0` | `0.16` | 生成墙体厚度。 |
+| `door_width_m` | float, `>=0` | `1.0` | 内墙门洞宽度；为 `0` 时基本不保留门洞。 |
+| `objects_per_room` | `[min, max]` | `[3, 7]` | 每个 room 尝试摆放的家具数量范围。 |
+| `wall_margin_m` | float, `>=0` | `0.25` | 家具 bbox 与 room 边界的最小距离。 |
+| `object_margin_m` | float, `>=0` | `0.15` | 家具 bbox 之间的额外间距。 |
+| `max_attempts_per_object` | integer, `>=1` | `80` | 每个家具候选最多尝试多少次随机位置和朝向。 |
+| `asset_pool_limit` | integer, `>=1` | `500` | 每个 placement class 最多缓存多少个 3D-FUTURE 资产用于采样。 |
 
 ## validation
 
@@ -305,6 +326,15 @@ uv run scenegen \
   --config config/front3d.yaml \
   --set pipeline.scenes=1 \
   --set pipeline.run_name=front3d_smoke
+```
+
+自动生成 1 个类 3D-FRONT 场景：
+
+```bash
+uv run scenegen \
+  --config config/procedural_front3d.yaml \
+  --set pipeline.scenes=1 \
+  --set pipeline.run_name=procedural_front3d_smoke
 ```
 
 同时生成 panel/walk、三种 UE 间隔：

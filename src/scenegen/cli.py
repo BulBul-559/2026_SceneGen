@@ -140,13 +140,14 @@ def main(argv: list[str] | None = None) -> int:
     effective_config, _overrides = load_effective_config(config_path.resolve(), repo_root, cli_args)
     args = config_to_namespace(effective_config)
 
-    asset_catalog_path = require_file(args.asset_catalog, "asset catalog") if args.mode != "front3d" else args.asset_catalog
+    front3d_like_modes = {"front3d", "procedural_front3d"}
+    asset_catalog_path = require_file(args.asset_catalog, "asset catalog") if args.mode not in front3d_like_modes else args.asset_catalog
     if args.mode == "bistro":
         bistro_base_dir = require_dir(args.bistro_base_dir, "Bistro base scene directory")
     else:
         bistro_base_dir = None
     front3d_manifest_path = None
-    if args.mode == "front3d":
+    if args.mode in front3d_like_modes:
         front3d_manifest_path = require_file(args.front3d_manifest, "3D-FRONT SceneGen manifest")
         args.front3d_manifest = front3d_manifest_path
         args.front3d_source_scene_dir = require_dir(args.front3d_source_scene_dir, "3D-FRONT source scene directory")
@@ -172,7 +173,7 @@ def main(argv: list[str] | None = None) -> int:
     label_config = LabelConfig.from_mapping(effective_config["label"], front3d_openings)
 
     setup_timings: dict[str, float] = {}
-    if args.mode == "front3d":
+    if args.mode in front3d_like_modes:
         assets_by_class = {}
     else:
         with run_logger.stage(setup_timings, "load_assets"):
@@ -530,22 +531,28 @@ def main(argv: list[str] | None = None) -> int:
         run_statistics = aggregate_run_statistics(scene_records)
         statistics_file = write_json_report(run_dir / "statistics.json", run_statistics, run_dir)
     class_counts = {name: len(items) for name, items in sorted(assets_by_class.items())}
+    procedural_skipped_object_count = (
+        sum(int(record.get("skipped_object_count", 0)) for record in scene_records)
+        if args.mode == "procedural_front3d"
+        else 0
+    )
     manifest: dict[str, object] = {
         "generator": "SceneGen",
         "mode": args.mode,
         "seed": args.seed,
         "run_name": run_name,
         "run_dir": ".",
-        "asset_catalog": portable_path(asset_catalog_path, run_dir) if args.mode != "front3d" else None,
+        "asset_catalog": portable_path(asset_catalog_path, run_dir) if args.mode not in front3d_like_modes else None,
         "asset_class_counts": class_counts,
         "front3d_manifest": portable_path(front3d_manifest_path, run_dir) if front3d_manifest_path is not None else None,
-        "front3d_variant": args.front3d_variant if args.mode == "front3d" else None,
-        "front3d_object_variant": args.front3d_object_variant if args.mode == "front3d" else None,
+        "front3d_variant": args.front3d_variant if args.mode in front3d_like_modes else None,
+        "front3d_object_variant": args.front3d_object_variant if args.mode in front3d_like_modes else None,
         "front3d_scene_selection": args.front3d_scene_selection if args.mode == "front3d" else None,
         "front3d_scene_ids": args.front3d_scene_ids if args.mode == "front3d" else [],
         "front3d_skipped_object_count": (
             sum(int(record.get("skipped_object_count", 0)) for record in scene_records) if args.mode == "front3d" else 0
         ),
+        "procedural_skipped_object_count": procedural_skipped_object_count,
         "front3d_precheck": front3d_precheck_settings(args),
         "front3d_precheck_ok": (not precheck_failed) if args.mode == "front3d" else None,
         "front3d_precheck_skipped_count": len(precheck_skipped_scenes) if args.mode == "front3d" else 0,
