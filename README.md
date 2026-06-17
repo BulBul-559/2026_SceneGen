@@ -242,7 +242,7 @@ uv run scenegen-batch \
 8. 按 `procedural.precheck` 检查实际家具数、目标完成率、跳过比例、房间连通性和基础房间几何质量；失败时自动换 seed 重试补齐同一输出编号。
 9. 复用现有 `scene.obj`、`scene.xml`、`label/`、`floorplan/`、`class_mask`、quality 和 statistics 输出链路。
 
-第一版仍是规则 baseline：房间拓扑和关系约束还比较轻量；建筑结构已支持外墙窗户玻璃面，并会输出相邻房间的连通关系和门洞位置；家具数量已经支持 `procedural.object_count` 面积自适应，家具组合已经迁移到 `procedural.room_profiles`，可以按房间类型配置 `table`、`seat`、`floor` 的组合序列，并可用 `category`、`super_category`、`name`、`material` 关键词筛选更合适的资产；位置采样支持 `procedural.placement_policy` 的中心/靠墙偏置，局部组合支持 `procedural.placement_groups` 的 anchor + companion 关系。程序化预检会在 label/floorplan 前过滤摆放过少、失败比例过高、room adjacency 不连通、room 过小或长宽比过大的样本。后续可以逐步替换为更强的 room planner、语义资产组、约束求解器和可达性验证。
+第一版仍是规则 baseline：房间拓扑和关系约束还比较轻量；建筑结构已支持外墙窗户玻璃面，并会输出相邻房间的连通关系和门洞位置；家具数量已经支持 `procedural.object_count` 面积自适应，家具组合已经迁移到 `procedural.room_profiles`，可以按房间类型配置 `table`、`seat`、`floor` 的组合序列，并可用 `category`、`super_category`、`name`、`material` 关键词筛选更合适的资产；位置采样支持 `procedural.placement_policy` 的中心/靠墙偏置，局部组合支持 `procedural.placement_groups` 的 anchor + companion 关系。程序化预检会在 label/floorplan 前过滤摆放过少、失败比例过高、room adjacency 不连通、room 过小或长宽比过大的样本。run 根目录的 `procedural_report.json` 会汇总 room 数量、room type、面积/长宽比、adjacency/window、家具完成率和关系组成功次数，用于批量生产后快速质检。后续可以逐步替换为更强的 room planner、语义资产组、约束求解器和可达性验证。
 
 ## 生产运行与日志
 
@@ -329,8 +329,9 @@ batch/
 results/<run_name>/
   effective_config.yaml
   statistics.json
+  procedural_report.json        # 仅 procedural_front3d 模式
   manifest.json
-  manifest_bistro.json、manifest_generated.json 或 manifest_front3d.json
+  manifest_bistro.json、manifest_generated.json、manifest_front3d.json 或 manifest_procedural_front3d.json
   summary/
     obj/
       copy_manifest.json

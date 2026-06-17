@@ -20,6 +20,7 @@ from .exporters import (
 from .floorplan import FloorplanConfig, generate_floorplan_for_scene
 from .labels import LabelConfig, generate_label_batch_for_scene, label_variants, write_label_overlay
 from .paths import default_config_path, find_project_root, portable_path, require_dir, require_file
+from .procedural import aggregate_procedural_run_report
 from .quality import (
     QualityConfig,
     aggregate_run_statistics,
@@ -792,6 +793,11 @@ def main(argv: list[str] | None = None) -> int:
             label_floorplan_manifest = collect_label_floorplans(run_dir, scene_records, scene_prefix)
         run_statistics = aggregate_run_statistics(scene_records)
         statistics_file = write_json_report(run_dir / "statistics.json", run_statistics, run_dir)
+        procedural_report: dict[str, object] | None = None
+        procedural_report_file: str | None = None
+        if args.mode == "procedural_front3d":
+            procedural_report = aggregate_procedural_run_report(scene_records)
+            procedural_report_file = write_json_report(run_dir / "procedural_report.json", procedural_report, run_dir)
     class_counts = {name: len(items) for name, items in sorted(assets_by_class.items())}
     procedural_skipped_object_count = (
         sum(int(record.get("skipped_object_count", 0)) for record in scene_records)
@@ -854,6 +860,8 @@ def main(argv: list[str] | None = None) -> int:
         "label_variant_count": len(label_variants(label_config)) if label_config.enabled else 0,
         "statistics": run_statistics,
         "statistics_file": statistics_file,
+        "procedural_report": procedural_report if args.mode == "procedural_front3d" else None,
+        "procedural_report_file": procedural_report_file if args.mode == "procedural_front3d" else None,
         "timing_summary_s": timing_summary(scene_records),
         "run_timings_s": {
             **setup_timings,

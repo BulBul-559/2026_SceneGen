@@ -47,6 +47,7 @@ from scenegen.paths import (
 from scenegen.procedural import (
     ProceduralAssetEntry,
     ProceduralRoom,
+    aggregate_procedural_run_report,
     architecture_meshes_for_rooms,
     candidate_pose_for_policy,
     companion_directions,
@@ -1031,6 +1032,63 @@ def test_procedural_precheck_rejects_bad_room_geometry() -> None:
     assert result["room_geometry"]["area_range_m2"] == [6.0, 20.0]
 
 
+def test_aggregate_procedural_run_report_summarizes_structure() -> None:
+    report = aggregate_procedural_run_report(
+        [
+            {
+                "scene_index": 0,
+                "scene_dir": "procedural_front3d_0000",
+                "placement_count": 3,
+                "skipped_object_count": 1,
+                "precheck": {"ok": True, "errors": []},
+                "procedural": {
+                    "scene_id": "scene-a",
+                    "room_count": 2,
+                    "adjacency_count": 1,
+                    "window_count": 1,
+                    "rooms": [
+                        {"room_id": "a", "room_type": "LivingRoom", "area_m2": 12.0, "aspect_ratio": 1.5},
+                        {"room_id": "b", "room_type": "Bedroom", "area_m2": 9.0, "aspect_ratio": 1.2},
+                    ],
+                    "placement_stats": {
+                        "desired_object_counts": {"a": 2, "b": 2},
+                        "group_stats": {
+                            "attempted": {"bed_side_tables": 1},
+                            "succeeded": {"bed_side_tables": 1},
+                        },
+                    },
+                },
+            },
+            {
+                "scene_index": 1,
+                "scene_dir": "procedural_front3d_0001",
+                "placement_count": 2,
+                "skipped_object_count": 0,
+                "precheck": {"ok": True, "errors": []},
+                "procedural": {
+                    "scene_id": "scene-b",
+                    "room_count": 1,
+                    "adjacency_count": 0,
+                    "window_count": 2,
+                    "rooms": [
+                        {"room_id": "c", "room_type": "LivingRoom", "area_m2": 16.0, "aspect_ratio": 1.0},
+                    ],
+                    "placement_stats": {"desired_object_counts": {"c": 2}},
+                },
+            },
+        ]
+    )
+
+    assert report["schema_version"] == "scenegen.procedural.run_report.v1"
+    assert report["scene_count"] == 2
+    assert report["room_count"] == {"min": 1.0, "max": 2.0, "mean": 1.5}
+    assert report["room_type_counts_total"] == {"Bedroom": 1, "LivingRoom": 2}
+    assert report["room_area_m2"] == {"min": 9.0, "max": 16.0, "mean": 12.333333}
+    assert report["placement_ratio"] == {"min": 0.75, "max": 1.0, "mean": 0.875}
+    assert report["placement_group_success_total"] == {"bed_side_tables": 1}
+    assert report["scenes"][0]["room_type_counts"] == {"Bedroom": 1, "LivingRoom": 1}
+
+
 def test_label_plane_grid_respects_floor_domain_and_ignores_obstacles() -> None:
     config = make_label_config(
         strategy="panel",
@@ -1956,6 +2014,7 @@ def test_procedural_front3d_batch_runner_uses_procedural_scene_prefix(tmp_path: 
     assert (run_dir / "procedural_front3d_0001" / "scene.obj").is_file()
     assert (run_dir / "manifest_batch.json").is_file()
     assert (run_dir / "manifest_procedural_front3d.json").is_file()
+    assert (run_dir / "procedural_report.json").is_file()
     assert not (run_dir / "manifest_front3d.json").exists()
     assert (run_dir / "summary" / "obj" / "procedural_front3d_0000.obj").is_file()
     plan = [json.loads(line) for line in (run_dir / "batch" / "scene_plan.jsonl").read_text(encoding="utf-8").splitlines()]
@@ -1967,6 +2026,12 @@ def test_procedural_front3d_batch_runner_uses_procedural_scene_prefix(tmp_path: 
     manifest = json.loads((run_dir / "manifest_batch.json").read_text(encoding="utf-8"))
     assert manifest["mode"] == "procedural_front3d"
     assert manifest["succeeded_scenes"] == 2
+    assert manifest["procedural_report_file"] == "procedural_report.json"
+    assert manifest["procedural_report"]["scene_count"] == 2
+    assert manifest["procedural_report"]["room_count"]["min"] >= 1
+    report = json.loads((run_dir / "procedural_report.json").read_text(encoding="utf-8"))
+    assert report["scene_count"] == 2
+    assert report["room_type_counts_total"]
     assert all("procedural" in scene for scene in manifest["scenes"])
     assert all(scene["procedural"]["window_count"] >= 1 for scene in manifest["scenes"])
     assert all("itu-glass" in scene["sionna_materials"] for scene in manifest["scenes"])

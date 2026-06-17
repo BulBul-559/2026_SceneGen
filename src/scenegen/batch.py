@@ -23,6 +23,7 @@ from .exporters import collect_label_floorplans, collect_raw_floorplans, collect
 from .front3d import Front3DConfig, Front3DIndex, choose_scene_ids
 from .paths import find_project_root, portable_path
 from .postprocess.pipeline import run_batch_postprocess
+from .procedural import aggregate_procedural_run_report
 from .quality import aggregate_run_statistics, write_json_report
 from .runlog import append_jsonl, atomic_write_json
 
@@ -601,6 +602,11 @@ def build_final_manifest(
     label_floorplan_manifest = collect_label_floorplans(paths.run_dir, records, scene_prefix)
     run_statistics = aggregate_run_statistics(records)
     statistics_file = write_json_report(paths.run_dir / "statistics.json", run_statistics, paths.run_dir)
+    procedural_report: dict[str, object] | None = None
+    procedural_report_file: str | None = None
+    if mode == "procedural_front3d":
+        procedural_report = aggregate_procedural_run_report(records)
+        procedural_report_file = write_json_report(paths.run_dir / "procedural_report.json", procedural_report, paths.run_dir)
     manifest: dict[str, Any] = {
         "generator": "SceneGen",
         "batch": True,
@@ -628,6 +634,8 @@ def build_final_manifest(
         },
         "statistics": run_statistics,
         "statistics_file": statistics_file,
+        "procedural_report": procedural_report,
+        "procedural_report_file": procedural_report_file,
         "effective_config": "effective_config.yaml",
         "batch_logs": {
             "events": portable_path(paths.events, paths.run_dir),

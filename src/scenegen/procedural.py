@@ -4,6 +4,7 @@ import json
 import math
 import random
 import time
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -73,6 +74,140 @@ class LayoutRegion:
     @property
     def area(self) -> float:
         return self.width * self.length
+
+
+def rounded(value: float) -> float:
+    return round(float(value), 6)
+
+
+def numeric_summary(values: list[float]) -> dict[str, float]:
+    if not values:
+        return {"min": 0.0, "max": 0.0, "mean": 0.0}
+    return {
+        "min": rounded(min(values)),
+        "max": rounded(max(values)),
+        "mean": rounded(sum(values) / len(values)),
+    }
+
+
+def aggregate_procedural_run_report(scene_records: list[dict[str, object]]) -> dict[str, object]:
+    procedural_records = [record for record in scene_records if isinstance(record.get("procedural"), dict)]
+    room_counts: list[float] = []
+    adjacency_counts: list[float] = []
+    window_counts: list[float] = []
+    room_areas: list[float] = []
+    room_aspects: list[float] = []
+    desired_counts: list[float] = []
+    placement_counts: list[float] = []
+    skipped_counts: list[float] = []
+    placement_ratios: list[float] = []
+    type_totals: Counter[str] = Counter()
+    precheck_error_totals: Counter[str] = Counter()
+    group_attempt_totals: Counter[str] = Counter()
+    group_success_totals: Counter[str] = Counter()
+    scene_summaries: list[dict[str, object]] = []
+
+    for record in procedural_records:
+        procedural = record["procedural"]
+        if not isinstance(procedural, dict):
+            continue
+        rooms = procedural.get("rooms") if isinstance(procedural.get("rooms"), list) else []
+        room_count = int(procedural.get("room_count", len(rooms)) or len(rooms))
+        adjacency_count = int(procedural.get("adjacency_count", 0) or 0)
+        window_count = int(procedural.get("window_count", 0) or 0)
+        room_counts.append(float(room_count))
+        adjacency_counts.append(float(adjacency_count))
+        window_counts.append(float(window_count))
+        scene_room_areas: list[float] = []
+        scene_room_aspects: list[float] = []
+        scene_type_counts: Counter[str] = Counter()
+        for room in rooms:
+            if not isinstance(room, dict):
+                continue
+            room_type = str(room.get("room_type") or "Unknown")
+            type_totals[room_type] += 1
+            scene_type_counts[room_type] += 1
+            if isinstance(room.get("area_m2"), int | float):
+                area = float(room["area_m2"])
+                room_areas.append(area)
+                scene_room_areas.append(area)
+            if isinstance(room.get("aspect_ratio"), int | float):
+                aspect = float(room["aspect_ratio"])
+                room_aspects.append(aspect)
+                scene_room_aspects.append(aspect)
+
+        placement_stats = procedural.get("placement_stats") if isinstance(procedural.get("placement_stats"), dict) else {}
+        desired_object_counts = (
+            placement_stats.get("desired_object_counts")
+            if isinstance(placement_stats.get("desired_object_counts"), dict)
+            else {}
+        )
+        desired_total = sum(int(value) for value in desired_object_counts.values()) if desired_object_counts else 0
+        placement_count = int(record.get("placement_count", 0) or 0)
+        skipped_count = int(record.get("skipped_object_count", procedural.get("skipped_object_count", 0)) or 0)
+        desired_counts.append(float(desired_total))
+        placement_counts.append(float(placement_count))
+        skipped_counts.append(float(skipped_count))
+        if desired_total > 0:
+            placement_ratios.append(placement_count / desired_total)
+
+        group_stats = placement_stats.get("group_stats") if isinstance(placement_stats.get("group_stats"), dict) else {}
+        attempted = group_stats.get("attempted") if isinstance(group_stats.get("attempted"), dict) else {}
+        succeeded = group_stats.get("succeeded") if isinstance(group_stats.get("succeeded"), dict) else {}
+        for name, count in attempted.items():
+            group_attempt_totals[str(name)] += int(count)
+        for name, count in succeeded.items():
+            group_success_totals[str(name)] += int(count)
+
+        precheck = record.get("precheck") if isinstance(record.get("precheck"), dict) else {}
+        errors = precheck.get("errors") if isinstance(precheck.get("errors"), list) else []
+        for error in errors:
+            if isinstance(error, dict):
+                precheck_error_totals[str(error.get("code") or "unknown")] += 1
+
+        scene_summaries.append(
+            {
+                "scene_index": record.get("scene_index"),
+                "scene_dir": record.get("scene_dir"),
+                "scene_id": procedural.get("scene_id"),
+                "room_count": room_count,
+                "room_type_counts": dict(sorted(scene_type_counts.items())),
+                "room_area_m2": numeric_summary(scene_room_areas),
+                "room_aspect_ratio": numeric_summary(scene_room_aspects),
+                "adjacency_count": adjacency_count,
+                "window_count": window_count,
+                "desired_object_count": desired_total,
+                "placement_count": placement_count,
+                "skipped_object_count": skipped_count,
+                "placement_ratio": rounded(placement_count / desired_total) if desired_total > 0 else None,
+                "precheck_ok": precheck.get("ok"),
+            }
+        )
+
+    scene_count = len(procedural_records)
+    return {
+        "schema_version": "scenegen.procedural.run_report.v1",
+        "scene_count": scene_count,
+        "room_count": numeric_summary(room_counts),
+        "room_type_counts_total": dict(sorted(type_totals.items())),
+        "room_type_counts_mean_per_scene": {
+            name: rounded(count / scene_count) for name, count in sorted(type_totals.items())
+        }
+        if scene_count
+        else {},
+        "room_area_m2": numeric_summary(room_areas),
+        "room_aspect_ratio": numeric_summary(room_aspects),
+        "adjacency_count": numeric_summary(adjacency_counts),
+        "window_count": numeric_summary(window_counts),
+        "desired_object_count": numeric_summary(desired_counts),
+        "placement_count": numeric_summary(placement_counts),
+        "skipped_object_count": numeric_summary(skipped_counts),
+        "placement_ratio": numeric_summary(placement_ratios),
+        "placement_group_attempts_total": dict(sorted(group_attempt_totals.items())),
+        "placement_group_success_total": dict(sorted(group_success_totals.items())),
+        "precheck_error_counts": dict(sorted(precheck_error_totals.items())),
+        "scenes": scene_summaries,
+    }
 
 
 def rotation_z_matrix(yaw: float) -> tuple[float, ...]:
