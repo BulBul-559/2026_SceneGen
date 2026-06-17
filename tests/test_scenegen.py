@@ -50,6 +50,7 @@ from scenegen.procedural import (
     aggregate_procedural_run_report,
     architecture_meshes_for_rooms,
     assign_room_types_to_areas,
+    assign_room_types_to_geometry,
     candidate_pose_for_policy,
     companion_directions,
     desired_classes_from_profile,
@@ -340,6 +341,22 @@ def test_procedural_room_type_area_priority_maps_large_rooms() -> None:
 
     assert assigned == ["Bathroom", "LivingRoom", "Bedroom"]
     assert unchanged == ["Bathroom", "Bedroom", "LivingRoom"]
+
+
+def test_procedural_room_type_geometry_fit_uses_precheck_rules() -> None:
+    assigned = assign_room_types_to_geometry(
+        ["LivingRoom", "Bathroom", "Bedroom"],
+        [(9.0, 1.2), (24.0, 1.1), (12.0, 1.3)],
+        assignment="geometry_fit",
+        area_priority=("LivingRoom", "Bedroom", "Bathroom"),
+        geometry_rules={
+            "LivingRoom": {"min_area_m2": 16.0, "max_area_m2": None, "max_aspect_ratio": 3.5},
+            "Bedroom": {"min_area_m2": 10.0, "max_area_m2": None, "max_aspect_ratio": 3.5},
+            "Bathroom": {"min_area_m2": 4.0, "max_area_m2": 10.0, "max_aspect_ratio": 4.0},
+        },
+    )
+
+    assert assigned == ["Bathroom", "LivingRoom", "Bedroom"]
 
 
 def test_procedural_asset_approx_footprint_uses_scenegen_xy() -> None:

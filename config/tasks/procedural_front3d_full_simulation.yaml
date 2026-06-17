@@ -44,7 +44,7 @@ procedural:
     LivingRoom: 1
     Bedroom: 1
     Kitchen: 1
-  room_type_assignment: area_priority
+  room_type_assignment: geometry_fit
   room_type_area_priority: [LivingRoom, DiningRoom, Bedroom, Kitchen, StudyRoom, Bathroom, Hallway]
   room_type_max_counts:
     LivingRoom: 2

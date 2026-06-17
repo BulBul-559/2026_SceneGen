@@ -117,7 +117,7 @@ uv run scenegen \
 | `room_height_m` | `[min, max]` | `[2.8, 3.4]` | 建筑层高范围。 |
 | `room_types` | list of string | `[LivingRoom, Bedroom, DiningRoom, StudyRoom, Kitchen, Bathroom, Hallway]` | 程序化 room 类型循环池，后续家具筛选会参考该类型。 |
 | `required_room_types` | mapping / sequence / `null` | `{LivingRoom: 1, Bedroom: 1, Kitchen: 1}` | 每个程序化场景必须至少包含的 room 类型和数量；设为 `null` 可关闭。 |
-| `room_type_assignment` | `sequence` / `area_priority` | `area_priority` | room type 与几何房间的匹配方式。`sequence` 保持生成顺序；`area_priority` 按房间面积映射更合适的类型。 |
+| `room_type_assignment` | `sequence` / `area_priority` / `geometry_fit` | `geometry_fit` | room type 与几何房间的匹配方式。`sequence` 保持生成顺序；`area_priority` 按房间面积排序；`geometry_fit` 复用 room type 几何规则做匹配。 |
 | `room_type_area_priority` | list of string | `[LivingRoom, DiningRoom, Bedroom, Kitchen, StudyRoom, Bathroom, Hallway]` | `area_priority` 使用的从大到小类型偏好。 |
 | `room_type_max_counts` | mapping / `null` | 见模板 | 限制每个 room type 的最大出现次数；单个类型设为 `null` 表示不限，整个字段设为 `null` 可关闭上限约束。只对当前 `room_types` 中启用的类型生效。 |
 | `room_type_weights` | mapping / `null` | 见模板 | 程序化 room 类型采样权重。默认让客厅和卧室更常见，厨房、卫浴和走廊相对少见；设为 `null` 可关闭加权，回到循环/洗牌分配。 |
@@ -229,7 +229,9 @@ uv run scenegen \
 
 `required_room_types` 会先占用一部分 room 名额，再由 `room_type_weights` 或旧循环/洗牌逻辑补齐剩余房间。必选类型必须同时出现在 `room_types` 中，必选总数不能超过 `room_count` 的最大值。
 
-`room_type_assignment: area_priority` 会先生成本场景的 room type 序列，再把 `room_type_area_priority` 中靠前的类型分给面积更大的几何房间。例如默认会让 `LivingRoom`、`DiningRoom`、`Bedroom` 更容易落在大房间，让 `Bathroom` 和 `Hallway` 更容易落在小房间。`sequence` 用于对照实验或需要完全保留旧顺序分配的情况。
+`room_type_assignment: area_priority` 会先生成本场景的 room type 序列，再把 `room_type_area_priority` 中靠前的类型分给面积更大的几何房间。例如会让 `LivingRoom`、`DiningRoom`、`Bedroom` 更容易落在大房间，让 `Bathroom` 和 `Hallway` 更容易落在小房间。`sequence` 用于对照实验或需要完全保留旧顺序分配的情况。
+
+`room_type_assignment: geometry_fit` 是默认策略。它在 `area_priority` 的基础上复用 `procedural.precheck.room_type_geometry` 的 `min_area_m2`、`max_area_m2` 和 `max_aspect_ratio` 规则，优先把客厅等大房型放到满足最小面积的房间，把卫浴、厨房、走廊等带最大面积约束的类型放到更合适的房间，从而减少生成后才被 precheck 拒绝的样本。
 
 `room_type_max_counts` 会在必选房间之后继续约束剩余 room type 抽样，用于避免单个场景里出现过多厨房、餐厅或卫浴。必选数量不能超过对应类型上限；如果所有启用的 `room_types` 都设置了有限上限，上限总容量必须覆盖 `room_count` 的最大值。额外写入但未启用的类型会被忽略，方便通过 YAML 局部覆盖缩小 `room_types`。
 

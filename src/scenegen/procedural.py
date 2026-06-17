@@ -6,6 +6,7 @@ import random
 import time
 from collections import Counter
 from dataclasses import dataclass
+from itertools import permutations
 from pathlib import Path
 from typing import Any
 
@@ -595,6 +596,107 @@ def assign_room_types_to_areas(
     return assigned
 
 
+def room_aspect_ratio(width: float, length: float) -> float:
+    width = max(float(width), 1e-9)
+    length = max(float(length), 1e-9)
+    return max(width / length, length / width)
+
+
+def room_type_geometry_fit_cost(
+    room_type: str,
+    area: float,
+    aspect_ratio: float,
+    *,
+    geometry_rules: dict[str, dict[str, float | None]] | None,
+    area_priority_rank: dict[str, int],
+) -> float:
+    rule = (geometry_rules or {}).get(room_type) or (geometry_rules or {}).get("default")
+    cost = 0.0
+    if isinstance(rule, dict):
+        min_area = rule.get("min_area_m2")
+        max_area = rule.get("max_area_m2")
+        max_aspect = rule.get("max_aspect_ratio")
+        if isinstance(min_area, int | float) and area < float(min_area):
+            cost += 1_000_000.0 + ((float(min_area) - area) / max(float(min_area), 1.0)) ** 2 * 1000.0
+        if isinstance(max_area, int | float) and area > float(max_area):
+            cost += 1_000_000.0 + ((area - float(max_area)) / max(float(max_area), 1.0)) ** 2 * 1000.0
+        if isinstance(max_aspect, int | float) and aspect_ratio > float(max_aspect):
+            cost += 500_000.0 + ((aspect_ratio - float(max_aspect)) / max(float(max_aspect), 1.0)) ** 2 * 1000.0
+
+        if isinstance(min_area, int | float) and isinstance(max_area, int | float):
+            target_area = (float(min_area) + float(max_area)) / 2.0
+            cost += abs(area - target_area) / max(target_area, 1.0)
+        elif isinstance(min_area, int | float):
+            cost -= area * 0.001
+        elif isinstance(max_area, int | float):
+            cost += area * 0.001
+
+    fallback_rank = len(area_priority_rank)
+    cost += float(area_priority_rank.get(room_type, fallback_rank)) * area * 0.0001
+    return cost
+
+
+def assign_room_types_to_geometry(
+    type_sequence: list[str],
+    room_geometries: list[tuple[float, float]],
+    *,
+    assignment: str,
+    area_priority: tuple[str, ...],
+    geometry_rules: dict[str, dict[str, float | None]] | None = None,
+) -> list[str]:
+    if assignment == "sequence" or len(type_sequence) != len(room_geometries):
+        return type_sequence
+    if assignment == "area_priority":
+        return assign_room_types_to_areas(
+            type_sequence,
+            [area for area, _aspect in room_geometries],
+            assignment=assignment,
+            area_priority=area_priority,
+        )
+    if assignment != "geometry_fit":
+        return type_sequence
+
+    priority_rank = {room_type: index for index, room_type in enumerate(area_priority)}
+
+    def total_cost(type_order: tuple[int, ...]) -> float:
+        return sum(
+            room_type_geometry_fit_cost(
+                type_sequence[type_index],
+                area,
+                aspect,
+                geometry_rules=geometry_rules,
+                area_priority_rank=priority_rank,
+            )
+            for (area, aspect), type_index in zip(room_geometries, type_order, strict=True)
+        )
+
+    if len(type_sequence) <= 8:
+        best_order = min(permutations(range(len(type_sequence))), key=total_cost)
+        return [type_sequence[type_index] for type_index in best_order]
+
+    remaining_type_indices = set(range(len(type_sequence)))
+    assigned = [""] * len(type_sequence)
+    room_order = sorted(range(len(room_geometries)), key=lambda index: (-room_geometries[index][0], index))
+    for room_index in room_order:
+        area, aspect = room_geometries[room_index]
+        best_type_index = min(
+            remaining_type_indices,
+            key=lambda type_index: (
+                room_type_geometry_fit_cost(
+                    type_sequence[type_index],
+                    area,
+                    aspect,
+                    geometry_rules=geometry_rules,
+                    area_priority_rank=priority_rank,
+                ),
+                type_index,
+            ),
+        )
+        assigned[room_index] = type_sequence[best_type_index]
+        remaining_type_indices.remove(best_type_index)
+    return assigned
+
+
 def make_grid_room_layout(
     rng: random.Random,
     room_count_range: tuple[int, int],
@@ -607,6 +709,7 @@ def make_grid_room_layout(
     room_type_area_priority: tuple[str, ...] = (),
     room_type_max_counts: dict[str, int | None] | None = None,
     room_type_weights: dict[str, float] | None = None,
+    room_type_geometry_rules: dict[str, dict[str, float | None]] | None = None,
 ) -> list[ProceduralRoom]:
     required_total = sum(max(0, int(count)) for count in (required_room_types or {}).values())
     room_count = max(rng.randint(room_count_range[0], room_count_range[1]), required_total)
@@ -624,17 +727,20 @@ def make_grid_room_layout(
         room_type_max_counts=room_type_max_counts,
         room_type_weights=room_type_weights,
     )
-    room_areas: list[float] = []
+    room_geometries: list[tuple[float, float]] = []
     for row in range(rows):
         for col in range(columns):
-            if len(room_areas) >= room_count:
+            if len(room_geometries) >= room_count:
                 break
-            room_areas.append(column_widths[col] * row_lengths[row])
-    type_sequence = assign_room_types_to_areas(
+            room_geometries.append(
+                (column_widths[col] * row_lengths[row], room_aspect_ratio(column_widths[col], row_lengths[row]))
+            )
+    type_sequence = assign_room_types_to_geometry(
         type_sequence,
-        room_areas,
+        room_geometries,
         assignment=room_type_assignment,
         area_priority=room_type_area_priority,
+        geometry_rules=room_type_geometry_rules,
     )
     rooms: list[ProceduralRoom] = []
     room_index = 0
@@ -707,6 +813,7 @@ def make_split_tree_room_layout(
     room_type_area_priority: tuple[str, ...] = (),
     room_type_max_counts: dict[str, int | None] | None = None,
     room_type_weights: dict[str, float] | None = None,
+    room_type_geometry_rules: dict[str, dict[str, float | None]] | None = None,
 ) -> list[ProceduralRoom]:
     required_total = sum(max(0, int(count)) for count in (required_room_types or {}).values())
     room_count = max(rng.randint(room_count_range[0], room_count_range[1]), required_total)
@@ -740,11 +847,12 @@ def make_split_tree_room_layout(
         room_type_max_counts=room_type_max_counts,
         room_type_weights=room_type_weights,
     )
-    type_sequence = assign_room_types_to_areas(
+    type_sequence = assign_room_types_to_geometry(
         type_sequence,
-        [region.area for region in regions],
+        [(region.area, room_aspect_ratio(region.width, region.length)) for region in regions],
         assignment=room_type_assignment,
         area_priority=room_type_area_priority,
+        geometry_rules=room_type_geometry_rules,
     )
     return [
         ProceduralRoom(
@@ -773,6 +881,7 @@ def make_room_layout(
     room_type_area_priority: tuple[str, ...] = (),
     room_type_max_counts: dict[str, int | None] | None = None,
     room_type_weights: dict[str, float] | None = None,
+    room_type_geometry_rules: dict[str, dict[str, float | None]] | None = None,
 ) -> list[ProceduralRoom]:
     if layout == "grid":
         return make_grid_room_layout(
@@ -787,6 +896,7 @@ def make_room_layout(
             room_type_area_priority=room_type_area_priority,
             room_type_max_counts=room_type_max_counts,
             room_type_weights=room_type_weights,
+            room_type_geometry_rules=room_type_geometry_rules,
         )
     if layout == "split_tree":
         return make_split_tree_room_layout(
@@ -801,6 +911,7 @@ def make_room_layout(
             room_type_area_priority=room_type_area_priority,
             room_type_max_counts=room_type_max_counts,
             room_type_weights=room_type_weights,
+            room_type_geometry_rules=room_type_geometry_rules,
         )
     raise ValueError(f"Unsupported procedural layout: {layout}")
 
@@ -1692,6 +1803,7 @@ class ProceduralFront3DGenerator:
             room_type_area_priority=tuple(str(value) for value in self.args.procedural_room_type_area_priority),
             room_type_max_counts=dict(self.args.procedural_room_type_max_counts),
             room_type_weights=dict(self.args.procedural_room_type_weights),
+            room_type_geometry_rules=dict(self.args.procedural_precheck_room_type_geometry),
         )
         timings["layout"] = time.perf_counter() - stage_start
         stage_start = time.perf_counter()

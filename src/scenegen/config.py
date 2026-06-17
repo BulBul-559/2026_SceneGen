@@ -73,7 +73,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "room_height_m": [2.8, 3.4],
         "room_types": ["LivingRoom", "Bedroom", "DiningRoom", "StudyRoom", "Kitchen", "Bathroom", "Hallway"],
         "required_room_types": {"LivingRoom": 1, "Bedroom": 1, "Kitchen": 1},
-        "room_type_assignment": "area_priority",
+        "room_type_assignment": "geometry_fit",
         "room_type_area_priority": ["LivingRoom", "DiningRoom", "Bedroom", "Kitchen", "StudyRoom", "Bathroom", "Hallway"],
         "room_type_max_counts": {
             "LivingRoom": 2,
@@ -997,9 +997,9 @@ def validate_effective_config(config: dict[str, Any]) -> None:
             raise ValueError(f"procedural.{key} must be [min, max] with max >= min > 0")
     if not procedural["room_types"]:
         raise ValueError("procedural.room_types must not be empty")
-    if procedural["room_type_assignment"] not in {"sequence", "area_priority"}:
-        raise ValueError("procedural.room_type_assignment must be 'sequence' or 'area_priority'")
-    if procedural["room_type_assignment"] == "area_priority" and not procedural["room_type_area_priority"]:
+    if procedural["room_type_assignment"] not in {"sequence", "area_priority", "geometry_fit"}:
+        raise ValueError("procedural.room_type_assignment must be 'sequence', 'area_priority', or 'geometry_fit'")
+    if procedural["room_type_assignment"] in {"area_priority", "geometry_fit"} and not procedural["room_type_area_priority"]:
         raise ValueError("procedural.room_type_area_priority must not be empty")
     unknown_required = sorted(set(procedural["required_room_types"]) - set(procedural["room_types"]))
     if unknown_required:
