@@ -1,6 +1,6 @@
 [project]
 name = "scenegen"
-version = "3.2.0"
+version = "3.3.0"
 description = "Lightweight procedural scene generation for Sionna-compatible XML/OBJ outputs."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"

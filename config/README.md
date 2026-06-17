@@ -118,12 +118,27 @@ uv run scenegen \
 | `room_types` | list of string | `[LivingRoom, Bedroom, DiningRoom, StudyRoom]` | 程序化 room 类型循环池，后续家具筛选会参考该类型。 |
 | `wall_thickness_m` | float, `>0` | `0.16` | 生成墙体厚度。 |
 | `door_width_m` | float, `>=0` | `1.0` | 内墙门洞宽度；为 `0` 时基本不保留门洞。 |
-| `objects_per_room` | `[min, max]` | `[3, 7]` | 每个 room 尝试摆放的家具数量范围。 |
+| `object_count` | mapping | 见模板 | 每个 room 尝试摆放的家具数量策略。支持固定范围和按面积自适应。 |
 | `room_profiles` | mapping | 见模板 | 房间类型到 furniture class 序列和语义筛选规则的映射。必须包含 `default`；可新增任意 room type 名。 |
 | `wall_margin_m` | float, `>=0` | `0.25` | 家具 bbox 与 room 边界的最小距离。 |
 | `object_margin_m` | float, `>=0` | `0.15` | 家具 bbox 之间的额外间距。 |
 | `max_attempts_per_object` | integer, `>=1` | `80` | 每个家具候选最多尝试多少次随机位置和朝向。 |
 | `asset_pool_limit` | integer, `>=1` | `500` | 每个 placement class 最多缓存多少个 3D-FUTURE 资产用于采样。 |
+
+### procedural.object_count
+
+控制每个 room 生成多少个家具 class，再交给 `room_profiles` 展开具体类别序列。
+
+| 字段 | 可选值 / 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `strategy` | `range` / `area_adaptive` | `area_adaptive` | `range` 直接从 `range` 抽样；`area_adaptive` 按房间面积估算数量。 |
+| `range` | `[min, max]` | `[3, 7]` | `strategy: range` 使用的随机范围。 |
+| `min` | integer, `>=0` | `2` | `area_adaptive` 的最小数量。 |
+| `max` | integer, `>=min` | `9` | `area_adaptive` 的最大数量。 |
+| `area_per_object_m2` | float, `>0` | `4.0` | `area_adaptive` 中平均每多少平方米放一个家具。 |
+| `jitter` | `[min, max]` | `[-1, 1]` | `area_adaptive` 估算后的整数随机扰动。 |
+
+`area_adaptive` 计算方式为 `round(room_area / area_per_object_m2) + random(jitter)`，再裁剪到 `[min, max]`。因此小房间会自然少放，大房间会自然多放，同时保留少量随机性。
 
 ### procedural.room_profiles
 
@@ -132,7 +147,7 @@ uv run scenegen \
 - `classes`：必须是 `table`、`seat`、`floor` 的序列。
 - `filters`：可选，按 furniture class 配置 semantic 关键词筛选。支持字段为 `category`、`super_category`、`name`、`material`。
 
-生成时先按 room type 精确匹配 profile；找不到时做大小写/子串匹配；仍找不到就使用 `default`。`objects_per_room` 会决定本次实际取多少个 class：数量少于 profile 序列时从前往后截断，数量多于 profile 序列时从该 profile 内随机补齐。
+生成时先按 room type 精确匹配 profile；找不到时做大小写/子串匹配；仍找不到就使用 `default`。`object_count` 会决定本次实际取多少个 class：数量少于 profile 序列时从前往后截断，数量多于 profile 序列时从该 profile 内随机补齐。
 
 `filters` 使用大小写不敏感的包含匹配。例如 `LivingRoom.filters.seat.super_category: [sofa]` 会让客厅的 `seat` 优先选择 `super_category` 含有 sofa 的资产；如果没有任何资产匹配，系统会回退到该 class 的完整资产池，避免因为 3D-FUTURE 标注不齐导致房间完全摆不出家具。
 

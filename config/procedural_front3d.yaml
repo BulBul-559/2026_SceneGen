@@ -29,7 +29,13 @@ procedural:
   room_types: [LivingRoom, Bedroom, DiningRoom, StudyRoom]
   wall_thickness_m: 0.16
   door_width_m: 1.0
-  objects_per_room: [3, 7]
+  object_count:
+    strategy: area_adaptive
+    range: [3, 7]
+    min: 2
+    max: 9
+    area_per_object_m2: 4.0
+    jitter: [-1, 1]
   room_profiles:
     default:
       classes: [seat, table, floor, seat, table]

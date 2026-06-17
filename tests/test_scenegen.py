@@ -51,6 +51,7 @@ from scenegen.procedural import (
     desired_classes_from_profile,
     entries_matching_profile_filter,
     make_room_layout,
+    object_count_for_room_area,
     procedural_asset_approx_bbox,
     procedural_asset_footprint_size,
     select_room_profile,
@@ -258,8 +259,26 @@ def test_procedural_room_profiles_select_and_expand_classes() -> None:
     }
 
     assert select_room_profile("MasterBedroom", profiles)[0] == "Bedroom"
-    assert desired_classes_from_profile("Bedroom", profiles, (2, 2), random.Random(1)) == ["floor", "table"]
-    assert desired_classes_from_profile("Kitchen", profiles, (3, 3), random.Random(2)) == ["seat", "seat", "seat"]
+    assert desired_classes_from_profile("Bedroom", profiles, 2, random.Random(1)) == ["floor", "table"]
+    assert desired_classes_from_profile("Kitchen", profiles, 3, random.Random(2)) == ["seat", "seat", "seat"]
+
+
+def test_procedural_object_count_supports_range_and_area_adaptive() -> None:
+    assert object_count_for_room_area(
+        10.0,
+        {"strategy": "range", "range": [3, 3]},
+        random.Random(1),
+    ) == 3
+    assert object_count_for_room_area(
+        24.0,
+        {"strategy": "area_adaptive", "min": 2, "max": 9, "area_per_object_m2": 4.0, "jitter": [0, 0]},
+        random.Random(1),
+    ) == 6
+    assert object_count_for_room_area(
+        200.0,
+        {"strategy": "area_adaptive", "min": 2, "max": 9, "area_per_object_m2": 4.0, "jitter": [0, 0]},
+        random.Random(1),
+    ) == 9
 
 
 def test_procedural_room_profile_filters_match_asset_semantics() -> None:
@@ -549,12 +568,12 @@ def test_front3d_class_mask_mesh_furniture_mode_uses_mesh_footprint(tmp_path: Pa
 
 
 def test_cli_version_matches_package_version(capsys: pytest.CaptureFixture[str]) -> None:
-    assert __version__ == "3.2.0"
+    assert __version__ == "3.3.0"
     with pytest.raises(SystemExit) as exc_info:
         parse_args(["--version"])
 
     assert exc_info.value.code == 0
-    assert capsys.readouterr().out.strip() == "SceneGen 3.2.0"
+    assert capsys.readouterr().out.strip() == "SceneGen 3.3.0"
 
 
 def test_bistro_config_is_mode_specific_default_overlay() -> None:
@@ -1418,7 +1437,7 @@ def make_procedural_runtime_fixture(tmp_path: Path) -> Path:
                     "room_length_m": [3.0, 3.0],
                     "room_height_m": [2.8, 2.8],
                     "room_types": ["LivingRoom"],
-                    "objects_per_room": [1, 1],
+                    "object_count": {"strategy": "range", "range": [1, 1]},
                     "asset_pool_limit": 5,
                 },
                 "label": {"enabled": False},

@@ -74,7 +74,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "room_types": ["LivingRoom", "Bedroom", "DiningRoom", "StudyRoom"],
         "wall_thickness_m": 0.16,
         "door_width_m": 1.0,
-        "objects_per_room": [3, 7],
+        "object_count": {
+            "strategy": "area_adaptive",
+            "range": [3, 7],
+            "min": 2,
+            "max": 9,
+            "area_per_object_m2": 4.0,
+            "jitter": [-1, 1],
+        },
         "room_profiles": {
             "default": {"classes": ["seat", "table", "floor", "seat", "table"], "filters": {}},
             "LivingRoom": {
@@ -510,7 +517,13 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     procedural["room_types"] = parse_string_sequence(procedural["room_types"], "procedural.room_types")
     procedural["wall_thickness_m"] = float(procedural["wall_thickness_m"])
     procedural["door_width_m"] = float(procedural["door_width_m"])
-    procedural["objects_per_room"] = parse_int_pair(procedural["objects_per_room"], "procedural.objects_per_room")
+    object_count = procedural["object_count"]
+    object_count["strategy"] = str(object_count["strategy"])
+    object_count["range"] = parse_int_pair(object_count["range"], "procedural.object_count.range")
+    object_count["min"] = int(object_count["min"])
+    object_count["max"] = int(object_count["max"])
+    object_count["area_per_object_m2"] = float(object_count["area_per_object_m2"])
+    object_count["jitter"] = parse_int_pair(object_count["jitter"], "procedural.object_count.jitter")
     procedural["room_profiles"] = normalize_room_profiles(procedural["room_profiles"])
     procedural["wall_margin_m"] = float(procedural["wall_margin_m"])
     procedural["object_margin_m"] = float(procedural["object_margin_m"])
@@ -659,8 +672,19 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("procedural.wall_thickness_m must be positive")
     if procedural["door_width_m"] < 0:
         raise ValueError("procedural.door_width_m must be non-negative")
-    if procedural["objects_per_room"][0] < 0 or procedural["objects_per_room"][1] < procedural["objects_per_room"][0]:
-        raise ValueError("procedural.objects_per_room must be [min, max] with max >= min >= 0")
+    object_count = procedural["object_count"]
+    if object_count["strategy"] not in {"range", "area_adaptive"}:
+        raise ValueError("procedural.object_count.strategy must be 'range' or 'area_adaptive'")
+    if object_count["range"][0] < 0 or object_count["range"][1] < object_count["range"][0]:
+        raise ValueError("procedural.object_count.range must be [min, max] with max >= min >= 0")
+    if object_count["min"] < 0:
+        raise ValueError("procedural.object_count.min must be non-negative")
+    if object_count["max"] < object_count["min"]:
+        raise ValueError("procedural.object_count.max must be greater than or equal to procedural.object_count.min")
+    if object_count["area_per_object_m2"] <= 0:
+        raise ValueError("procedural.object_count.area_per_object_m2 must be positive")
+    if object_count["jitter"][1] < object_count["jitter"][0]:
+        raise ValueError("procedural.object_count.jitter must be [min, max] with max >= min")
     for profile_name, profile in procedural["room_profiles"].items():
         if not profile["classes"]:
             raise ValueError(f"procedural.room_profiles.{profile_name}.classes must not be empty")
@@ -922,7 +946,7 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         procedural_room_types=procedural["room_types"],
         procedural_wall_thickness_m=procedural["wall_thickness_m"],
         procedural_door_width_m=procedural["door_width_m"],
-        procedural_objects_per_room=procedural["objects_per_room"],
+        procedural_object_count=procedural["object_count"],
         procedural_room_profiles=procedural["room_profiles"],
         procedural_wall_margin_m=procedural["wall_margin_m"],
         procedural_object_margin_m=procedural["object_margin_m"],

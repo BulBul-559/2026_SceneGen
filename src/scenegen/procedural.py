@@ -437,17 +437,32 @@ def select_room_profile(room_type: str, profiles: dict[str, dict[str, Any]]) -> 
 
 def desired_classes_from_profile(
     room_type: str,
-    profiles: dict[str, dict[str, list[str]]],
-    object_count_range: tuple[int, int],
+    profiles: dict[str, dict[str, Any]],
+    target_count: int,
     rng: random.Random,
 ) -> list[str]:
     """Expand a room furnishing profile to the sampled object count."""
 
     _profile_name, classes = select_room_profile(room_type, profiles)
-    target_count = rng.randint(object_count_range[0], object_count_range[1])
     if target_count <= len(classes):
         return classes[:target_count]
     return classes + [rng.choice(classes) for _ in range(target_count - len(classes))]
+
+
+def object_count_for_room_area(room_area: float, object_count_config: dict[str, Any], rng: random.Random) -> int:
+    strategy = str(object_count_config["strategy"])
+    if strategy == "range":
+        min_count, max_count = (int(value) for value in object_count_config["range"])
+        return rng.randint(min_count, max_count)
+    if strategy == "area_adaptive":
+        min_count = int(object_count_config["min"])
+        max_count = int(object_count_config["max"])
+        area_per_object = float(object_count_config["area_per_object_m2"])
+        jitter_min, jitter_max = (int(value) for value in object_count_config["jitter"])
+        base_count = int(round(float(room_area) / area_per_object))
+        jitter = rng.randint(jitter_min, jitter_max)
+        return min(max(base_count + jitter, min_count), max_count)
+    raise ValueError(f"Unsupported procedural object count strategy: {strategy}")
 
 
 def semantic_matches_filter(semantic: dict[str, Any], class_filter: dict[str, list[str]]) -> bool:
@@ -732,11 +747,12 @@ class ProceduralFront3DGenerator:
         profile_name, profile = select_room_profile_spec(room_type, self.args.procedural_room_profiles)
         return profile_name, list(profile["classes"]), dict(profile.get("filters") or {})
 
-    def desired_classes_for_room(self, room_type: str, rng: random.Random) -> list[str]:
+    def desired_classes_for_room(self, room: ProceduralRoom, rng: random.Random) -> list[str]:
+        target_count = object_count_for_room_area(room.area, self.args.procedural_object_count, rng)
         return desired_classes_from_profile(
-            room_type,
+            room.room_type,
             self.args.procedural_room_profiles,
-            tuple(int(value) for value in self.args.procedural_objects_per_room),
+            target_count,
             rng,
         )
 
@@ -745,34 +761,38 @@ class ProceduralFront3DGenerator:
         rooms: list[ProceduralRoom],
         scene_index: int,
         rng: random.Random,
-    ) -> tuple[list[PlacedAsset], list[dict[str, object]], dict[str, int]]:
+    ) -> tuple[list[PlacedAsset], list[dict[str, object]], dict[str, object]]:
         placements: list[PlacedAsset] = []
         skipped: list[dict[str, object]] = []
-        stats = {
+        desired_object_counts: dict[str, int] = {}
+        stats: dict[str, object] = {
             "attempt_count": 0,
             "exact_bbox_count": 0,
             "size_reject_count": 0,
             "approx_collision_reject_count": 0,
             "exact_room_reject_count": 0,
             "exact_collision_reject_count": 0,
+            "desired_object_counts": desired_object_counts,
         }
         room_boxes: dict[str, list[tuple[float, float, float, float, float, float]]] = {room.room_id: [] for room in rooms}
         mesh_cache: dict[Path, list[Vec3]] = {}
         for room in rooms:
-            for class_name in self.desired_classes_for_room(room.room_type, rng):
+            desired_classes = self.desired_classes_for_room(room, rng)
+            desired_object_counts[room.room_id] = len(desired_classes)
+            for class_name in desired_classes:
                 candidates = self._entries_for_room(room.room_type, class_name)
                 if not candidates:
                     skipped.append({"room_id": room.room_id, "class": class_name, "reason": "empty_asset_pool"})
                     continue
                 placed = False
                 for _attempt in range(int(self.args.procedural_max_attempts_per_object)):
-                    stats["attempt_count"] += 1
+                    stats["attempt_count"] = int(stats["attempt_count"]) + 1
                     entry = rng.choice(candidates)
                     yaw = rng.choice([0.0, math.pi / 2.0, math.pi, math.pi * 1.5])
                     width, length = procedural_asset_footprint_size(entry, yaw)
                     margin = float(self.args.procedural_wall_margin_m)
                     if width >= room.width - 2.0 * margin or length >= room.length - 2.0 * margin:
-                        stats["size_reject_count"] += 1
+                        stats["size_reject_count"] = int(stats["size_reject_count"]) + 1
                         continue
                     center_x = rng.uniform(room.x0 + margin + width / 2.0, room.x1 - margin - width / 2.0)
                     center_y = rng.uniform(room.y0 + margin + length / 2.0, room.y1 - margin - length / 2.0)
@@ -781,15 +801,15 @@ class ProceduralFront3DGenerator:
                         boxes_overlap_xy(approx_bbox, other, float(self.args.procedural_object_margin_m))
                         for other in room_boxes[room.room_id]
                     ):
-                        stats["approx_collision_reject_count"] += 1
+                        stats["approx_collision_reject_count"] = int(stats["approx_collision_reject_count"]) + 1
                         continue
-                    stats["exact_bbox_count"] += 1
+                    stats["exact_bbox_count"] = int(stats["exact_bbox_count"]) + 1
                     matrix, bbox = procedural_asset_transform_for_center(entry, yaw, center_x, center_y, mesh_cache)
                     if not room_contains_bbox(room, bbox, margin=0.0):
-                        stats["exact_room_reject_count"] += 1
+                        stats["exact_room_reject_count"] = int(stats["exact_room_reject_count"]) + 1
                         continue
                     if any(boxes_overlap_xy(bbox, other, float(self.args.procedural_object_margin_m)) for other in room_boxes[room.room_id]):
-                        stats["exact_collision_reject_count"] += 1
+                        stats["exact_collision_reject_count"] = int(stats["exact_collision_reject_count"]) + 1
                         continue
                     placement_index = len(placements)
                     placements.append(
@@ -883,7 +903,13 @@ class ProceduralFront3DGenerator:
             "scene_id": scene_id,
             "layout": str(self.args.procedural_layout),
             "room_count": len(rooms),
-            "rooms": [self._room_report(room) for room in rooms],
+            "rooms": [
+                self._room_report(
+                    room,
+                    desired_object_count=dict(placement_stats.get("desired_object_counts") or {}).get(room.room_id),
+                )
+                for room in rooms
+            ],
             "asset_pool_counts": {key: len(value) for key, value in sorted(self.asset_pool.items())},
             "skipped_object_count": len(skipped),
             "skipped_objects": skipped,
@@ -899,7 +925,7 @@ class ProceduralFront3DGenerator:
             generation_report=report,
         )
 
-    def _room_report(self, room: ProceduralRoom) -> dict[str, object]:
+    def _room_report(self, room: ProceduralRoom, desired_object_count: int | None = None) -> dict[str, object]:
         profile_name, profile_classes, profile_filters = self.room_profile_detail_for_room(room.room_type)
         return {
             "room_id": room.room_id,
@@ -907,6 +933,7 @@ class ProceduralFront3DGenerator:
             "profile": profile_name,
             "profile_classes": profile_classes,
             "profile_filters": profile_filters,
+            "desired_object_count": desired_object_count,
             "bounds_xy": [room.x0, room.y0, room.x1, room.y1],
             "area_m2": round(room.area, 3),
         }
