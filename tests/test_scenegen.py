@@ -492,12 +492,12 @@ def test_front3d_class_mask_mesh_furniture_mode_uses_mesh_footprint(tmp_path: Pa
 
 
 def test_cli_version_matches_package_version(capsys: pytest.CaptureFixture[str]) -> None:
-    assert __version__ == "3.0.0"
+    assert __version__ == "3.1.0"
     with pytest.raises(SystemExit) as exc_info:
         parse_args(["--version"])
 
     assert exc_info.value.code == 0
-    assert capsys.readouterr().out.strip() == "SceneGen 3.0.0"
+    assert capsys.readouterr().out.strip() == "SceneGen 3.1.0"
 
 
 def test_bistro_config_is_mode_specific_default_overlay() -> None:
