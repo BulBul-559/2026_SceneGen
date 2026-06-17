@@ -69,6 +69,7 @@ from scenegen.procedural import (
     room_adjacencies_for_rooms,
     room_aspect_ratio,
     room_exterior_segments,
+    room_topology_metrics,
     rooms_footprint_metrics,
     room_type_sequence,
     select_room_group_specs,
@@ -550,6 +551,31 @@ def test_procedural_footprint_metrics_measure_concavity() -> None:
     assert metrics["fill_ratio"] == pytest.approx(0.75)
     assert metrics["concavity_area_m2"] == pytest.approx(16.0)
     assert metrics["bbox_xy"] == [0.0, 0.0, 8.0, 8.0]
+
+
+def test_procedural_room_topology_metrics_describe_room_graph() -> None:
+    rooms = [
+        ProceduralRoom("living", "LivingRoom", 0.0, 0.0, 4.0, 4.0, 3.0),
+        ProceduralRoom("bedroom", "Bedroom", 4.0, 0.0, 8.0, 4.0, 3.0),
+        ProceduralRoom("kitchen", "Kitchen", 0.0, 4.0, 4.0, 8.0, 3.0),
+        ProceduralRoom("bath", "Bathroom", 4.0, 4.0, 8.0, 8.0, 3.0),
+    ]
+    adjacencies = room_adjacencies_for_rooms(rooms, wall_thickness=0.16, door_width=1.0)
+
+    metrics = room_topology_metrics(rooms, adjacencies)
+
+    assert metrics["room_count"] == 4
+    assert metrics["edge_count"] == 4
+    assert metrics["component_count"] == 1
+    assert metrics["component_sizes"] == [4]
+    assert metrics["is_connected"] is True
+    assert metrics["min_degree"] == 2
+    assert metrics["max_degree"] == 2
+    assert metrics["mean_degree"] == 2.0
+    assert metrics["leaf_room_count"] == 0
+    assert metrics["isolated_room_count"] == 0
+    assert metrics["branch_room_count"] == 0
+    assert metrics["graph_diameter"] == 2
 
 
 def test_procedural_room_type_sequence_supports_weights() -> None:
@@ -1982,6 +2008,15 @@ def test_aggregate_procedural_run_report_summarizes_structure() -> None:
                     "configured_layout": "mixed",
                     "room_count": 2,
                     "footprint": {"room_area_m2": 21.0, "bbox_area_m2": 28.0, "fill_ratio": 0.75, "concavity_area_m2": 7.0},
+                    "topology": {
+                        "edge_count": 1,
+                        "leaf_room_count": 2,
+                        "branch_room_count": 0,
+                        "component_count": 1,
+                        "max_degree": 1,
+                        "mean_degree": 1.0,
+                        "graph_diameter": 1,
+                    },
                     "adjacency_count": 1,
                     "window_count": 1,
                     "rooms": [
@@ -2018,6 +2053,15 @@ def test_aggregate_procedural_run_report_summarizes_structure() -> None:
                     "configured_layout": "mixed",
                     "room_count": 1,
                     "footprint": {"room_area_m2": 16.0, "bbox_area_m2": 16.0, "fill_ratio": 1.0, "concavity_area_m2": 0.0},
+                    "topology": {
+                        "edge_count": 0,
+                        "leaf_room_count": 0,
+                        "branch_room_count": 0,
+                        "component_count": 1,
+                        "max_degree": 0,
+                        "mean_degree": 0.0,
+                        "graph_diameter": 0,
+                    },
                     "adjacency_count": 0,
                     "window_count": 2,
                     "rooms": [
@@ -2038,6 +2082,9 @@ def test_aggregate_procedural_run_report_summarizes_structure() -> None:
     assert report["room_area_m2"] == {"min": 9.0, "max": 16.0, "mean": 12.333333}
     assert report["footprint_fill_ratio"] == {"min": 0.75, "max": 1.0, "mean": 0.875}
     assert report["footprint_concavity_area_m2"] == {"min": 0.0, "max": 7.0, "mean": 3.5}
+    assert report["topology"]["edge_count"] == {"min": 0.0, "max": 1.0, "mean": 0.5}
+    assert report["topology"]["leaf_room_count"] == {"min": 0.0, "max": 2.0, "mean": 1.0}
+    assert report["topology"]["graph_diameter"] == {"min": 0.0, "max": 1.0, "mean": 0.5}
     assert report["placement_ratio"] == {"min": 0.75, "max": 1.0, "mean": 0.875}
     assert report["placement_group_success_total"] == {"bed_side_tables": 1}
     assert report["precheck_ok_count"] == 1
@@ -2050,6 +2097,7 @@ def test_aggregate_procedural_run_report_summarizes_structure() -> None:
     assert report["scenes"][0]["layout"] == "rect_union"
     assert report["scenes"][0]["configured_layout"] == "mixed"
     assert report["scenes"][0]["footprint"]["fill_ratio"] == 0.75
+    assert report["scenes"][0]["topology"]["edge_count"] == 1
     assert report["scenes"][0]["room_type_geometry_ok"] is True
     assert report["scenes"][1]["room_type_geometry_ok"] is False
 

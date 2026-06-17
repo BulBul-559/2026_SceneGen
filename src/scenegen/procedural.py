@@ -119,6 +119,13 @@ def aggregate_procedural_run_report(scene_records: list[dict[str, object]]) -> d
     procedural_records = [record for record in scene_records if isinstance(record.get("procedural"), dict)]
     room_counts: list[float] = []
     adjacency_counts: list[float] = []
+    topology_edge_counts: list[float] = []
+    topology_leaf_counts: list[float] = []
+    topology_branch_counts: list[float] = []
+    topology_component_counts: list[float] = []
+    topology_max_degrees: list[float] = []
+    topology_mean_degrees: list[float] = []
+    topology_graph_diameters: list[float] = []
     window_counts: list[float] = []
     room_areas: list[float] = []
     room_aspects: list[float] = []
@@ -152,8 +159,17 @@ def aggregate_procedural_run_report(scene_records: list[dict[str, object]]) -> d
         configured_layout_totals[configured_layout] += 1
         adjacency_count = int(procedural.get("adjacency_count", 0) or 0)
         window_count = int(procedural.get("window_count", 0) or 0)
+        topology = procedural.get("topology") if isinstance(procedural.get("topology"), dict) else {}
         room_counts.append(float(room_count))
         adjacency_counts.append(float(adjacency_count))
+        if topology:
+            topology_edge_counts.append(float(topology.get("edge_count", 0) or 0))
+            topology_leaf_counts.append(float(topology.get("leaf_room_count", 0) or 0))
+            topology_branch_counts.append(float(topology.get("branch_room_count", 0) or 0))
+            topology_component_counts.append(float(topology.get("component_count", 0) or 0))
+            topology_max_degrees.append(float(topology.get("max_degree", 0) or 0))
+            topology_mean_degrees.append(float(topology.get("mean_degree", 0.0) or 0.0))
+            topology_graph_diameters.append(float(topology.get("graph_diameter", 0) or 0))
         window_counts.append(float(window_count))
         scene_room_areas: list[float] = []
         scene_room_aspects: list[float] = []
@@ -232,6 +248,7 @@ def aggregate_procedural_run_report(scene_records: list[dict[str, object]]) -> d
                 "room_area_m2": numeric_summary(scene_room_areas),
                 "room_aspect_ratio": numeric_summary(scene_room_aspects),
                 "footprint": footprint,
+                "topology": topology,
                 "adjacency_count": adjacency_count,
                 "window_count": window_count,
                 "desired_object_count": desired_total,
@@ -261,6 +278,15 @@ def aggregate_procedural_run_report(scene_records: list[dict[str, object]]) -> d
         "footprint_fill_ratio": numeric_summary(footprint_fill_ratios),
         "footprint_concavity_area_m2": numeric_summary(footprint_concavity_areas),
         "adjacency_count": numeric_summary(adjacency_counts),
+        "topology": {
+            "edge_count": numeric_summary(topology_edge_counts),
+            "leaf_room_count": numeric_summary(topology_leaf_counts),
+            "branch_room_count": numeric_summary(topology_branch_counts),
+            "component_count": numeric_summary(topology_component_counts),
+            "max_degree": numeric_summary(topology_max_degrees),
+            "mean_degree": numeric_summary(topology_mean_degrees),
+            "graph_diameter": numeric_summary(topology_graph_diameters),
+        },
         "window_count": numeric_summary(window_counts),
         "desired_object_count": numeric_summary(desired_counts),
         "placement_count": numeric_summary(placement_counts),
@@ -1922,6 +1948,69 @@ def room_adjacencies_for_rooms(
     return adjacencies
 
 
+def room_topology_metrics(rooms: list[ProceduralRoom], adjacencies: list[dict[str, object]]) -> dict[str, object]:
+    room_ids = [room.room_id for room in rooms]
+    graph: dict[str, set[str]] = {room_id: set() for room_id in room_ids}
+    edge_count = 0
+    for adjacency in adjacencies:
+        room_pair = adjacency.get("rooms")
+        if not isinstance(room_pair, list | tuple) or len(room_pair) != 2:
+            continue
+        left, right = (str(value) for value in room_pair)
+        if left not in graph or right not in graph or left == right:
+            continue
+        if right not in graph[left]:
+            edge_count += 1
+        graph[left].add(right)
+        graph[right].add(left)
+
+    visited: set[str] = set()
+    component_sizes: list[int] = []
+    for room_id in room_ids:
+        if room_id in visited:
+            continue
+        component = {room_id}
+        frontier = [room_id]
+        visited.add(room_id)
+        while frontier:
+            current = frontier.pop()
+            for neighbor in graph[current] - visited:
+                visited.add(neighbor)
+                component.add(neighbor)
+                frontier.append(neighbor)
+        component_sizes.append(len(component))
+
+    degrees = [len(graph[room_id]) for room_id in room_ids]
+    graph_diameter = 0
+    for start in room_ids:
+        distances = {start: 0}
+        frontier = [start]
+        while frontier:
+            current = frontier.pop(0)
+            for neighbor in graph[current]:
+                if neighbor in distances:
+                    continue
+                distances[neighbor] = distances[current] + 1
+                frontier.append(neighbor)
+        if distances:
+            graph_diameter = max(graph_diameter, max(distances.values()))
+
+    return {
+        "room_count": len(room_ids),
+        "edge_count": edge_count,
+        "component_count": len(component_sizes),
+        "component_sizes": sorted(component_sizes, reverse=True),
+        "is_connected": len(component_sizes) <= 1,
+        "min_degree": min(degrees) if degrees else 0,
+        "max_degree": max(degrees) if degrees else 0,
+        "mean_degree": rounded(sum(degrees) / len(degrees)) if degrees else 0.0,
+        "leaf_room_count": sum(1 for degree in degrees if degree == 1),
+        "isolated_room_count": sum(1 for degree in degrees if degree == 0),
+        "branch_room_count": sum(1 for degree in degrees if degree >= 3),
+        "graph_diameter": graph_diameter,
+    }
+
+
 def door_keepout_boxes_for_rooms(
     rooms: list[ProceduralRoom],
     adjacencies: list[dict[str, object]],
@@ -2824,6 +2913,7 @@ class ProceduralFront3DGenerator:
             "layout_weights": dict(self.args.procedural_layout_weights),
             "room_count": len(rooms),
             "footprint": rooms_footprint_metrics(rooms),
+            "topology": room_topology_metrics(rooms, adjacencies),
             "adjacency_count": len(adjacencies),
             "adjacency": adjacencies,
             "window_count": sum(1 for mesh in meshes if str(mesh["type"]).lower() == "window"),
