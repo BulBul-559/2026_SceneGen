@@ -1453,6 +1453,8 @@ class ProceduralFront3DGenerator:
 
     def _room_report(self, room: ProceduralRoom, desired_object_count: int | None = None) -> dict[str, object]:
         profile_name, profile_classes, profile_filters = self.room_profile_detail_for_room(room.room_type)
+        min_side = min(room.width, room.length)
+        max_side = max(room.width, room.length)
         return {
             "room_id": room.room_id,
             "room_type": room.room_type,
@@ -1461,5 +1463,7 @@ class ProceduralFront3DGenerator:
             "profile_filters": profile_filters,
             "desired_object_count": desired_object_count,
             "bounds_xy": [room.x0, room.y0, room.x1, room.y1],
+            "size_xy_m": [round(room.width, 3), round(room.length, 3)],
             "area_m2": round(room.area, 3),
+            "aspect_ratio": round(max_side / min_side, 3) if min_side > 0 else None,
         }

@@ -993,6 +993,44 @@ def test_procedural_precheck_accepts_connected_rooms() -> None:
     assert result["room_connectivity"]["edge_count"] == 2
 
 
+def test_procedural_precheck_rejects_bad_room_geometry() -> None:
+    args = Namespace(
+        mode="procedural_front3d",
+        procedural_precheck_enabled=True,
+        procedural_precheck_min_placements=1,
+        procedural_precheck_min_placement_ratio=0.5,
+        procedural_precheck_max_skipped_ratio=0.8,
+        procedural_precheck_require_connected_rooms=False,
+        procedural_precheck_min_room_area_m2=8.0,
+        procedural_precheck_max_room_aspect_ratio=4.0,
+    )
+
+    result = evaluate_procedural_precheck(
+        args,
+        {"placement_count": 3},
+        {
+            "skipped_object_count": 0,
+            "procedural": {
+                "room_count": 2,
+                "rooms": [
+                    {"room_id": "tiny", "bounds_xy": [0.0, 0.0, 2.0, 3.0]},
+                    {"room_id": "corridor_like", "area_m2": 20.0, "aspect_ratio": 5.0},
+                ],
+                "placement_stats": {"desired_object_counts": {"tiny": 1, "corridor_like": 1}},
+            },
+        },
+    )
+
+    assert result["ok"] is False
+    assert {error["code"] for error in result["errors"]} == {
+        "room_area_too_small",
+        "room_aspect_ratio_too_high",
+    }
+    assert result["room_geometry"]["small_rooms"] == [{"room_id": "tiny", "area_m2": 6.0}]
+    assert result["room_geometry"]["elongated_rooms"] == [{"room_id": "corridor_like", "aspect_ratio": 5.0}]
+    assert result["room_geometry"]["area_range_m2"] == [6.0, 20.0]
+
+
 def test_label_plane_grid_respects_floor_domain_and_ignores_obstacles() -> None:
     config = make_label_config(
         strategy="panel",

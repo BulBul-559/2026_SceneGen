@@ -158,6 +158,27 @@ def evaluate_procedural_precheck(
                 "isolated_rooms": connectivity["isolated_rooms"],
             }
         )
+    room_geometry = evaluate_procedural_room_geometry(
+        procedural,
+        min_area_m2=float(getattr(args, "procedural_precheck_min_room_area_m2", 0.0)),
+        max_aspect_ratio=getattr(args, "procedural_precheck_max_room_aspect_ratio", None),
+    )
+    if room_geometry["small_rooms"]:
+        errors.append(
+            {
+                "code": "room_area_too_small",
+                "threshold": room_geometry["min_area_m2"],
+                "rooms": room_geometry["small_rooms"],
+            }
+        )
+    if room_geometry["elongated_rooms"]:
+        errors.append(
+            {
+                "code": "room_aspect_ratio_too_high",
+                "threshold": room_geometry["max_aspect_ratio"],
+                "rooms": room_geometry["elongated_rooms"],
+            }
+        )
 
     if desired_total > 0:
         placement_ratio = placement_count / desired_total
@@ -189,7 +210,70 @@ def evaluate_procedural_precheck(
     result["placement_count"] = placement_count
     result["skipped_object_count"] = skipped_count
     result["room_connectivity"] = connectivity
+    result["room_geometry"] = room_geometry
     return result
+
+
+def room_area_aspect_from_report(room: dict[str, object]) -> tuple[float | None, float | None]:
+    area = room.get("area_m2")
+    aspect = room.get("aspect_ratio")
+    if isinstance(area, int | float) and isinstance(aspect, int | float):
+        return float(area), float(aspect)
+    bounds = room.get("bounds_xy")
+    if not isinstance(bounds, list) or len(bounds) != 4:
+        return (float(area) if isinstance(area, int | float) else None), (
+            float(aspect) if isinstance(aspect, int | float) else None
+        )
+    x0, y0, x1, y1 = (float(value) for value in bounds)
+    width = max(0.0, x1 - x0)
+    length = max(0.0, y1 - y0)
+    computed_area = width * length
+    min_side = min(width, length)
+    max_side = max(width, length)
+    computed_aspect = max_side / min_side if min_side > 0 else None
+    return (float(area) if isinstance(area, int | float) else computed_area), (
+        float(aspect) if isinstance(aspect, int | float) else computed_aspect
+    )
+
+
+def evaluate_procedural_room_geometry(
+    procedural: dict[str, object],
+    *,
+    min_area_m2: float,
+    max_aspect_ratio: object,
+) -> dict[str, object]:
+    rooms_payload = procedural.get("rooms") if isinstance(procedural.get("rooms"), list) else []
+    max_aspect = None if max_aspect_ratio is None else float(max_aspect_ratio)
+    small_rooms: list[dict[str, object]] = []
+    elongated_rooms: list[dict[str, object]] = []
+    measured_rooms = 0
+    area_values: list[float] = []
+    aspect_values: list[float] = []
+    for index, room in enumerate(rooms_payload):
+        if not isinstance(room, dict):
+            continue
+        area, aspect = room_area_aspect_from_report(room)
+        if area is None or aspect is None:
+            continue
+        measured_rooms += 1
+        area_values.append(area)
+        aspect_values.append(aspect)
+        room_id = str(room.get("room_id") or f"room_{index}")
+        if area < min_area_m2:
+            small_rooms.append({"room_id": room_id, "area_m2": round(area, 6)})
+        if max_aspect is not None and aspect > max_aspect:
+            elongated_rooms.append({"room_id": room_id, "aspect_ratio": round(aspect, 6)})
+    return {
+        "ok": not small_rooms and not elongated_rooms,
+        "room_count": len(rooms_payload),
+        "measured_room_count": measured_rooms,
+        "min_area_m2": min_area_m2,
+        "max_aspect_ratio": max_aspect,
+        "area_range_m2": [round(min(area_values), 6), round(max(area_values), 6)] if area_values else None,
+        "aspect_ratio_range": [round(min(aspect_values), 6), round(max(aspect_values), 6)] if aspect_values else None,
+        "small_rooms": small_rooms,
+        "elongated_rooms": elongated_rooms,
+    }
 
 
 def evaluate_procedural_room_connectivity(procedural: dict[str, object]) -> dict[str, object]:
@@ -299,6 +383,8 @@ def procedural_precheck_settings(args: argparse.Namespace) -> dict[str, object]:
         "min_placement_ratio": float(args.procedural_precheck_min_placement_ratio),
         "max_skipped_ratio": float(args.procedural_precheck_max_skipped_ratio),
         "require_connected_rooms": bool(args.procedural_precheck_require_connected_rooms),
+        "min_room_area_m2": float(args.procedural_precheck_min_room_area_m2),
+        "max_room_aspect_ratio": args.procedural_precheck_max_room_aspect_ratio,
     }
 
 
