@@ -44,7 +44,14 @@ from scenegen.paths import (
     default_config_path,
     find_project_root,
 )
-from scenegen.procedural import ProceduralRoom, architecture_meshes_for_rooms, write_procedural_source_files
+from scenegen.procedural import (
+    ProceduralAssetEntry,
+    ProceduralRoom,
+    architecture_meshes_for_rooms,
+    procedural_asset_approx_bbox,
+    procedural_asset_footprint_size,
+    write_procedural_source_files,
+)
 
 
 def iter_json_strings(value: object) -> list[str]:
@@ -191,6 +198,25 @@ def test_procedural_architecture_source_contract(tmp_path: Path) -> None:
     assert bbox_max == pytest.approx((8.0, 3.0, 3.0))
     assert metadata["asset_kind"] == "architecture"
     assert metadata["procedural"]["room_count"] == 2
+
+
+def test_procedural_asset_approx_footprint_uses_scenegen_xy() -> None:
+    asset = Asset(
+        name="asset",
+        export_name="asset",
+        obj_file=Path("asset.obj"),
+        width=2.0,
+        length=1.5,
+        height=4.0,
+        placement_class="table",
+        source_to_sionna_material={},
+        sionna_material_names=("itu-wood",),
+    )
+    entry = ProceduralAssetEntry(model_id="model", asset=asset, payload={}, semantic={})
+
+    assert procedural_asset_footprint_size(entry, 0.0) == pytest.approx((2.0, 4.0))
+    assert procedural_asset_footprint_size(entry, np.pi / 2.0) == pytest.approx((4.0, 2.0))
+    assert procedural_asset_approx_bbox(entry, 0.0, 10.0, 20.0) == pytest.approx((9.0, 11.0, 18.0, 22.0, 0.0, 1.5))
 
 
 def write_height_filtered_fixture_obj(path: Path) -> None:

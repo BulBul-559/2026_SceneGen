@@ -227,6 +227,8 @@ summary/
 
 `front3d` 的 `placements.json` 中 `sionna_assets.timings_s` 会记录 Sionna XML 资产导出的细分耗时，包括建筑拆分、家具资产拆分和 XML 写入，用于定位 `build_scene` 阶段瓶颈。
 
+`procedural_front3d` 的 scene record 中 `procedural.timings_s` 和 `procedural.placement_stats` 会记录 layout、建筑 mesh/source 写出、家具摆放、候选尝试次数、精确 bbox 计算次数和粗略碰撞拒绝次数。当前摆放阶段先用资产目录尺寸做近似 footprint 过滤，只有候选通过房间边界和粗略避碰后才加载 OBJ 计算精确 bbox；这是程序化模式第一轮性能优化的关键。
+
 `label.overlays[*].timings_s` 会记录每张 label floorplan overlay 的读入、画布准备、点位绘制和缩放保存耗时。当前 overlay PNG 使用无损快速压缩级别 `png_compress_level: 1`；全配置下 overlay 通常瓶颈在 `resize_save`，不是 UE/BS 点绘制。
 
 `floorplan_*.png`、`floorplan/preview.png`、`side_view.png` 和 class mask PNG 也使用无损快速压缩级别 `png_compress_level: 1` 写出。该设置只影响 PNG 编码时间和文件字节，不改变像素内容；实测收益很小，主要用于减少保存 preview / mask 时的固定开销。

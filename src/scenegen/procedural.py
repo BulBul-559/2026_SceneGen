@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import random
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -108,6 +109,37 @@ def procedural_asset_bbox(entry: ProceduralAssetEntry, yaw: float, mesh_cache: d
         vertices = load_obj_mesh(entry.asset.obj_file).vertices
         mesh_cache[entry.asset.obj_file] = vertices
     return transformed_bbox(vertices, unit_transform_for_yaw(yaw))
+
+
+def procedural_asset_footprint_size(entry: ProceduralAssetEntry, yaw: float) -> tuple[float, float]:
+    """Approximate SceneGen XY footprint from catalog dimensions before loading OBJ vertices.
+
+    3D-FUTURE raw/normalized objects are treated as local Y-up meshes. The procedural transform maps
+    local X to SceneGen X and local Z to SceneGen Y before applying a yaw around SceneGen Z.
+    """
+
+    width_x = max(0.0, float(entry.asset.width))
+    width_y = max(0.0, float(entry.asset.height))
+    if abs(math.sin(yaw)) > abs(math.cos(yaw)):
+        return width_y, width_x
+    return width_x, width_y
+
+
+def procedural_asset_approx_bbox(
+    entry: ProceduralAssetEntry,
+    yaw: float,
+    center_x: float,
+    center_y: float,
+) -> tuple[float, float, float, float, float, float]:
+    width, length = procedural_asset_footprint_size(entry, yaw)
+    return (
+        center_x - width / 2.0,
+        center_x + width / 2.0,
+        center_y - length / 2.0,
+        center_y + length / 2.0,
+        0.0,
+        max(0.0, float(entry.asset.length)),
+    )
 
 
 def procedural_asset_transform_for_center(
@@ -478,9 +510,22 @@ class ProceduralFront3DGenerator:
         extras = [rng.choice(["table", "seat", "floor"]) for _ in range(max(0, extra_count - len(base)))]
         return base[:extra_count] + extras
 
-    def place_assets(self, rooms: list[ProceduralRoom], scene_index: int, rng: random.Random) -> tuple[list[PlacedAsset], list[dict[str, object]]]:
+    def place_assets(
+        self,
+        rooms: list[ProceduralRoom],
+        scene_index: int,
+        rng: random.Random,
+    ) -> tuple[list[PlacedAsset], list[dict[str, object]], dict[str, int]]:
         placements: list[PlacedAsset] = []
         skipped: list[dict[str, object]] = []
+        stats = {
+            "attempt_count": 0,
+            "exact_bbox_count": 0,
+            "size_reject_count": 0,
+            "approx_collision_reject_count": 0,
+            "exact_room_reject_count": 0,
+            "exact_collision_reject_count": 0,
+        }
         room_boxes: dict[str, list[tuple[float, float, float, float, float, float]]] = {room.room_id: [] for room in rooms}
         mesh_cache: dict[Path, list[Vec3]] = {}
         for room in rooms:
@@ -491,20 +536,30 @@ class ProceduralFront3DGenerator:
                     continue
                 placed = False
                 for _attempt in range(int(self.args.procedural_max_attempts_per_object)):
+                    stats["attempt_count"] += 1
                     entry = rng.choice(candidates)
                     yaw = rng.choice([0.0, math.pi / 2.0, math.pi, math.pi * 1.5])
-                    local_bbox = procedural_asset_bbox(entry, yaw, mesh_cache)
-                    width = local_bbox[1] - local_bbox[0]
-                    length = local_bbox[3] - local_bbox[2]
+                    width, length = procedural_asset_footprint_size(entry, yaw)
                     margin = float(self.args.procedural_wall_margin_m)
                     if width >= room.width - 2.0 * margin or length >= room.length - 2.0 * margin:
+                        stats["size_reject_count"] += 1
                         continue
                     center_x = rng.uniform(room.x0 + margin + width / 2.0, room.x1 - margin - width / 2.0)
                     center_y = rng.uniform(room.y0 + margin + length / 2.0, room.y1 - margin - length / 2.0)
+                    approx_bbox = procedural_asset_approx_bbox(entry, yaw, center_x, center_y)
+                    if any(
+                        boxes_overlap_xy(approx_bbox, other, float(self.args.procedural_object_margin_m))
+                        for other in room_boxes[room.room_id]
+                    ):
+                        stats["approx_collision_reject_count"] += 1
+                        continue
+                    stats["exact_bbox_count"] += 1
                     matrix, bbox = procedural_asset_transform_for_center(entry, yaw, center_x, center_y, mesh_cache)
                     if not room_contains_bbox(room, bbox, margin=0.0):
+                        stats["exact_room_reject_count"] += 1
                         continue
                     if any(boxes_overlap_xy(bbox, other, float(self.args.procedural_object_margin_m)) for other in room_boxes[room.room_id]):
+                        stats["exact_collision_reject_count"] += 1
                         continue
                     placement_index = len(placements)
                     placements.append(
@@ -544,9 +599,12 @@ class ProceduralFront3DGenerator:
                     break
                 if not placed:
                     skipped.append({"room_id": room.room_id, "class": class_name, "reason": "placement_failed"})
-        return placements, skipped
+        return placements, skipped, stats
 
     def build_scene(self, scene_dir: Path, scene_index: int, rng: random.Random) -> ProceduralSceneBuild:
+        total_start = time.perf_counter()
+        timings: dict[str, float] = {}
+        stage_start = time.perf_counter()
         rooms = make_room_layout(
             rng,
             tuple(int(value) for value in self.args.procedural_room_count),
@@ -555,12 +613,16 @@ class ProceduralFront3DGenerator:
             tuple(float(value) for value in self.args.procedural_room_height_m),
             tuple(str(value) for value in self.args.procedural_room_types),
         )
+        timings["layout"] = time.perf_counter() - stage_start
+        stage_start = time.perf_counter()
         meshes, room_children = architecture_meshes_for_rooms(
             rooms,
             wall_thickness=float(self.args.procedural_wall_thickness_m),
             door_width=float(self.args.procedural_door_width_m),
         )
         scene_id = f"procedural_{scene_index:04d}_{rng.randrange(1, 2**31):08x}"
+        timings["architecture_mesh"] = time.perf_counter() - stage_start
+        stage_start = time.perf_counter()
         architecture_obj, source_json, metadata_json, bbox_min, bbox_max = write_procedural_source_files(
             scene_dir,
             scene_id,
@@ -568,6 +630,7 @@ class ProceduralFront3DGenerator:
             meshes,
             room_children,
         )
+        timings["write_procedural_source"] = time.perf_counter() - stage_start
         base_scene = Front3DBaseScene(
             scene_id=scene_id,
             scene_obj=architecture_obj,
@@ -581,7 +644,10 @@ class ProceduralFront3DGenerator:
             source_to_sionna_material={"floor": "itu-concrete", "ceiling": "itu-concrete", "wall": "itu-concrete"},
             sionna_material_names=("itu-concrete",),
         )
-        placements, skipped = self.place_assets(rooms, scene_index, rng)
+        stage_start = time.perf_counter()
+        placements, skipped, placement_stats = self.place_assets(rooms, scene_index, rng)
+        timings["placement"] = time.perf_counter() - stage_start
+        timings["total"] = time.perf_counter() - total_start
         report = {
             "scene_id": scene_id,
             "room_count": len(rooms),
@@ -597,6 +663,8 @@ class ProceduralFront3DGenerator:
             "asset_pool_counts": {key: len(value) for key, value in sorted(self.asset_pool.items())},
             "skipped_object_count": len(skipped),
             "skipped_objects": skipped,
+            "placement_stats": placement_stats,
+            "timings_s": {key: round(value, 6) for key, value in timings.items()},
         }
         return ProceduralSceneBuild(
             scene_id=scene_id,
