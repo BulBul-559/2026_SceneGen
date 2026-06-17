@@ -180,6 +180,14 @@ procedural:
     require_connected_rooms: true
     min_room_area_m2: 8.0
     max_room_aspect_ratio: 4.0
+    room_type_geometry:
+      LivingRoom: {min_area_m2: 16.0, max_area_m2: null, max_aspect_ratio: 3.5}
+      Bedroom: {min_area_m2: 10.0, max_area_m2: null, max_aspect_ratio: 3.5}
+      DiningRoom: {min_area_m2: 10.0, max_area_m2: null, max_aspect_ratio: 3.5}
+      StudyRoom: {min_area_m2: 8.0, max_area_m2: null, max_aspect_ratio: 3.5}
+      Kitchen: {min_area_m2: 8.0, max_area_m2: 35.0, max_aspect_ratio: 3.5}
+      Bathroom: {min_area_m2: 6.0, max_area_m2: 28.0, max_aspect_ratio: 4.0}
+      Hallway: {min_area_m2: 6.0, max_area_m2: 30.0, max_aspect_ratio: 4.0}
 
 validation:
   sionna: false

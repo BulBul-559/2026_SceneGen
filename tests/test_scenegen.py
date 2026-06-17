@@ -978,6 +978,23 @@ def test_procedural_sequence_assignment_allows_empty_area_priority(tmp_path: Pat
     assert effective["procedural"]["room_type_area_priority"] == []
 
 
+def test_procedural_room_type_geometry_rejects_invalid_bounds(tmp_path: Path) -> None:
+    root = find_project_root()
+    config_path = tmp_path / "bad_room_type_geometry.yaml"
+    config_path.write_text(
+        "procedural:\n"
+        "  precheck:\n"
+        "    room_type_geometry:\n"
+        "      LivingRoom:\n"
+        "        min_area_m2: 20\n"
+        "        max_area_m2: 10\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="procedural.precheck.room_type_geometry"):
+        load_effective_config(config_path, root, parse_args([]))
+
+
 def test_prepare_run_dir_clean_only_replaces_named_run(tmp_path: Path) -> None:
     output_root = tmp_path / "results"
     keep_run = output_root / "keep_run"
@@ -1166,6 +1183,47 @@ def test_procedural_precheck_rejects_bad_room_geometry() -> None:
     assert result["room_geometry"]["small_rooms"] == [{"room_id": "tiny", "area_m2": 6.0}]
     assert result["room_geometry"]["elongated_rooms"] == [{"room_id": "corridor_like", "aspect_ratio": 5.0}]
     assert result["room_geometry"]["area_range_m2"] == [6.0, 20.0]
+
+
+def test_procedural_precheck_rejects_bad_room_type_geometry() -> None:
+    args = Namespace(
+        mode="procedural_front3d",
+        procedural_precheck_enabled=True,
+        procedural_precheck_min_placements=1,
+        procedural_precheck_min_placement_ratio=0.5,
+        procedural_precheck_max_skipped_ratio=0.8,
+        procedural_precheck_require_connected_rooms=False,
+        procedural_precheck_min_room_area_m2=0.0,
+        procedural_precheck_max_room_aspect_ratio=None,
+        procedural_precheck_room_type_geometry={
+            "LivingRoom": {"min_area_m2": 16.0, "max_area_m2": None, "max_aspect_ratio": 3.5},
+            "Bathroom": {"min_area_m2": 4.0, "max_area_m2": 12.0, "max_aspect_ratio": 4.0},
+        },
+    )
+
+    result = evaluate_procedural_precheck(
+        args,
+        {"placement_count": 3},
+        {
+            "skipped_object_count": 0,
+            "procedural": {
+                "room_count": 2,
+                "rooms": [
+                    {"room_id": "small_living", "room_type": "LivingRoom", "area_m2": 12.0, "aspect_ratio": 1.5},
+                    {"room_id": "huge_bath", "room_type": "Bathroom", "area_m2": 20.0, "aspect_ratio": 4.5},
+                ],
+                "placement_stats": {"desired_object_counts": {"small_living": 1, "huge_bath": 1}},
+            },
+        },
+    )
+
+    assert result["ok"] is False
+    assert {error["code"] for error in result["errors"]} == {
+        "room_type_area_too_small",
+        "room_type_area_too_large",
+        "room_type_aspect_ratio_too_high",
+    }
+    assert result["room_type_geometry"]["checked_room_count"] == 2
 
 
 def test_aggregate_procedural_run_report_summarizes_structure() -> None:
@@ -1919,6 +1977,7 @@ def make_procedural_runtime_fixture(tmp_path: Path) -> Path:
                     },
                     "object_count": {"strategy": "range", "range": [1, 1]},
                     "asset_pool_limit": 5,
+                    "precheck": {"room_type_geometry": None},
                 },
                 "label": {"enabled": False},
                 "floorplan": {"enabled": False},

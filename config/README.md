@@ -209,6 +209,9 @@ uv run scenegen \
 | `require_connected_rooms` | boolean | `true` | 是否要求所有 room 通过带正宽门洞的 adjacency 连成一个可达图；失败时换 seed 重试。 |
 | `min_room_area_m2` | float, `>=0` | `8.0` | 单个 room 的最小面积；过小 room 会触发预检失败。 |
 | `max_room_aspect_ratio` | float, `>=1` / `null` | `4.0` | 单个 room 最长边 / 最短边的最大比例；设为 `null` 可关闭该检查。 |
+| `room_type_geometry` | mapping / `null` | 见模板 | 按 room type 配置 `min_area_m2`、`max_area_m2`、`max_aspect_ratio`；用于过滤过小客厅、过大卫浴等不自然样本。 |
+
+`room_type_geometry` 中的每个 room type 都可以只写部分字段，未写字段视为不检查。也可以写 `default` 作为兜底规则，或设为 `null` 关闭类型化几何检查。
 
 ### procedural.room_profiles
 

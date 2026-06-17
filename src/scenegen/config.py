@@ -195,6 +195,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "require_connected_rooms": True,
             "min_room_area_m2": 8.0,
             "max_room_aspect_ratio": 4.0,
+            "room_type_geometry": {
+                "LivingRoom": {"min_area_m2": 16.0, "max_area_m2": None, "max_aspect_ratio": 3.5},
+                "Bedroom": {"min_area_m2": 10.0, "max_area_m2": None, "max_aspect_ratio": 3.5},
+                "DiningRoom": {"min_area_m2": 10.0, "max_area_m2": None, "max_aspect_ratio": 3.5},
+                "StudyRoom": {"min_area_m2": 8.0, "max_area_m2": None, "max_aspect_ratio": 3.5},
+                "Kitchen": {"min_area_m2": 8.0, "max_area_m2": 35.0, "max_aspect_ratio": 3.5},
+                "Bathroom": {"min_area_m2": 6.0, "max_area_m2": 28.0, "max_aspect_ratio": 4.0},
+                "Hallway": {"min_area_m2": 6.0, "max_area_m2": 30.0, "max_aspect_ratio": 4.0},
+            },
         },
     },
     "validation": {
@@ -638,6 +647,39 @@ def normalize_placement_groups(value: Any, key: str = "procedural.placement_grou
     return {"enabled": enabled, "room_types": room_types}
 
 
+def normalize_room_type_geometry_rules(value: Any, key: str = "procedural.precheck.room_type_geometry") -> dict[str, dict[str, float | None]]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"{key} must be a mapping or null")
+    rules: dict[str, dict[str, float | None]] = {}
+    for raw_name, raw_rule in value.items():
+        room_type = str(raw_name).strip()
+        if not room_type:
+            raise ValueError(f"{key} room type names must not be empty")
+        if raw_rule is None:
+            continue
+        if not isinstance(raw_rule, dict):
+            raise ValueError(f"{key}.{raw_name} must be a mapping or null")
+        rule: dict[str, float | None] = {"min_area_m2": None, "max_area_m2": None, "max_aspect_ratio": None}
+        for field in rule:
+            raw_value = raw_rule.get(field)
+            rule[field] = None if raw_value is None else float(raw_value)
+        min_area = rule["min_area_m2"]
+        max_area = rule["max_area_m2"]
+        max_aspect = rule["max_aspect_ratio"]
+        if min_area is not None and min_area < 0:
+            raise ValueError(f"{key}.{raw_name}.min_area_m2 must be non-negative or null")
+        if max_area is not None and max_area <= 0:
+            raise ValueError(f"{key}.{raw_name}.max_area_m2 must be positive or null")
+        if min_area is not None and max_area is not None and max_area < min_area:
+            raise ValueError(f"{key}.{raw_name}.max_area_m2 must be >= min_area_m2")
+        if max_aspect is not None and max_aspect < 1:
+            raise ValueError(f"{key}.{raw_name}.max_aspect_ratio must be at least 1 or null")
+        rules[room_type] = rule
+    return rules
+
+
 def normalize_label_strategy(value: Any, key: str) -> str:
     text = str(value).strip()
     if text == "panel":
@@ -771,6 +813,9 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     procedural_precheck["min_room_area_m2"] = float(procedural_precheck["min_room_area_m2"])
     procedural_precheck["max_room_aspect_ratio"] = (
         None if procedural_precheck["max_room_aspect_ratio"] is None else float(procedural_precheck["max_room_aspect_ratio"])
+    )
+    procedural_precheck["room_type_geometry"] = normalize_room_type_geometry_rules(
+        procedural_precheck.get("room_type_geometry")
     )
 
     normalized["validation"]["sionna"] = as_bool(normalized["validation"]["sionna"], "validation.sionna")
@@ -1267,6 +1312,7 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         procedural_precheck_require_connected_rooms=procedural["precheck"]["require_connected_rooms"],
         procedural_precheck_min_room_area_m2=procedural["precheck"]["min_room_area_m2"],
         procedural_precheck_max_room_aspect_ratio=procedural["precheck"]["max_room_aspect_ratio"],
+        procedural_precheck_room_type_geometry=procedural["precheck"]["room_type_geometry"],
         validate_sionna=validation["sionna"],
         quality_enabled=quality["enabled"],
         quality_fail_on_error=quality["fail_on_error"],

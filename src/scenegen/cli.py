@@ -180,6 +180,16 @@ def evaluate_procedural_precheck(
                 "rooms": room_geometry["elongated_rooms"],
             }
         )
+    room_type_geometry = evaluate_procedural_room_type_geometry(
+        procedural,
+        getattr(args, "procedural_precheck_room_type_geometry", None),
+    )
+    if room_type_geometry["too_small"]:
+        errors.append({"code": "room_type_area_too_small", "rooms": room_type_geometry["too_small"]})
+    if room_type_geometry["too_large"]:
+        errors.append({"code": "room_type_area_too_large", "rooms": room_type_geometry["too_large"]})
+    if room_type_geometry["too_elongated"]:
+        errors.append({"code": "room_type_aspect_ratio_too_high", "rooms": room_type_geometry["too_elongated"]})
 
     if desired_total > 0:
         placement_ratio = placement_count / desired_total
@@ -212,6 +222,7 @@ def evaluate_procedural_precheck(
     result["skipped_object_count"] = skipped_count
     result["room_connectivity"] = connectivity
     result["room_geometry"] = room_geometry
+    result["room_type_geometry"] = room_type_geometry
     return result
 
 
@@ -274,6 +285,62 @@ def evaluate_procedural_room_geometry(
         "aspect_ratio_range": [round(min(aspect_values), 6), round(max(aspect_values), 6)] if aspect_values else None,
         "small_rooms": small_rooms,
         "elongated_rooms": elongated_rooms,
+    }
+
+
+def evaluate_procedural_room_type_geometry(
+    procedural: dict[str, object],
+    rules: dict[str, dict[str, object]] | None,
+) -> dict[str, object]:
+    room_rules = rules or {}
+    rooms_payload = procedural.get("rooms") if isinstance(procedural.get("rooms"), list) else []
+    too_small: list[dict[str, object]] = []
+    too_large: list[dict[str, object]] = []
+    too_elongated: list[dict[str, object]] = []
+    measured_rooms = 0
+    checked_rooms = 0
+    for index, room in enumerate(rooms_payload):
+        if not isinstance(room, dict):
+            continue
+        area, aspect = room_area_aspect_from_report(room)
+        if area is None or aspect is None:
+            continue
+        measured_rooms += 1
+        room_id = str(room.get("room_id") or f"room_{index}")
+        room_type = str(room.get("room_type") or "Unknown")
+        rule = room_rules.get(room_type) or room_rules.get("default")
+        if not isinstance(rule, dict):
+            continue
+        checked_rooms += 1
+        min_area = rule.get("min_area_m2")
+        max_area = rule.get("max_area_m2")
+        max_aspect = rule.get("max_aspect_ratio")
+        if isinstance(min_area, int | float) and area < float(min_area):
+            too_small.append(
+                {"room_id": room_id, "room_type": room_type, "area_m2": round(area, 6), "threshold": float(min_area)}
+            )
+        if isinstance(max_area, int | float) and area > float(max_area):
+            too_large.append(
+                {"room_id": room_id, "room_type": room_type, "area_m2": round(area, 6), "threshold": float(max_area)}
+            )
+        if isinstance(max_aspect, int | float) and aspect > float(max_aspect):
+            too_elongated.append(
+                {
+                    "room_id": room_id,
+                    "room_type": room_type,
+                    "aspect_ratio": round(aspect, 6),
+                    "threshold": float(max_aspect),
+                }
+            )
+    return {
+        "ok": not too_small and not too_large and not too_elongated,
+        "enabled": bool(room_rules),
+        "room_count": len(rooms_payload),
+        "measured_room_count": measured_rooms,
+        "checked_room_count": checked_rooms,
+        "too_small": too_small,
+        "too_large": too_large,
+        "too_elongated": too_elongated,
     }
 
 
@@ -386,6 +453,7 @@ def procedural_precheck_settings(args: argparse.Namespace) -> dict[str, object]:
         "require_connected_rooms": bool(args.procedural_precheck_require_connected_rooms),
         "min_room_area_m2": float(args.procedural_precheck_min_room_area_m2),
         "max_room_aspect_ratio": args.procedural_precheck_max_room_aspect_ratio,
+        "room_type_geometry": getattr(args, "procedural_precheck_room_type_geometry", {}),
     }
 
 
