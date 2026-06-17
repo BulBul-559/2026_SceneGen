@@ -56,6 +56,7 @@ from scenegen.procedural import (
     desired_classes_from_profile,
     entries_matching_profile_filter,
     make_room_layout,
+    object_count_config_for_room,
     object_count_for_room_area,
     placement_policy_for_class,
     procedural_asset_approx_bbox,
@@ -406,6 +407,33 @@ def test_procedural_object_count_supports_range_and_area_adaptive() -> None:
         {"strategy": "area_adaptive", "min": 2, "max": 9, "area_per_object_m2": 4.0, "jitter": [0, 0]},
         random.Random(1),
     ) == 9
+
+
+def test_procedural_object_count_supports_room_type_overrides() -> None:
+    config = {
+        "strategy": "area_adaptive",
+        "range": [3, 7],
+        "min": 2,
+        "max": 9,
+        "area_per_object_m2": 4.0,
+        "jitter": [0, 0],
+        "by_room_type": {
+            "Bathroom": {
+                "strategy": "area_adaptive",
+                "range": [3, 7],
+                "min": 1,
+                "max": 3,
+                "area_per_object_m2": 8.0,
+                "jitter": [0, 0],
+            }
+        },
+    }
+
+    bathroom_config = object_count_config_for_room("PrimaryBathroom", config)
+    bedroom_config = object_count_config_for_room("Bedroom", config)
+
+    assert object_count_for_room_area(24.0, bathroom_config, random.Random(1)) == 3
+    assert object_count_for_room_area(24.0, bedroom_config, random.Random(1)) == 6
 
 
 def test_procedural_placement_policy_samples_center_and_wall_zones() -> None:
@@ -930,6 +958,34 @@ def test_procedural_room_profiles_accept_custom_names_and_reject_bad_classes(tmp
     )
     with pytest.raises(ValueError, match="procedural.placement_groups.room_types.DiningRoom"):
         load_effective_config(bad_group_path, root, parse_args([]))
+
+
+def test_procedural_object_count_accepts_room_type_overrides(tmp_path: Path) -> None:
+    root = find_project_root()
+    config_path = tmp_path / "procedural_object_count_by_room_type.yaml"
+    config_path.write_text(
+        "procedural:\n"
+        "  object_count:\n"
+        "    strategy: area_adaptive\n"
+        "    min: 2\n"
+        "    max: 8\n"
+        "    area_per_object_m2: 4.0\n"
+        "    jitter: [0, 0]\n"
+        "    by_room_type:\n"
+        "      CustomStudio:\n"
+        "        max: 4\n"
+        "        area_per_object_m2: 8.0\n",
+        encoding="utf-8",
+    )
+
+    effective, _overrides = load_effective_config(config_path, root, parse_args([]))
+    studio = effective["procedural"]["object_count"]["by_room_type"]["CustomStudio"]
+
+    assert studio["strategy"] == "area_adaptive"
+    assert studio["min"] == 2
+    assert studio["max"] == 4
+    assert studio["area_per_object_m2"] == 8.0
+    assert studio["jitter"] == [0, 0]
 
 
 def test_procedural_room_type_weights_reject_all_zero_for_configured_rooms(tmp_path: Path) -> None:

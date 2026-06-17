@@ -146,8 +146,11 @@ uv run scenegen \
 | `max` | integer, `>=min` | `9` | `area_adaptive` 的最大数量。 |
 | `area_per_object_m2` | float, `>0` | `4.0` | `area_adaptive` 中平均每多少平方米放一个家具。 |
 | `jitter` | `[min, max]` | `[-1, 1]` | `area_adaptive` 估算后的整数随机扰动。 |
+| `by_room_type` | mapping / `null` | 见模板 | 按 room type 覆盖家具数量策略。每个房型可以只写需要覆盖的字段，其余继承全局 `object_count`。 |
 
 `area_adaptive` 计算方式为 `round(room_area / area_per_object_m2) + random(jitter)`，再裁剪到 `[min, max]`。因此小房间会自然少放，大房间会自然多放，同时保留少量随机性。
+
+`by_room_type` 会先按 room type 精确匹配，再做大小写和子串匹配。默认让 `LivingRoom` / `DiningRoom` 更丰富，`Kitchen` / `Bathroom` / `Hallway` 更克制，避免所有房间共享同一家具密度。
 
 ### procedural.windows
 

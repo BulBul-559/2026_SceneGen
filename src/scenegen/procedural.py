@@ -969,6 +969,21 @@ def object_count_for_room_area(room_area: float, object_count_config: dict[str, 
     raise ValueError(f"Unsupported procedural object count strategy: {strategy}")
 
 
+def object_count_config_for_room(room_type: str, object_count_config: dict[str, Any]) -> dict[str, Any]:
+    by_room_type = object_count_config.get("by_room_type") if isinstance(object_count_config.get("by_room_type"), dict) else {}
+    if room_type in by_room_type:
+        return by_room_type[room_type]
+    lowered = room_type.lower()
+    for name, config in by_room_type.items():
+        if str(name).lower() == lowered:
+            return config
+    for name, config in by_room_type.items():
+        name_lowered = str(name).lower()
+        if name_lowered in lowered or lowered in name_lowered:
+            return config
+    return {key: value for key, value in object_count_config.items() if key != "by_room_type"}
+
+
 def semantic_matches_filter(semantic: dict[str, Any], class_filter: dict[str, list[str]]) -> bool:
     for field_name, terms in class_filter.items():
         value = str(semantic.get(field_name, "")).lower()
@@ -1488,7 +1503,8 @@ class ProceduralFront3DGenerator:
         return profile_name, list(profile["classes"]), dict(profile.get("filters") or {})
 
     def desired_classes_for_room(self, room: ProceduralRoom, rng: random.Random) -> list[str]:
-        target_count = object_count_for_room_area(room.area, self.args.procedural_object_count, rng)
+        object_count_config = object_count_config_for_room(room.room_type, self.args.procedural_object_count)
+        target_count = object_count_for_room_area(room.area, object_count_config, rng)
         return desired_classes_from_profile(
             room.room_type,
             self.args.procedural_room_profiles,

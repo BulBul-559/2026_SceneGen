@@ -111,6 +111,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "max": 9,
             "area_per_object_m2": 4.0,
             "jitter": [-1, 1],
+            "by_room_type": {
+                "LivingRoom": {"min": 4, "max": 10, "area_per_object_m2": 4.5},
+                "Bedroom": {"min": 3, "max": 7, "area_per_object_m2": 5.0},
+                "DiningRoom": {"min": 4, "max": 8, "area_per_object_m2": 4.0},
+                "StudyRoom": {"min": 2, "max": 6, "area_per_object_m2": 5.5},
+                "Kitchen": {"min": 2, "max": 5, "area_per_object_m2": 7.0},
+                "Bathroom": {"min": 1, "max": 4, "area_per_object_m2": 8.0},
+                "Hallway": {"min": 1, "max": 3, "area_per_object_m2": 10.0},
+            },
         },
         "room_profiles": {
             "default": {"classes": ["seat", "table", "floor", "seat", "table"], "filters": {}},
@@ -364,6 +373,17 @@ def unknown_config_fields(config: dict[str, Any], schema: dict[str, Any] | None 
                         if child_key not in profile_schema:
                             unknown.append(".".join((*path, str(profile_name), str(child_key))))
             continue
+        if path == ("procedural", "object_count", "by_room_type"):
+            if isinstance(value, dict) and isinstance(schema_value, dict):
+                object_count_schema = {
+                    key: child for key, child in DEFAULT_CONFIG["procedural"]["object_count"].items() if key != "by_room_type"
+                }
+                for room_type, room_value in value.items():
+                    if isinstance(room_value, dict):
+                        unknown.extend(unknown_config_fields(room_value, object_count_schema, (*path, str(room_type))))
+                    else:
+                        unknown.append(".".join((*path, str(room_type))))
+            continue
         if isinstance(value, dict) and isinstance(schema_value, dict):
             unknown.extend(unknown_config_fields(value, schema_value, path))
     return unknown
@@ -545,6 +565,63 @@ def normalize_room_profiles(value: Any, key: str = "procedural.room_profiles") -
     if "default" not in profiles:
         raise ValueError(f"{key}.default is required")
     return profiles
+
+
+def normalize_object_count_spec(
+    value: Any,
+    key: str = "procedural.object_count",
+    *,
+    base: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{key} must be a mapping")
+    spec = deepcopy(base or {})
+    allowed = {"strategy", "range", "min", "max", "area_per_object_m2", "jitter"}
+    for raw_key, raw_value in value.items():
+        if raw_key == "by_room_type":
+            continue
+        if raw_key not in allowed:
+            raise ValueError(f"{key}.{raw_key} is not supported")
+        spec[str(raw_key)] = raw_value
+    spec["strategy"] = str(spec["strategy"])
+    spec["range"] = parse_int_pair(spec["range"], f"{key}.range")
+    spec["min"] = int(spec["min"])
+    spec["max"] = int(spec["max"])
+    spec["area_per_object_m2"] = float(spec["area_per_object_m2"])
+    spec["jitter"] = parse_int_pair(spec["jitter"], f"{key}.jitter")
+    return spec
+
+
+def normalize_object_count_config(value: Any, key: str = "procedural.object_count") -> dict[str, Any]:
+    base = normalize_object_count_spec(value, key)
+    raw_by_room_type = value.get("by_room_type", {}) if isinstance(value, dict) else {}
+    if raw_by_room_type is None:
+        raw_by_room_type = {}
+    if not isinstance(raw_by_room_type, dict):
+        raise ValueError(f"{key}.by_room_type must be a mapping or null")
+    by_room_type: dict[str, dict[str, Any]] = {}
+    for raw_room_type, raw_spec in raw_by_room_type.items():
+        room_type = str(raw_room_type).strip()
+        if not room_type:
+            raise ValueError(f"{key}.by_room_type room type names must not be empty")
+        by_room_type[room_type] = normalize_object_count_spec(raw_spec, f"{key}.by_room_type.{room_type}", base=base)
+    base["by_room_type"] = by_room_type
+    return base
+
+
+def validate_object_count_spec(spec: dict[str, Any], key: str) -> None:
+    if spec["strategy"] not in {"range", "area_adaptive"}:
+        raise ValueError(f"{key}.strategy must be 'range' or 'area_adaptive'")
+    if spec["range"][0] < 0 or spec["range"][1] < spec["range"][0]:
+        raise ValueError(f"{key}.range must be [min, max] with max >= min >= 0")
+    if spec["min"] < 0:
+        raise ValueError(f"{key}.min must be non-negative")
+    if spec["max"] < spec["min"]:
+        raise ValueError(f"{key}.max must be greater than or equal to {key}.min")
+    if spec["area_per_object_m2"] <= 0:
+        raise ValueError(f"{key}.area_per_object_m2 must be positive")
+    if spec["jitter"][1] < spec["jitter"][0]:
+        raise ValueError(f"{key}.jitter must be [min, max] with max >= min")
 
 
 def normalize_room_type_weights(value: Any, key: str = "procedural.room_type_weights") -> dict[str, float]:
@@ -827,13 +904,7 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     windows["height_m"] = parse_float_pair(windows["height_m"], "procedural.windows.height_m")
     windows["sill_height_m"] = parse_float_pair(windows["sill_height_m"], "procedural.windows.sill_height_m")
     windows["wall_margin_m"] = float(windows["wall_margin_m"])
-    object_count = procedural["object_count"]
-    object_count["strategy"] = str(object_count["strategy"])
-    object_count["range"] = parse_int_pair(object_count["range"], "procedural.object_count.range")
-    object_count["min"] = int(object_count["min"])
-    object_count["max"] = int(object_count["max"])
-    object_count["area_per_object_m2"] = float(object_count["area_per_object_m2"])
-    object_count["jitter"] = parse_int_pair(object_count["jitter"], "procedural.object_count.jitter")
+    procedural["object_count"] = normalize_object_count_config(procedural["object_count"])
     procedural["room_profiles"] = normalize_room_profiles(procedural["room_profiles"])
     procedural["wall_margin_m"] = float(procedural["wall_margin_m"])
     procedural["object_margin_m"] = float(procedural["object_margin_m"])
@@ -1041,18 +1112,9 @@ def validate_effective_config(config: dict[str, Any]) -> None:
     if windows["wall_margin_m"] < 0:
         raise ValueError("procedural.windows.wall_margin_m must be non-negative")
     object_count = procedural["object_count"]
-    if object_count["strategy"] not in {"range", "area_adaptive"}:
-        raise ValueError("procedural.object_count.strategy must be 'range' or 'area_adaptive'")
-    if object_count["range"][0] < 0 or object_count["range"][1] < object_count["range"][0]:
-        raise ValueError("procedural.object_count.range must be [min, max] with max >= min >= 0")
-    if object_count["min"] < 0:
-        raise ValueError("procedural.object_count.min must be non-negative")
-    if object_count["max"] < object_count["min"]:
-        raise ValueError("procedural.object_count.max must be greater than or equal to procedural.object_count.min")
-    if object_count["area_per_object_m2"] <= 0:
-        raise ValueError("procedural.object_count.area_per_object_m2 must be positive")
-    if object_count["jitter"][1] < object_count["jitter"][0]:
-        raise ValueError("procedural.object_count.jitter must be [min, max] with max >= min")
+    validate_object_count_spec(object_count, "procedural.object_count")
+    for room_type, room_spec in object_count["by_room_type"].items():
+        validate_object_count_spec(room_spec, f"procedural.object_count.by_room_type.{room_type}")
     for profile_name, profile in procedural["room_profiles"].items():
         if not profile["classes"]:
             raise ValueError(f"procedural.room_profiles.{profile_name}.classes must not be empty")
