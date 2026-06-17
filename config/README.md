@@ -243,6 +243,8 @@ uv run scenegen \
 
 `room_type_assignment: geometry_fit` 是默认策略。它在 `area_priority` 的基础上复用 `procedural.precheck.room_type_geometry` 的 `min_area_m2`、`max_area_m2` 和 `max_aspect_ratio` 规则，优先把客厅等大房型放到满足最小面积的房间，把卫浴、厨房、走廊等带最大面积约束的类型放到更合适的房间，从而减少生成后才被 precheck 拒绝的样本。
 
+`corridor_spine` 会额外插入 `Hallway` 走廊段，并把其他房间挂到走廊两侧。因此启用 `corridor_spine`，或在 `mixed` 中给它正权重时，`room_types` 必须包含 `Hallway`，`room_count` 上限必须能容纳必选非走廊房间和所需走廊段，`room_type_max_counts.Hallway` 也不能小于所需走廊段数量；否则配置会在启动阶段直接报错。
+
 `room_type_max_counts` 会在必选房间之后继续约束剩余 room type 抽样，用于避免单个场景里出现过多厨房、餐厅或卫浴。必选数量不能超过对应类型上限；如果所有启用的 `room_types` 都设置了有限上限，上限总容量必须覆盖 `room_count` 的最大值。额外写入但未启用的类型会被忽略，方便通过 YAML 局部覆盖缩小 `room_types`。
 
 `room_type_weights` 只影响剩余 room type 的生成分布，不改变 room profile 本身。权重只对同时出现在 `room_types` 中的类型生效；额外写入的类型会被忽略。所有已启用 `room_types` 的权重都为 `0` 时会报错，避免生成阶段没有可选 room type。

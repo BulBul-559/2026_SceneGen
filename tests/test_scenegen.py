@@ -1161,6 +1161,60 @@ def test_procedural_mixed_layout_config_validates_weights(tmp_path: Path) -> Non
         load_effective_config(bad_unknown, root, parse_args([]))
 
 
+def test_procedural_corridor_spine_config_requires_capacity(tmp_path: Path) -> None:
+    root = find_project_root()
+    missing_hallway = tmp_path / "corridor_missing_hallway.yaml"
+    missing_hallway.write_text(
+        "procedural:\n"
+        "  layout: corridor_spine\n"
+        "  room_types: [LivingRoom, Bedroom, Kitchen]\n"
+        "  room_count: [4, 5]\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="must include 'Hallway'"):
+        load_effective_config(missing_hallway, root, parse_args([]))
+
+    hall_limit = tmp_path / "corridor_hall_limit.yaml"
+    hall_limit.write_text(
+        "procedural:\n"
+        "  layout: corridor_spine\n"
+        "  room_count: [5, 5]\n"
+        "  room_type_max_counts:\n"
+        "    LivingRoom: 1\n"
+        "    Bedroom: null\n"
+        "    Kitchen: 1\n"
+        "    Hallway: 1\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="room_type_max_counts.Hallway"):
+        load_effective_config(hall_limit, root, parse_args([]))
+
+    room_limit = tmp_path / "corridor_room_limit.yaml"
+    room_limit.write_text(
+        "procedural:\n"
+        "  layout: corridor_spine\n"
+        "  room_count: [4, 4]\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="room_count max"):
+        load_effective_config(room_limit, root, parse_args([]))
+
+    mixed_without_corridor = tmp_path / "mixed_without_corridor.yaml"
+    mixed_without_corridor.write_text(
+        "procedural:\n"
+        "  layout: mixed\n"
+        "  room_count: [3, 3]\n"
+        "  layout_weights:\n"
+        "    split_tree: 1\n"
+        "    rect_union: 0\n"
+        "    corridor_spine: 0\n"
+        "    grid: 0\n",
+        encoding="utf-8",
+    )
+    effective, _overrides = load_effective_config(mixed_without_corridor, root, parse_args([]))
+    assert effective["procedural"]["layout"] == "mixed"
+
+
 def test_procedural_room_profiles_accept_custom_names_and_reject_bad_classes(tmp_path: Path) -> None:
     root = find_project_root()
     config_path = tmp_path / "procedural_profiles.yaml"

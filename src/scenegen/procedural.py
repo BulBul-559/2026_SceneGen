@@ -1072,9 +1072,10 @@ def make_corridor_spine_room_layout(
     max_room_count = int(room_count_range[1])
     hallway_limit = (room_type_max_counts or {}).get(hall_type)
     hallway_capacity = max_room_count if hallway_limit is None else max(1, int(hallway_limit))
-    hall_count = min(max(2 if max_room_count >= required_side_count + 2 else 1, required_hall_count, 1), hallway_capacity)
-    if required_side_count + hall_count > max_room_count and hall_count > 1:
-        hall_count = 1
+    hall_count = min(
+        max(math.ceil(required_side_count / 2.0), required_hall_count, 1),
+        hallway_capacity,
+    )
     room_count = max(rng.randint(room_count_range[0], room_count_range[1]), required_side_count + hall_count)
     room_count = min(room_count, hall_count * 3)
     side_count = max(0, room_count - hall_count)

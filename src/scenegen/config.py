@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -697,6 +698,15 @@ def validate_object_count_spec(spec: dict[str, Any], key: str) -> None:
         raise ValueError(f"{key}.jitter must be [min, max] with max >= min")
 
 
+def corridor_spine_min_counts(required_room_types: dict[str, int]) -> tuple[int, int]:
+    required_side_count = sum(
+        max(0, int(count)) for room_type, count in required_room_types.items() if room_type != "Hallway"
+    )
+    required_hallway_count = max(0, int(required_room_types.get("Hallway", 0)))
+    hallway_count = max(1, required_hallway_count, math.ceil(required_side_count / 2.0))
+    return hallway_count, required_side_count + hallway_count
+
+
 def normalize_room_type_weights(value: Any, key: str = "procedural.room_type_weights") -> dict[str, float]:
     if value is None:
         return {}
@@ -1223,6 +1233,22 @@ def validate_effective_config(config: dict[str, Any]) -> None:
     required_total = sum(int(count) for count in procedural["required_room_types"].values())
     if required_total > int(procedural["room_count"][1]):
         raise ValueError("procedural.required_room_types count must not exceed procedural.room_count max")
+    corridor_spine_enabled = procedural["layout"] == "corridor_spine" or (
+        procedural["layout"] == "mixed" and float(procedural["layout_weights"].get("corridor_spine", 0.0)) > 0.0
+    )
+    if corridor_spine_enabled:
+        if "Hallway" not in procedural["room_types"]:
+            raise ValueError("procedural.room_types must include 'Hallway' when corridor_spine layout can be selected")
+        min_hallways, min_corridor_rooms = corridor_spine_min_counts(procedural["required_room_types"])
+        hallway_max = procedural["room_type_max_counts"].get("Hallway")
+        if hallway_max is not None and int(hallway_max) < min_hallways:
+            raise ValueError(
+                "procedural.room_type_max_counts.Hallway is too small for corridor_spine required room types"
+            )
+        if int(procedural["room_count"][1]) < min_corridor_rooms:
+            raise ValueError(
+                "procedural.room_count max is too small for corridor_spine required room types and hallway spine"
+            )
     if procedural["room_type_weights"] and not any(
         float(procedural["room_type_weights"].get(room_type, 0.0)) > 0.0 for room_type in procedural["room_types"]
     ):
