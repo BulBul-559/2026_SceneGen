@@ -2,7 +2,7 @@
 
 SceneGen 是一个面向 Linux 环境的轻量级室内场景生成项目。它基于空场景和归一化资产，随机生成带家具、桌椅、小物件的 3D 场景，并同步导出 Sionna/Mitsuba 可加载的场景文件和平面图。
 
-当前项目版本：`3.25.0`。
+当前项目版本：`3.26.0`。
 
 当前主工作流包括 Bistro 场景生成、3D-FRONT 已组合场景合成，以及实验性的自动场景生成：Bistro 以 `data/scene/scene.obj` 作为空场景，以 `data/catalogs/bistro.v1.json` 管理资产契约；3D-FRONT 以第一阶段整理出的 `data/3D-Front/scenegen_manifest.json` 为索引，合并建筑结构和已有家具实例；`procedural_front3d` 会自动采样多房间户型，并从 3D-FUTURE/3D-FRONT 资产池中摆放家具。`data/assets/manifest.json` 仍保留为兼容位置，但内容已经与 catalog 使用同一份清洗后的契约。
 
@@ -232,7 +232,7 @@ uv run scenegen-batch \
 
 `procedural_front3d` 是自动场景生成的第一版 baseline，目标是提供接近无限的类 Front3D 样本。它当前按阶段执行：
 
-1. 按 `procedural.layout` 采样多房间户型：默认 `split_tree` 会从完整 apartment footprint 递归切分房间，`grid` 可用于规整行列对照，`rect_union` 会由多个相邻房间矩形拼出 L/T/凹口式不规则外轮廓，`corridor_spine` 会生成走廊 spine + 两侧房间的公寓式拓扑，`mixed` 会按 `procedural.layout_weights` 在这些 layout 中加权采样；room 类型由 `procedural.room_types`、`procedural.required_room_types`、`procedural.room_type_weights`、`procedural.room_type_max_counts` 和 `procedural.room_type_assignment` 控制，默认保证至少有客厅、卧室和厨房，并限制厨房、餐厅、卫浴等类型的最大出现次数，再通过 `geometry_fit` 复用 room type 几何预检规则匹配更合适的房间；随后生成 floor、ceiling、wall、door 和外墙 window mesh。外墙按 room union 的真实边界生成，因此 `rect_union` 的凹口不会被整体 bbox 外墙补回矩形。
+1. 按 `procedural.layout` 采样多房间户型：默认 `split_tree` 会从完整 apartment footprint 递归切分房间，`grid` 可用于规整行列对照，`rect_union` 会由多个相邻房间矩形拼出 L/T/凹口式不规则外轮廓，`room_graph` 会先生成树状房间邻接关系再把新房间挂到已有房间边上，`corridor_spine` 会生成走廊 spine + 两侧房间的公寓式拓扑，`mixed` 会按 `procedural.layout_weights` 在这些 layout 中加权采样；room 类型由 `procedural.room_types`、`procedural.required_room_types`、`procedural.room_type_weights`、`procedural.room_type_max_counts` 和 `procedural.room_type_assignment` 控制，默认保证至少有客厅、卧室和厨房，并限制厨房、餐厅、卫浴等类型的最大出现次数，再通过 `geometry_fit` 复用 room type 几何预检规则匹配更合适的房间；随后生成 floor、ceiling、wall、door 和外墙 window mesh。外墙按 room union 的真实边界生成，因此 `rect_union` / `room_graph` 的凹口不会被整体 bbox 外墙补回矩形。
 2. 写出 Front3D-like `procedural_source/scene.json` 与 `procedural_source/architecture.json`，同时记录 room adjacency 和门洞 bbox，供 label、class mask、floorplan、路径规划和 debug 复用。
 3. 按 `procedural.object_count` 为每个 room 计算家具数量，小房间少放、大房间多放；`object_count.by_room_type` 可以给客厅、卧室、厨房、卫浴等房型设置不同家具密度。
 4. 从 `data/3D-Front/scenegen_manifest.json` 的 3D-FUTURE 物体池中按 `procedural.room_profiles` 配置的房间家具类别序列和 semantic filter 筛选家具；默认 room type 覆盖客厅、卧室、餐厅、书房、厨房、卫浴和走廊/玄关，并通过 `procedural.asset_reuse` 控制同一模型在 room/scene 内的重复使用。

@@ -68,7 +68,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "procedural": {
         "layout": "split_tree",
-        "layout_weights": {"split_tree": 1.0, "rect_union": 1.0, "corridor_spine": 0.8, "grid": 0.2},
+        "layout_weights": {
+            "split_tree": 1.0,
+            "rect_union": 1.0,
+            "room_graph": 1.0,
+            "corridor_spine": 0.8,
+            "grid": 0.2,
+        },
         "room_count": [3, 6],
         "room_width_m": [3.2, 5.8],
         "room_length_m": [3.2, 6.4],
@@ -1191,9 +1197,11 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("placement.max_attempts must be at least 1")
 
     procedural = config["procedural"]
-    supported_layouts = {"grid", "split_tree", "rect_union", "corridor_spine"}
+    supported_layouts = {"grid", "split_tree", "rect_union", "room_graph", "corridor_spine"}
     if procedural["layout"] not in {*supported_layouts, "mixed"}:
-        raise ValueError("procedural.layout must be 'grid', 'split_tree', 'rect_union', 'corridor_spine', or 'mixed'")
+        raise ValueError(
+            "procedural.layout must be 'grid', 'split_tree', 'rect_union', 'room_graph', 'corridor_spine', or 'mixed'"
+        )
     unknown_layout_weights = sorted(set(procedural["layout_weights"]) - supported_layouts)
     if unknown_layout_weights:
         raise ValueError(f"procedural.layout_weights contains unsupported layouts: {unknown_layout_weights}")

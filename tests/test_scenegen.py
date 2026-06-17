@@ -342,6 +342,54 @@ def test_procedural_rect_union_layout_creates_irregular_connected_footprint() ->
     assert visited == set(graph)
 
 
+def test_procedural_room_graph_layout_grows_connected_irregular_footprint() -> None:
+    rooms = make_room_layout(
+        random.Random(2033),
+        "room_graph",
+        (7, 7),
+        (3.0, 5.0),
+        (3.0, 5.0),
+        (2.8, 2.8),
+        ("LivingRoom", "Bedroom", "Kitchen", "StudyRoom", "Bathroom"),
+        required_room_types={"LivingRoom": 1, "Bedroom": 1, "Kitchen": 1},
+        room_type_assignment="geometry_fit",
+        room_type_area_priority=("LivingRoom", "Bedroom", "Kitchen", "StudyRoom", "Bathroom"),
+        room_type_geometry_rules=DEFAULT_CONFIG["procedural"]["precheck"]["room_type_geometry"],
+    )
+    assert len(rooms) == 7
+    assert {"LivingRoom", "Bedroom", "Kitchen"}.issubset({room.room_type for room in rooms})
+    assert min(room.x0 for room in rooms) == pytest.approx(0.0)
+    assert min(room.y0 for room in rooms) == pytest.approx(0.0)
+    assert all(room.width >= 3.0 for room in rooms)
+    assert all(room.length >= 3.0 for room in rooms)
+    for left_index, left_room in enumerate(rooms):
+        for right_room in rooms[left_index + 1 :]:
+            x_overlap = min(left_room.x1, right_room.x1) - max(left_room.x0, right_room.x0)
+            y_overlap = min(left_room.y1, right_room.y1) - max(left_room.y0, right_room.y0)
+            assert x_overlap <= 1e-6 or y_overlap <= 1e-6
+
+    total_area = sum(room.area for room in rooms)
+    bbox_area = (max(room.x1 for room in rooms) - min(room.x0 for room in rooms)) * (
+        max(room.y1 for room in rooms) - min(room.y0 for room in rooms)
+    )
+    assert total_area < bbox_area
+
+    adjacencies = room_adjacencies_for_rooms(rooms, wall_thickness=0.16, door_width=1.0)
+    graph = {room.room_id: set() for room in rooms}
+    for adjacency in adjacencies:
+        left, right = (str(value) for value in adjacency["rooms"])
+        graph[left].add(right)
+        graph[right].add(left)
+    visited = {rooms[0].room_id}
+    frontier = [rooms[0].room_id]
+    while frontier:
+        room_id = frontier.pop()
+        for neighbor in graph[room_id] - visited:
+            visited.add(neighbor)
+            frontier.append(neighbor)
+    assert visited == set(graph)
+
+
 def test_procedural_mixed_layout_uses_configured_weights() -> None:
     rng = random.Random(12)
 
@@ -350,14 +398,26 @@ def test_procedural_mixed_layout_uses_configured_weights() -> None:
     assert (
         choose_procedural_layout(
             "mixed",
-            {"split_tree": 0.0, "rect_union": 0.0, "corridor_spine": 1.0, "grid": 0.0},
+            {"split_tree": 0.0, "rect_union": 0.0, "room_graph": 0.0, "corridor_spine": 1.0, "grid": 0.0},
             rng,
         )
         == "corridor_spine"
     )
+    assert (
+        choose_procedural_layout(
+            "mixed",
+            {"split_tree": 0.0, "rect_union": 0.0, "room_graph": 1.0, "corridor_spine": 0.0, "grid": 0.0},
+            rng,
+        )
+        == "room_graph"
+    )
 
     with pytest.raises(ValueError, match="layout_weights"):
-        choose_procedural_layout("mixed", {"split_tree": 0.0, "rect_union": 0.0, "corridor_spine": 0.0, "grid": 0.0}, rng)
+        choose_procedural_layout(
+            "mixed",
+            {"split_tree": 0.0, "rect_union": 0.0, "room_graph": 0.0, "corridor_spine": 0.0, "grid": 0.0},
+            rng,
+        )
 
 
 def test_procedural_corridor_spine_layout_connects_rooms_through_hallway() -> None:
@@ -1121,6 +1181,7 @@ def test_procedural_mixed_layout_config_validates_weights(tmp_path: Path) -> Non
         "  layout_weights:\n"
         "    split_tree: 0\n"
         "    rect_union: 1\n"
+        "    room_graph: 0\n"
         "    corridor_spine: 0\n"
         "    grid: 0\n",
         encoding="utf-8",
@@ -1132,6 +1193,7 @@ def test_procedural_mixed_layout_config_validates_weights(tmp_path: Path) -> Non
     assert effective["procedural"]["layout_weights"] == {
         "split_tree": 0.0,
         "rect_union": 1.0,
+        "room_graph": 0.0,
         "corridor_spine": 0.0,
         "grid": 0.0,
     }
@@ -1143,6 +1205,7 @@ def test_procedural_mixed_layout_config_validates_weights(tmp_path: Path) -> Non
         "  layout_weights:\n"
         "    split_tree: 0\n"
         "    rect_union: 0\n"
+        "    room_graph: 0\n"
         "    corridor_spine: 0\n"
         "    grid: 0\n",
         encoding="utf-8",
@@ -1207,6 +1270,7 @@ def test_procedural_corridor_spine_config_requires_capacity(tmp_path: Path) -> N
         "  layout_weights:\n"
         "    split_tree: 1\n"
         "    rect_union: 0\n"
+        "    room_graph: 0\n"
         "    corridor_spine: 0\n"
         "    grid: 0\n",
         encoding="utf-8",

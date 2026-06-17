@@ -1051,6 +1051,188 @@ def make_rect_union_room_layout(
     ]
 
 
+def regions_to_procedural_rooms(
+    regions: list[LayoutRegion],
+    *,
+    rng: random.Random,
+    height_range: tuple[float, float],
+    room_types: tuple[str, ...],
+    required_room_types: dict[str, int] | None,
+    room_type_assignment: str,
+    room_type_area_priority: tuple[str, ...],
+    room_type_max_counts: dict[str, int | None] | None,
+    room_type_weights: dict[str, float] | None,
+    room_type_geometry_rules: dict[str, dict[str, float | None]] | None,
+) -> list[ProceduralRoom]:
+    if not regions:
+        return []
+    min_x = min(region.x0 for region in regions)
+    min_y = min(region.y0 for region in regions)
+    normalized_regions = [
+        LayoutRegion(
+            round(region.x0 - min_x, 6),
+            round(region.y0 - min_y, 6),
+            round(region.x1 - min_x, 6),
+            round(region.y1 - min_y, 6),
+        )
+        for region in regions
+    ]
+    normalized_regions = sorted(normalized_regions, key=lambda region: (region.y0, region.x0, region.y1, region.x1))
+    height = round(rng.uniform(*height_range), 3)
+    type_sequence = room_type_sequence(
+        len(normalized_regions),
+        room_types,
+        rng,
+        shuffle=True,
+        required_room_types=required_room_types,
+        room_type_max_counts=room_type_max_counts,
+        room_type_weights=room_type_weights,
+    )
+    type_sequence = assign_room_types_to_geometry(
+        type_sequence,
+        [(region.area, room_aspect_ratio(region.width, region.length)) for region in normalized_regions],
+        assignment=room_type_assignment,
+        area_priority=room_type_area_priority,
+        geometry_rules=room_type_geometry_rules,
+    )
+    return [
+        ProceduralRoom(
+            room_id=f"proc_room_{index:02d}",
+            room_type=type_sequence[index],
+            x0=round(region.x0, 6),
+            y0=round(region.y0, 6),
+            x1=round(region.x1, 6),
+            y1=round(region.y1, 6),
+            height=height,
+        )
+        for index, region in enumerate(normalized_regions)
+    ]
+
+
+def regions_overlap(left: LayoutRegion, right: LayoutRegion, *, epsilon: float = 1e-6) -> bool:
+    return (
+        min(left.x1, right.x1) - max(left.x0, right.x0) > epsilon
+        and min(left.y1, right.y1) - max(left.y0, right.y0) > epsilon
+    )
+
+
+def attach_room_region(
+    rng: random.Random,
+    parent: LayoutRegion,
+    *,
+    side: str,
+    width: float,
+    length: float,
+    min_shared_m: float,
+) -> LayoutRegion | None:
+    if side in {"east", "west"}:
+        overlap_axis = parent.length
+        new_axis = length
+        min_shared = min(min_shared_m, overlap_axis, new_axis)
+        if min_shared <= 0:
+            return None
+        low = parent.y0 - length + min_shared
+        high = parent.y1 - min_shared
+        if high < low:
+            return None
+        y0 = round(rng.uniform(low, high), 6)
+        if side == "east":
+            return LayoutRegion(parent.x1, y0, round(parent.x1 + width, 6), round(y0 + length, 6))
+        return LayoutRegion(round(parent.x0 - width, 6), y0, parent.x0, round(y0 + length, 6))
+
+    overlap_axis = parent.width
+    new_axis = width
+    min_shared = min(min_shared_m, overlap_axis, new_axis)
+    if min_shared <= 0:
+        return None
+    low = parent.x0 - width + min_shared
+    high = parent.x1 - min_shared
+    if high < low:
+        return None
+    x0 = round(rng.uniform(low, high), 6)
+    if side == "north":
+        return LayoutRegion(x0, parent.y1, round(x0 + width, 6), round(parent.y1 + length, 6))
+    if side == "south":
+        return LayoutRegion(x0, round(parent.y0 - length, 6), round(x0 + width, 6), parent.y0)
+    return None
+
+
+def make_room_graph_layout(
+    rng: random.Random,
+    room_count_range: tuple[int, int],
+    room_width_range: tuple[float, float],
+    room_length_range: tuple[float, float],
+    height_range: tuple[float, float],
+    room_types: tuple[str, ...],
+    required_room_types: dict[str, int] | None = None,
+    room_type_assignment: str = "sequence",
+    room_type_area_priority: tuple[str, ...] = (),
+    room_type_max_counts: dict[str, int | None] | None = None,
+    room_type_weights: dict[str, float] | None = None,
+    room_type_geometry_rules: dict[str, dict[str, float | None]] | None = None,
+) -> list[ProceduralRoom]:
+    required_total = sum(max(0, int(count)) for count in (required_room_types or {}).values())
+    room_count = max(rng.randint(room_count_range[0], room_count_range[1]), required_total)
+    regions = [
+        LayoutRegion(
+            0.0,
+            0.0,
+            round(rng.uniform(*room_width_range), 3),
+            round(rng.uniform(*room_length_range), 3),
+        )
+    ]
+    sides = ("east", "west", "north", "south")
+    min_shared_m = max(1.0, min(room_width_range[0], room_length_range[0]) * 0.25)
+    max_attempts = max(120, room_count * 80)
+    attempts = 0
+    while len(regions) < room_count and attempts < max_attempts:
+        attempts += 1
+        parent = rng.choice(regions)
+        side = rng.choice(sides)
+        candidate = attach_room_region(
+            rng,
+            parent,
+            side=side,
+            width=round(rng.uniform(*room_width_range), 3),
+            length=round(rng.uniform(*room_length_range), 3),
+            min_shared_m=min_shared_m,
+        )
+        if candidate is None:
+            continue
+        if any(regions_overlap(candidate, region) for region in regions):
+            continue
+        regions.append(candidate)
+
+    if len(regions) < room_count:
+        return make_rect_union_room_layout(
+            rng,
+            room_count_range,
+            room_width_range,
+            room_length_range,
+            height_range,
+            room_types,
+            required_room_types=required_room_types,
+            room_type_assignment=room_type_assignment,
+            room_type_area_priority=room_type_area_priority,
+            room_type_max_counts=room_type_max_counts,
+            room_type_weights=room_type_weights,
+            room_type_geometry_rules=room_type_geometry_rules,
+        )
+
+    return regions_to_procedural_rooms(
+        regions,
+        rng=rng,
+        height_range=height_range,
+        room_types=room_types,
+        required_room_types=required_room_types,
+        room_type_assignment=room_type_assignment,
+        room_type_area_priority=room_type_area_priority,
+        room_type_max_counts=room_type_max_counts,
+        room_type_weights=room_type_weights,
+        room_type_geometry_rules=room_type_geometry_rules,
+    )
+
+
 def make_corridor_spine_room_layout(
     rng: random.Random,
     room_count_range: tuple[int, int],
@@ -1211,6 +1393,21 @@ def make_room_layout(
             room_type_weights=room_type_weights,
             room_type_geometry_rules=room_type_geometry_rules,
         )
+    if layout == "room_graph":
+        return make_room_graph_layout(
+            rng,
+            room_count_range,
+            room_width_range,
+            room_length_range,
+            height_range,
+            room_types,
+            required_room_types=required_room_types,
+            room_type_assignment=room_type_assignment,
+            room_type_area_priority=room_type_area_priority,
+            room_type_max_counts=room_type_max_counts,
+            room_type_weights=room_type_weights,
+            room_type_geometry_rules=room_type_geometry_rules,
+        )
     if layout == "corridor_spine":
         return make_corridor_spine_room_layout(
             rng,
@@ -1236,7 +1433,7 @@ def choose_procedural_layout(
 ) -> str:
     if configured_layout != "mixed":
         return configured_layout
-    supported_layouts = ("grid", "split_tree", "rect_union", "corridor_spine")
+    supported_layouts = ("grid", "split_tree", "rect_union", "room_graph", "corridor_spine")
     weights = [max(0.0, float((layout_weights or {}).get(layout, 0.0))) for layout in supported_layouts]
     if not any(weight > 0.0 for weight in weights):
         raise ValueError("procedural.layout_weights must assign a positive weight for mixed layout")
