@@ -216,6 +216,7 @@ uv run scenegen \
 | `min_placements` | integer, `>=0` | `1` | 至少需要实际摆放出的家具数量。 |
 | `min_placement_ratio` | float, `0-1` | `0.5` | 实际摆放数量 / 目标家具数量的最低比例。 |
 | `min_room_placement_ratio` | float, `0-1` | `0.34` | 单个 room 的实际摆放数量 / 目标家具数量最低比例；用于避免整体达标但局部房间几乎为空。旧记录缺少 per-room stats 时该检查会跳过。 |
+| `min_class_placement_ratio` | mapping / `null` | `{}` | 按 furniture class 设置最低完成率，例如 `{seat: 0.6, table: 0.5}`；只检查本次目标中实际出现的 class。空映射或 `null` 表示不启用。 |
 | `max_skipped_ratio` | float, `0-1` | `0.8` | 跳过或摆放失败数量 / 目标家具数量的最高比例。 |
 | `min_unique_model_ratio` | float, `0-1` / `null` | `null` | 唯一 3D-FUTURE model 数 / 实际摆放数量的最低比例；用于过滤同一模型过度复用的样本。设为 `null` 不启用。 |
 | `max_duplicate_model_count` | integer, `>=0` / `null` | `null` | 允许的重复模型实例数量上限，计算方式为 `sum(max(count-1, 0))`。设为 `null` 不启用。 |
@@ -234,7 +235,7 @@ uv run scenegen \
 
 `room_type_geometry` 中的每个 room type 都可以只写部分字段，未写字段视为不检查。也可以写 `default` 作为兜底规则，或设为 `null` 关闭类型化几何检查。
 
-topology 和 asset diversity 阈值默认多为 `null`，不会改变模板分布。需要做数据集分桶或强约束时，可以按 `procedural_report.json` 中观察到的 `topology`、`unique_model_ratio`、`duplicate_model_count` 分布再反向设置这些阈值。
+topology、class placement 和 asset diversity 阈值默认多为空值，不会改变模板分布。需要做数据集分桶或强约束时，可以按 `procedural_report.json` 中观察到的 `topology`、`placed_class_counts_total`、`unique_model_ratio`、`duplicate_model_count` 分布再反向设置这些阈值。
 被 precheck 跳过的 attempts 明细保存在 run manifest 的 `procedural_precheck_skipped_scenes`；`procedural_report.json` 会额外按 layout、configured layout 和 error code 汇总这些 rejected attempts，方便批量生产后调整 `layout_weights` 和预检阈值。
 
 ### procedural.room_profiles

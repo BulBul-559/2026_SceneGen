@@ -146,6 +146,16 @@ def evaluate_procedural_precheck(
     placement_stats = procedural.get("placement_stats") if isinstance(procedural.get("placement_stats"), dict) else {}
     desired_counts = placement_stats.get("desired_object_counts") if isinstance(placement_stats.get("desired_object_counts"), dict) else {}
     placed_counts = placement_stats.get("placed_object_counts") if isinstance(placement_stats.get("placed_object_counts"), dict) else {}
+    desired_class_counts = (
+        placement_stats.get("desired_class_counts")
+        if isinstance(placement_stats.get("desired_class_counts"), dict)
+        else {}
+    )
+    placed_class_counts = (
+        placement_stats.get("placed_class_counts")
+        if isinstance(placement_stats.get("placed_class_counts"), dict)
+        else {}
+    )
     desired_total = sum(int(value) for value in desired_counts.values()) if desired_counts else 0
     skipped_count = int(record.get("skipped_object_count") or (procedural.get("skipped_object_count", 0) if procedural else 0))
     unique_model_count = int(placement_stats.get("unique_model_count", 0) or 0)
@@ -323,6 +333,33 @@ def evaluate_procedural_precheck(
                         "rooms": low_rooms,
                     }
                 )
+        class_ratio_thresholds = getattr(args, "procedural_precheck_min_class_placement_ratio", {}) or {}
+        if isinstance(class_ratio_thresholds, dict) and desired_class_counts:
+            low_classes: list[dict[str, object]] = []
+            for class_name, threshold_value in sorted(class_ratio_thresholds.items()):
+                desired_class_count = int(desired_class_counts.get(class_name, 0) or 0)
+                if desired_class_count <= 0:
+                    continue
+                placed_class_count = int(placed_class_counts.get(class_name, 0) or 0)
+                ratio = placed_class_count / desired_class_count
+                threshold = float(threshold_value)
+                if ratio < threshold:
+                    low_classes.append(
+                        {
+                            "class": class_name,
+                            "value": round(ratio, 6),
+                            "placement_count": placed_class_count,
+                            "desired_count": desired_class_count,
+                        }
+                    )
+            if low_classes:
+                errors.append(
+                    {
+                        "code": "class_placement_ratio_too_low",
+                        "thresholds": dict(sorted((str(key), float(value)) for key, value in class_ratio_thresholds.items())),
+                        "classes": low_classes,
+                    }
+                )
 
     result["ok"] = not errors
     result["errors"] = errors
@@ -330,6 +367,8 @@ def evaluate_procedural_precheck(
     result["placement_count"] = placement_count
     result["skipped_object_count"] = skipped_count
     result["placed_object_counts"] = dict(placed_counts) if placed_counts else {}
+    result["placed_class_counts"] = dict(placed_class_counts) if placed_class_counts else {}
+    result["desired_class_counts"] = dict(desired_class_counts) if desired_class_counts else {}
     result["asset_diversity"] = {
         "model_instance_count": model_instance_count,
         "unique_model_count": unique_model_count,
@@ -576,6 +615,7 @@ def procedural_precheck_settings(args: argparse.Namespace) -> dict[str, object]:
         "min_placements": int(args.procedural_precheck_min_placements),
         "min_placement_ratio": float(args.procedural_precheck_min_placement_ratio),
         "min_room_placement_ratio": float(args.procedural_precheck_min_room_placement_ratio),
+        "min_class_placement_ratio": dict(args.procedural_precheck_min_class_placement_ratio),
         "max_skipped_ratio": float(args.procedural_precheck_max_skipped_ratio),
         "min_unique_model_ratio": args.procedural_precheck_min_unique_model_ratio,
         "max_duplicate_model_count": args.procedural_precheck_max_duplicate_model_count,

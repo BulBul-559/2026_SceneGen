@@ -281,6 +281,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "min_placements": 1,
             "min_placement_ratio": 0.5,
             "min_room_placement_ratio": 0.34,
+            "min_class_placement_ratio": {},
             "max_skipped_ratio": 0.8,
             "min_unique_model_ratio": None,
             "max_duplicate_model_count": None,
@@ -478,6 +479,10 @@ def unknown_config_fields(config: dict[str, Any], schema: dict[str, Any] | None 
                         unknown.extend(unknown_config_fields(room_value, policy_schema, (*path, str(room_type))))
                     else:
                         unknown.append(".".join((*path, str(room_type))))
+            continue
+        if path == ("procedural", "precheck", "min_class_placement_ratio"):
+            if not isinstance(value, dict):
+                unknown.append(".".join(path))
             continue
         if isinstance(value, dict) and isinstance(schema_value, dict):
             unknown.extend(unknown_config_fields(value, schema_value, path))
@@ -1071,6 +1076,15 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     procedural_precheck["min_placements"] = int(procedural_precheck["min_placements"])
     procedural_precheck["min_placement_ratio"] = float(procedural_precheck["min_placement_ratio"])
     procedural_precheck["min_room_placement_ratio"] = float(procedural_precheck["min_room_placement_ratio"])
+    class_ratio_thresholds = procedural_precheck["min_class_placement_ratio"]
+    if class_ratio_thresholds is None:
+        procedural_precheck["min_class_placement_ratio"] = {}
+    elif isinstance(class_ratio_thresholds, dict):
+        procedural_precheck["min_class_placement_ratio"] = {
+            str(class_name): float(threshold) for class_name, threshold in class_ratio_thresholds.items()
+        }
+    else:
+        raise ValueError("procedural.precheck.min_class_placement_ratio must be a mapping or null")
     procedural_precheck["max_skipped_ratio"] = float(procedural_precheck["max_skipped_ratio"])
     procedural_precheck["min_unique_model_ratio"] = (
         None
@@ -1424,6 +1438,9 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("procedural.precheck.min_placement_ratio must be between 0 and 1")
     if not 0.0 <= procedural_precheck["min_room_placement_ratio"] <= 1.0:
         raise ValueError("procedural.precheck.min_room_placement_ratio must be between 0 and 1")
+    for class_name, threshold in procedural_precheck["min_class_placement_ratio"].items():
+        if not 0.0 <= float(threshold) <= 1.0:
+            raise ValueError(f"procedural.precheck.min_class_placement_ratio.{class_name} must be between 0 and 1")
     if not 0.0 <= procedural_precheck["max_skipped_ratio"] <= 1.0:
         raise ValueError("procedural.precheck.max_skipped_ratio must be between 0 and 1")
     if procedural_precheck["min_unique_model_ratio"] is not None and not 0.0 <= procedural_precheck["min_unique_model_ratio"] <= 1.0:
@@ -1706,6 +1723,7 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         procedural_precheck_min_placements=procedural["precheck"]["min_placements"],
         procedural_precheck_min_placement_ratio=procedural["precheck"]["min_placement_ratio"],
         procedural_precheck_min_room_placement_ratio=procedural["precheck"]["min_room_placement_ratio"],
+        procedural_precheck_min_class_placement_ratio=procedural["precheck"]["min_class_placement_ratio"],
         procedural_precheck_max_skipped_ratio=procedural["precheck"]["max_skipped_ratio"],
         procedural_precheck_min_unique_model_ratio=procedural["precheck"]["min_unique_model_ratio"],
         procedural_precheck_max_duplicate_model_count=procedural["precheck"]["max_duplicate_model_count"],

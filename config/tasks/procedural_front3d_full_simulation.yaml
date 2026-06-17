@@ -297,6 +297,7 @@ procedural:
     min_placements: 1
     min_placement_ratio: 0.5
     min_room_placement_ratio: 0.34
+    min_class_placement_ratio: {}
     max_skipped_ratio: 0.8
     min_unique_model_ratio: null
     max_duplicate_model_count: null

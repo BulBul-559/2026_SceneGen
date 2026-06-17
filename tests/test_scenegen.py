@@ -1716,6 +1716,27 @@ def test_procedural_precheck_rejects_invalid_footprint_threshold_config(tmp_path
     with pytest.raises(ValueError, match="max_duplicate_model_count"):
         load_effective_config(bad_duplicate_count, root, parse_args([]))
 
+    bad_class_ratio = tmp_path / "bad_class_ratio.yaml"
+    bad_class_ratio.write_text(
+        "procedural:\n"
+        "  precheck:\n"
+        "    min_class_placement_ratio:\n"
+        "      seat: 1.2\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="min_class_placement_ratio.seat"):
+        load_effective_config(bad_class_ratio, root, parse_args([]))
+
+
+def test_procedural_precheck_accepts_cli_class_ratio_override() -> None:
+    effective, _overrides = load_effective_config(
+        find_project_root() / "config" / "procedural_front3d.yaml",
+        find_project_root(),
+        parse_args(["--set", "procedural.precheck.min_class_placement_ratio.seat=0.6"]),
+    )
+
+    assert effective["procedural"]["precheck"]["min_class_placement_ratio"] == {"seat": 0.6}
+
 
 def test_procedural_precheck_rejects_bad_footprint_metrics() -> None:
     args = Namespace(
@@ -1944,6 +1965,43 @@ def test_procedural_precheck_rejects_low_asset_diversity() -> None:
         "duplicate_model_count_too_high",
         "unique_model_ratio_too_low",
     }
+
+
+def test_procedural_precheck_rejects_low_class_placement_ratio() -> None:
+    args = Namespace(
+        mode="procedural_front3d",
+        procedural_precheck_enabled=True,
+        procedural_precheck_min_placements=1,
+        procedural_precheck_min_placement_ratio=0.0,
+        procedural_precheck_min_room_placement_ratio=0.0,
+        procedural_precheck_min_class_placement_ratio={"seat": 0.75, "table": 0.5},
+        procedural_precheck_max_skipped_ratio=1.0,
+    )
+
+    result = evaluate_procedural_precheck(
+        args,
+        {"placement_count": 4},
+        {
+            "skipped_object_count": 0,
+            "procedural": {
+                "placement_stats": {
+                    "desired_object_counts": {"room_a": 4},
+                    "placed_object_counts": {"room_a": 4},
+                    "desired_class_counts": {"seat": 4, "table": 2},
+                    "placed_class_counts": {"seat": 2, "table": 1},
+                }
+            },
+        },
+    )
+
+    assert result["ok"] is False
+    assert result["desired_class_counts"] == {"seat": 4, "table": 2}
+    assert result["placed_class_counts"] == {"seat": 2, "table": 1}
+    error = next(error for error in result["errors"] if error["code"] == "class_placement_ratio_too_low")
+    assert error["thresholds"] == {"seat": 0.75, "table": 0.5}
+    assert error["classes"] == [
+        {"class": "seat", "value": 0.5, "placement_count": 2, "desired_count": 4},
+    ]
 
 
 def test_procedural_precheck_rejects_low_room_placement_ratio() -> None:
