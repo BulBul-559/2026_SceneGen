@@ -700,6 +700,9 @@ def main(argv: list[str] | None = None) -> int:
                         "scene_seed": scene_seed,
                         "front3d_scene_id": scene_id if args.mode == "front3d" else "",
                         "source_scene_id": scene_id,
+                        "layout": procedural_record.get("layout") if args.mode == "procedural_front3d" else None,
+                        "configured_layout": procedural_record.get("configured_layout") if args.mode == "procedural_front3d" else None,
+                        "topology": procedural_record.get("topology") if args.mode == "procedural_front3d" else None,
                         "errors": precheck["errors"],
                         "statistics": statistics,
                         "skipped_object_count": int(record.get("skipped_object_count", 0)),
@@ -970,7 +973,7 @@ def main(argv: list[str] | None = None) -> int:
         procedural_report: dict[str, object] | None = None
         procedural_report_file: str | None = None
         if args.mode == "procedural_front3d":
-            procedural_report = aggregate_procedural_run_report(scene_records)
+            procedural_report = aggregate_procedural_run_report(scene_records, precheck_skipped_scenes)
             procedural_report_file = write_json_report(run_dir / "procedural_report.json", procedural_report, run_dir)
     class_counts = {name: len(items) for name, items in sorted(assets_by_class.items())}
     procedural_skipped_object_count = (

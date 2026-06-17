@@ -278,6 +278,7 @@ def load_task_scene_record(
     record["batch_task_id"] = final_scene_key
     record["batch_worker_run"] = str(worker_run_dir)
     record["batch_child_run_timings_s"] = manifest.get("run_timings_s") or {}
+    record["batch_child_procedural_precheck_skipped_scenes"] = manifest.get("procedural_precheck_skipped_scenes") or []
     return record
 
 
@@ -604,8 +605,14 @@ def build_final_manifest(
     statistics_file = write_json_report(paths.run_dir / "statistics.json", run_statistics, paths.run_dir)
     procedural_report: dict[str, object] | None = None
     procedural_report_file: str | None = None
+    procedural_precheck_skipped_scenes: list[dict[str, object]] = []
     if mode == "procedural_front3d":
-        procedural_report = aggregate_procedural_run_report(records)
+        for record in records:
+            skipped = record.get("batch_child_procedural_precheck_skipped_scenes")
+            if isinstance(skipped, list):
+                procedural_precheck_skipped_scenes.extend(item for item in skipped if isinstance(item, dict))
+    if mode == "procedural_front3d":
+        procedural_report = aggregate_procedural_run_report(records, procedural_precheck_skipped_scenes)
         procedural_report_file = write_json_report(paths.run_dir / "procedural_report.json", procedural_report, paths.run_dir)
     manifest: dict[str, Any] = {
         "generator": "SceneGen",
@@ -636,6 +643,8 @@ def build_final_manifest(
         "statistics_file": statistics_file,
         "procedural_report": procedural_report,
         "procedural_report_file": procedural_report_file,
+        "procedural_precheck_skipped_count": len(procedural_precheck_skipped_scenes) if mode == "procedural_front3d" else 0,
+        "procedural_precheck_skipped_scenes": procedural_precheck_skipped_scenes if mode == "procedural_front3d" else [],
         "effective_config": "effective_config.yaml",
         "batch_logs": {
             "events": portable_path(paths.events, paths.run_dir),

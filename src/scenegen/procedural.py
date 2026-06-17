@@ -115,7 +115,33 @@ def numeric_summary(values: list[float]) -> dict[str, float]:
     }
 
 
-def aggregate_procedural_run_report(scene_records: list[dict[str, object]]) -> dict[str, object]:
+def aggregate_procedural_precheck_skip_summary(skipped_records: list[dict[str, object]] | None) -> dict[str, object]:
+    skipped_records = skipped_records or []
+    layout_totals: Counter[str] = Counter()
+    configured_layout_totals: Counter[str] = Counter()
+    error_totals: Counter[str] = Counter()
+    for record in skipped_records:
+        procedural = record.get("procedural") if isinstance(record.get("procedural"), dict) else {}
+        layout = str(record.get("layout") or procedural.get("layout") or "unknown")
+        configured_layout = str(record.get("configured_layout") or procedural.get("configured_layout") or layout)
+        layout_totals[layout] += 1
+        configured_layout_totals[configured_layout] += 1
+        errors = record.get("errors") if isinstance(record.get("errors"), list) else []
+        for error in errors:
+            if isinstance(error, dict):
+                error_totals[str(error.get("code") or "unknown")] += 1
+    return {
+        "attempt_count": len(skipped_records),
+        "layout_counts": dict(sorted(layout_totals.items())),
+        "configured_layout_counts": dict(sorted(configured_layout_totals.items())),
+        "error_counts": dict(sorted(error_totals.items())),
+    }
+
+
+def aggregate_procedural_run_report(
+    scene_records: list[dict[str, object]],
+    precheck_skipped_scenes: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
     procedural_records = [record for record in scene_records if isinstance(record.get("procedural"), dict)]
     room_counts: list[float] = []
     adjacency_counts: list[float] = []
@@ -298,6 +324,7 @@ def aggregate_procedural_run_report(scene_records: list[dict[str, object]]) -> d
         "precheck_failed_count": precheck_failed_count,
         "precheck_ok_rate": rounded(precheck_ok_count / scene_count) if scene_count else 0.0,
         "precheck_error_counts": dict(sorted(precheck_error_totals.items())),
+        "precheck_skipped_attempts": aggregate_procedural_precheck_skip_summary(precheck_skipped_scenes),
         "room_type_geometry_failed_count": room_type_geometry_failed_count,
         "room_type_geometry_issue_counts": dict(sorted(room_type_geometry_issue_totals.items())),
         "scenes": scene_summaries,

@@ -2142,7 +2142,21 @@ def test_aggregate_procedural_run_report_summarizes_structure() -> None:
                     "placement_stats": {"desired_object_counts": {"c": 2}},
                 },
             },
-        ]
+        ],
+        [
+            {
+                "layout": "polygon_shell",
+                "configured_layout": "mixed",
+                "errors": [
+                    {"code": "topology_graph_diameter_too_low"},
+                    {"code": "room_type_area_too_small"},
+                ],
+            },
+            {
+                "procedural": {"layout": "room_graph", "configured_layout": "mixed"},
+                "errors": [{"code": "placement_ratio_too_low"}],
+            },
+        ],
     )
 
     assert report["schema_version"] == "scenegen.procedural.run_report.v1"
@@ -2163,6 +2177,16 @@ def test_aggregate_procedural_run_report_summarizes_structure() -> None:
     assert report["precheck_failed_count"] == 1
     assert report["precheck_ok_rate"] == 0.5
     assert report["precheck_error_counts"] == {"room_type_area_too_small": 1}
+    assert report["precheck_skipped_attempts"] == {
+        "attempt_count": 2,
+        "layout_counts": {"polygon_shell": 1, "room_graph": 1},
+        "configured_layout_counts": {"mixed": 2},
+        "error_counts": {
+            "placement_ratio_too_low": 1,
+            "room_type_area_too_small": 1,
+            "topology_graph_diameter_too_low": 1,
+        },
+    }
     assert report["room_type_geometry_failed_count"] == 1
     assert report["room_type_geometry_issue_counts"] == {"too_small": 1}
     assert report["scenes"][0]["room_type_counts"] == {"Bedroom": 1, "LivingRoom": 1}

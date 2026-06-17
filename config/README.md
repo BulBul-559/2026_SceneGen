@@ -233,6 +233,7 @@ uv run scenegen \
 `room_type_geometry` 中的每个 room type 都可以只写部分字段，未写字段视为不检查。也可以写 `default` 作为兜底规则，或设为 `null` 关闭类型化几何检查。
 
 topology 阈值默认都是 `null`，不会改变模板分布。需要做数据集分桶或强约束时，可以按 `procedural_report.json` 中观察到的 `topology` 分布再反向设置这些阈值。
+被 precheck 跳过的 attempts 明细保存在 run manifest 的 `procedural_precheck_skipped_scenes`；`procedural_report.json` 会额外按 layout、configured layout 和 error code 汇总这些 rejected attempts，方便批量生产后调整 `layout_weights` 和预检阈值。
 
 ### procedural.room_profiles
 
