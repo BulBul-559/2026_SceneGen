@@ -68,9 +68,15 @@ procedural:
       filters:
         table:
           category: [dining]
+        seat:
+          category: [dining chair]
     StudyRoom:
       classes: [table, seat, floor]
-      filters: {}
+      filters:
+        table:
+          category: [desk]
+        seat:
+          category: [chair]
   wall_margin_m: 0.25
   object_margin_m: 0.15
   placement_policy:
@@ -90,6 +96,23 @@ procedural:
       zone: wall
       wall_offset_m: 0.05
       center_radius_ratio: 0.35
+  placement_groups:
+    enabled: true
+    room_types:
+      DiningRoom:
+        - name: dining_table_set
+          anchor_class: table
+          companion_class: seat
+          companion_count: [2, 4]
+          companion_gap_m: [0.1, 0.35]
+          max_attempts: 30
+      StudyRoom:
+        - name: desk_chair_pair
+          anchor_class: table
+          companion_class: seat
+          companion_count: [1, 1]
+          companion_gap_m: [0.1, 0.3]
+          max_attempts: 20
   max_attempts_per_object: 80
   asset_pool_limit: 500
   precheck:

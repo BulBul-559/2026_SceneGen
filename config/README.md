@@ -123,6 +123,7 @@ uv run scenegen \
 | `wall_margin_m` | float, `>=0` | `0.25` | 家具 bbox 与 room 边界的最小距离。 |
 | `object_margin_m` | float, `>=0` | `0.15` | 家具 bbox 之间的额外间距。 |
 | `placement_policy` | mapping | 见模板 | 不同 furniture class 的空间采样策略。 |
+| `placement_groups` | mapping | 见模板 | 可选的关系式家具组合，先尝试 anchor + companion 成组摆放，再用普通采样补齐剩余家具。 |
 | `max_attempts_per_object` | integer, `>=1` | `80` | 每个家具候选最多尝试多少次随机位置和朝向。 |
 | `asset_pool_limit` | integer, `>=1` | `500` | 每个 placement class 最多缓存多少个 3D-FUTURE 资产用于采样。 |
 | `precheck` | mapping | 见模板 | 程序化场景预检和失败重试设置。 |
@@ -152,7 +153,27 @@ uv run scenegen \
 | `wall_offset_m` | float, `>=0` | `0.0` / `0.05` | `zone: wall` 时离墙的额外偏移。 |
 | `center_radius_ratio` | float, `0-1` | `0.35` | `zone: center` 时中心采样半径占 `min(room.width, room.length)` 的比例。 |
 
-默认配置中 `floor` 使用 `wall`，用于让床/柜类地面大件更常靠墙；`table` 使用 `center`，用于让桌子更常出现在房间中心附近；`seat` 保持 `anywhere`，后续可继续演进为围绕桌子的关系约束。
+默认配置中 `floor` 使用 `wall`，用于让床/柜类地面大件更常靠墙；`table` 使用 `center`，用于让桌子更常出现在房间中心附近；`seat` 保持 `anywhere`。如果 `procedural.placement_groups` 成功生成关系组，组内 companion 会围绕 anchor 摆放；剩余 seat 仍由这里的策略控制。
+
+### procedural.placement_groups
+
+关系组用于提升程序化房间的语义结构。它不会替代 `room_profiles` 和 `placement_policy`：生成时先从 profile 得到目标 class 列表，如果当前 room type 配置了关系组且目标 class 足够，就尝试生成一组 anchor furniture 和若干 companion furniture；成功后从目标列表中扣掉这些 class，剩余家具继续走普通 placement policy。
+
+当前第一版支持 `anchor_class + companion_class` 的局部组合，适合餐桌椅、书桌椅这类结构。默认：
+
+- `DiningRoom`: `dining_table_set`，1 张 `table` + 2 到 4 把 `seat`。
+- `StudyRoom`: `desk_chair_pair`，1 张 `table` + 1 把 `seat`。
+
+| 字段 | 可选值 / 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `enabled` | boolean | `true` | 是否启用关系组摆放。关闭后全部家具都走普通逐个采样。 |
+| `room_types` | mapping | 见模板 | room type 到关系组列表的映射。room type 支持精确、大小写不敏感和子串匹配。 |
+| `name` | string | 见模板 | 关系组名称，会写入 placement metadata 的 `placement_group`。 |
+| `anchor_class` | `table` / `seat` / `floor` | 见模板 | 组内锚点家具类别。 |
+| `companion_class` | `table` / `seat` / `floor` | 见模板 | 围绕锚点摆放的家具类别。 |
+| `companion_count` | `[min, max]` | 见模板 | 每个成功关系组尝试摆放多少个 companion，受当前 room profile 剩余 class 数量限制。 |
+| `companion_gap_m` | `[min, max]` | 见模板 | companion bbox 与 anchor bbox 之间的随机间隙。 |
+| `max_attempts` | integer, `>=1` | 见模板 | 每个关系组最多尝试多少次。失败不会丢弃目标 class，会回落到普通逐个摆放。 |
 
 ### procedural.precheck
 

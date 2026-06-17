@@ -534,6 +534,49 @@ def entries_matching_profile_filter(
     return (filtered or entries), bool(filtered)
 
 
+def select_room_group_specs(room_type: str, placement_groups: dict[str, Any]) -> list[dict[str, Any]]:
+    """Select relationship placement groups for a room type."""
+
+    if not placement_groups.get("enabled", True):
+        return []
+    groups_by_room = dict(placement_groups.get("room_types") or {})
+    if room_type in groups_by_room:
+        return list(groups_by_room[room_type])
+    lowered = room_type.lower()
+    for name, specs in groups_by_room.items():
+        if str(name).lower() == lowered:
+            return list(specs)
+    for name, specs in groups_by_room.items():
+        name_lowered = str(name).lower()
+        if name_lowered in lowered or lowered in name_lowered:
+            return list(specs)
+    return []
+
+
+def count_class(classes: list[str], class_name: str) -> int:
+    return sum(1 for item in classes if item == class_name)
+
+
+def remove_class(classes: list[str], class_name: str, count: int = 1) -> None:
+    for _index in range(count):
+        classes.remove(class_name)
+
+
+def companion_directions(count: int) -> list[tuple[float, float]]:
+    if count <= 0:
+        return []
+    if count == 1:
+        return [(0.0, -1.0)]
+    if count == 2:
+        return [(-1.0, 0.0), (1.0, 0.0)]
+    if count == 3:
+        return [(math.cos(index * math.tau / 3.0), math.sin(index * math.tau / 3.0)) for index in range(3)]
+    cardinal = [(0.0, -1.0), (1.0, 0.0), (0.0, 1.0), (-1.0, 0.0)]
+    if count <= 4:
+        return cardinal[:count]
+    return [(math.cos(index * math.tau / count), math.sin(index * math.tau / count)) for index in range(count)]
+
+
 def overlapping_interval(a0: float, a1: float, b0: float, b1: float) -> tuple[float, float] | None:
     start = max(a0, b0)
     end = min(a1, b1)
@@ -805,6 +848,208 @@ class ProceduralFront3DGenerator:
             rng,
         )
 
+    def _append_placement(
+        self,
+        placements: list[PlacedAsset],
+        *,
+        scene_index: int,
+        room: ProceduralRoom,
+        entry: ProceduralAssetEntry,
+        matrix: tuple[float, ...],
+        bbox: tuple[float, float, float, float, float, float],
+        yaw: float,
+        metadata: dict[str, object] | None = None,
+    ) -> None:
+        placement_index = len(placements)
+        placement_metadata: dict[str, object] = {
+            "generator": "procedural_front3d",
+            "room_type": room.room_type,
+            "category": entry.semantic.get("category"),
+            "super_category": entry.semantic.get("super_category"),
+            "material": entry.semantic.get("material"),
+            "object_variant": self.index.config.object_variant,
+        }
+        if metadata:
+            placement_metadata.update(metadata)
+        placements.append(
+            PlacedAsset(
+                asset=entry.asset,
+                instance_name=f"procedural_{scene_index:04d}_{placement_index:04d}_{entry.asset.export_name}",
+                x=matrix[3],
+                y=matrix[7],
+                z=matrix[11],
+                yaw=yaw,
+                support_type="front3d_scene",
+                parent=None,
+                min_x=bbox[0],
+                max_x=bbox[1],
+                min_y=bbox[2],
+                max_y=bbox[3],
+                min_z=bbox[4],
+                max_z=bbox[5],
+                transform_matrix_4x4_row_major=matrix,
+                source_ids={
+                    "scene_id": f"procedural_{scene_index:04d}",
+                    "room_instanceid": room.room_id,
+                    "model_id": entry.model_id,
+                },
+                metadata=placement_metadata,
+            )
+        )
+
+    def _try_place_group(
+        self,
+        room: ProceduralRoom,
+        spec: dict[str, Any],
+        companion_count: int,
+        scene_index: int,
+        rng: random.Random,
+        room_boxes: list[tuple[float, float, float, float, float, float]],
+        placements: list[PlacedAsset],
+        mesh_cache: dict[Path, list[Vec3]],
+        stats: dict[str, object],
+    ) -> bool:
+        anchor_class = str(spec["anchor_class"])
+        companion_class = str(spec["companion_class"])
+        anchor_candidates = self._entries_for_room(room.room_type, anchor_class)
+        companion_candidates = self._entries_for_room(room.room_type, companion_class)
+        if not anchor_candidates or companion_count > 0 and not companion_candidates:
+            return False
+        margin = float(self.args.procedural_wall_margin_m)
+        object_margin = float(self.args.procedural_object_margin_m)
+        max_attempts = int(spec["max_attempts"])
+        gap_min, gap_max = (float(value) for value in spec["companion_gap_m"])
+        for _attempt in range(max_attempts):
+            stats["relation_group_attempt_count"] = int(stats["relation_group_attempt_count"]) + 1
+            entry = rng.choice(anchor_candidates)
+            policy = placement_policy_for_class(self.args.procedural_placement_policy, anchor_class)
+            yaw, center_x, center_y, width, length, _zone = candidate_pose_for_policy(room, entry, policy, margin, rng)
+            if width >= room.width - 2.0 * margin or length >= room.length - 2.0 * margin:
+                stats["size_reject_count"] = int(stats["size_reject_count"]) + 1
+                continue
+            approx_bbox = procedural_asset_approx_bbox(entry, yaw, center_x, center_y)
+            if any(boxes_overlap_xy(approx_bbox, other, object_margin) for other in room_boxes):
+                stats["approx_collision_reject_count"] = int(stats["approx_collision_reject_count"]) + 1
+                continue
+            stats["exact_bbox_count"] = int(stats["exact_bbox_count"]) + 1
+            matrix, bbox = procedural_asset_transform_for_center(entry, yaw, center_x, center_y, mesh_cache)
+            if not room_contains_bbox(room, bbox, margin=0.0):
+                stats["exact_room_reject_count"] = int(stats["exact_room_reject_count"]) + 1
+                continue
+            if any(boxes_overlap_xy(bbox, other, object_margin) for other in room_boxes):
+                stats["exact_collision_reject_count"] = int(stats["exact_collision_reject_count"]) + 1
+                continue
+            group_boxes = [bbox]
+            group_items: list[tuple[ProceduralAssetEntry, tuple[float, ...], tuple[float, float, float, float, float, float], float, str]] = [
+                (entry, matrix, bbox, yaw, "anchor")
+            ]
+            anchor_center_x = (bbox[0] + bbox[1]) / 2.0
+            anchor_center_y = (bbox[2] + bbox[3]) / 2.0
+            anchor_width = bbox[1] - bbox[0]
+            anchor_length = bbox[3] - bbox[2]
+            directions = companion_directions(companion_count)
+            rng.shuffle(directions)
+            group_failed = False
+            for direction_x, direction_y in directions:
+                companion = rng.choice(companion_candidates)
+                companion_yaw = math.atan2(-direction_y, -direction_x)
+                companion_width, companion_length = procedural_asset_footprint_size(companion, companion_yaw)
+                anchor_half = abs(direction_x) * anchor_width / 2.0 + abs(direction_y) * anchor_length / 2.0
+                companion_half = abs(direction_x) * companion_width / 2.0 + abs(direction_y) * companion_length / 2.0
+                distance = anchor_half + companion_half + rng.uniform(gap_min, gap_max)
+                companion_x = anchor_center_x + direction_x * distance
+                companion_y = anchor_center_y + direction_y * distance
+                companion_approx_bbox = procedural_asset_approx_bbox(companion, companion_yaw, companion_x, companion_y)
+                if not room_contains_bbox(room, companion_approx_bbox, margin=0.0):
+                    group_failed = True
+                    break
+                if any(boxes_overlap_xy(companion_approx_bbox, other, object_margin) for other in [*room_boxes, *group_boxes]):
+                    group_failed = True
+                    break
+                stats["exact_bbox_count"] = int(stats["exact_bbox_count"]) + 1
+                companion_matrix, companion_bbox = procedural_asset_transform_for_center(
+                    companion,
+                    companion_yaw,
+                    companion_x,
+                    companion_y,
+                    mesh_cache,
+                )
+                if not room_contains_bbox(room, companion_bbox, margin=0.0):
+                    group_failed = True
+                    break
+                if any(boxes_overlap_xy(companion_bbox, other, object_margin) for other in [*room_boxes, *group_boxes]):
+                    group_failed = True
+                    break
+                group_boxes.append(companion_bbox)
+                group_items.append((companion, companion_matrix, companion_bbox, companion_yaw, "companion"))
+            if group_failed:
+                continue
+            group_index = int(stats["relation_group_success_count"])
+            group_id = f"{room.room_id}/{spec['name']}/{group_index:02d}"
+            for item_entry, item_matrix, item_bbox, item_yaw, role in group_items:
+                self._append_placement(
+                    placements,
+                    scene_index=scene_index,
+                    room=room,
+                    entry=item_entry,
+                    matrix=item_matrix,
+                    bbox=item_bbox,
+                    yaw=item_yaw,
+                    metadata={
+                        "placement_group": spec["name"],
+                        "placement_group_id": group_id,
+                        "placement_group_role": role,
+                    },
+                )
+            room_boxes.extend(group_boxes)
+            stats["relation_group_success_count"] = group_index + 1
+            stats["relation_group_placement_count"] = int(stats["relation_group_placement_count"]) + len(group_items)
+            group_counts = stats["relation_group_name_counts"]
+            if isinstance(group_counts, dict):
+                group_counts[str(spec["name"])] = int(group_counts.get(str(spec["name"]), 0)) + 1
+            return True
+        return False
+
+    def _place_room_groups(
+        self,
+        room: ProceduralRoom,
+        desired_classes: list[str],
+        scene_index: int,
+        rng: random.Random,
+        room_boxes: list[tuple[float, float, float, float, float, float]],
+        placements: list[PlacedAsset],
+        mesh_cache: dict[Path, list[Vec3]],
+        stats: dict[str, object],
+    ) -> None:
+        for spec in select_room_group_specs(room.room_type, self.args.procedural_placement_groups):
+            anchor_class = str(spec["anchor_class"])
+            companion_class = str(spec["companion_class"])
+            if count_class(desired_classes, anchor_class) < 1:
+                continue
+            min_companions, max_companions = (int(value) for value in spec["companion_count"])
+            available_companions = count_class(desired_classes, companion_class)
+            if anchor_class == companion_class:
+                available_companions -= 1
+            if available_companions < min_companions:
+                continue
+            companion_count = rng.randint(min_companions, min(max_companions, available_companions))
+            placed = self._try_place_group(
+                room,
+                spec,
+                companion_count,
+                scene_index,
+                rng,
+                room_boxes,
+                placements,
+                mesh_cache,
+                stats,
+            )
+            if not placed:
+                stats["relation_group_failure_count"] = int(stats["relation_group_failure_count"]) + 1
+                continue
+            remove_class(desired_classes, anchor_class)
+            remove_class(desired_classes, companion_class, companion_count)
+
     def place_assets(
         self,
         rooms: list[ProceduralRoom],
@@ -821,6 +1066,11 @@ class ProceduralFront3DGenerator:
             "approx_collision_reject_count": 0,
             "exact_room_reject_count": 0,
             "exact_collision_reject_count": 0,
+            "relation_group_attempt_count": 0,
+            "relation_group_success_count": 0,
+            "relation_group_failure_count": 0,
+            "relation_group_placement_count": 0,
+            "relation_group_name_counts": {},
             "desired_object_counts": desired_object_counts,
             "policy_zone_counts": {},
         }
@@ -829,6 +1079,16 @@ class ProceduralFront3DGenerator:
         for room in rooms:
             desired_classes = self.desired_classes_for_room(room, rng)
             desired_object_counts[room.room_id] = len(desired_classes)
+            self._place_room_groups(
+                room,
+                desired_classes,
+                scene_index,
+                rng,
+                room_boxes[room.room_id],
+                placements,
+                mesh_cache,
+                stats,
+            )
             for class_name in desired_classes:
                 candidates = self._entries_for_room(room.room_type, class_name)
                 if not candidates:
@@ -859,38 +1119,14 @@ class ProceduralFront3DGenerator:
                     if any(boxes_overlap_xy(bbox, other, float(self.args.procedural_object_margin_m)) for other in room_boxes[room.room_id]):
                         stats["exact_collision_reject_count"] = int(stats["exact_collision_reject_count"]) + 1
                         continue
-                    placement_index = len(placements)
-                    placements.append(
-                        PlacedAsset(
-                            asset=entry.asset,
-                            instance_name=f"procedural_{scene_index:04d}_{placement_index:04d}_{entry.asset.export_name}",
-                            x=matrix[3],
-                            y=matrix[7],
-                            z=matrix[11],
-                            yaw=yaw,
-                            support_type="front3d_scene",
-                            parent=None,
-                            min_x=bbox[0],
-                            max_x=bbox[1],
-                            min_y=bbox[2],
-                            max_y=bbox[3],
-                            min_z=bbox[4],
-                            max_z=bbox[5],
-                            transform_matrix_4x4_row_major=matrix,
-                            source_ids={
-                                "scene_id": f"procedural_{scene_index:04d}",
-                                "room_instanceid": room.room_id,
-                                "model_id": entry.model_id,
-                            },
-                            metadata={
-                                "generator": "procedural_front3d",
-                                "room_type": room.room_type,
-                                "category": entry.semantic.get("category"),
-                                "super_category": entry.semantic.get("super_category"),
-                                "material": entry.semantic.get("material"),
-                                "object_variant": self.index.config.object_variant,
-                            },
-                        )
+                    self._append_placement(
+                        placements,
+                        scene_index=scene_index,
+                        room=room,
+                        entry=entry,
+                        matrix=matrix,
+                        bbox=bbox,
+                        yaw=yaw,
                     )
                     room_boxes[room.room_id].append(bbox)
                     zone_counts = stats["policy_zone_counts"]

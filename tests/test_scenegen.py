@@ -49,6 +49,7 @@ from scenegen.procedural import (
     ProceduralRoom,
     architecture_meshes_for_rooms,
     candidate_pose_for_policy,
+    companion_directions,
     desired_classes_from_profile,
     entries_matching_profile_filter,
     make_room_layout,
@@ -56,6 +57,7 @@ from scenegen.procedural import (
     placement_policy_for_class,
     procedural_asset_approx_bbox,
     procedural_asset_footprint_size,
+    select_room_group_specs,
     select_room_profile,
     write_procedural_source_files,
 )
@@ -334,6 +336,31 @@ def test_procedural_placement_policy_samples_center_and_wall_zones() -> None:
 
     assert zone == "wall"
     assert min(abs(value) for value in clearances) == pytest.approx(0.0)
+
+
+def test_procedural_placement_groups_select_by_room_type_and_directions() -> None:
+    groups = {
+        "enabled": True,
+        "room_types": {
+            "DiningRoom": [
+                {
+                    "name": "dining_table_set",
+                    "anchor_class": "table",
+                    "companion_class": "seat",
+                    "companion_count": [2, 4],
+                    "companion_gap_m": [0.1, 0.35],
+                    "max_attempts": 30,
+                }
+            ]
+        },
+    }
+
+    specs = select_room_group_specs("LargeDiningRoom", groups)
+    assert specs[0]["name"] == "dining_table_set"
+    assert companion_directions(2) == [(-1.0, 0.0), (1.0, 0.0)]
+    four_directions = companion_directions(4)
+    assert len(four_directions) == 4
+    assert (0.0, -1.0) in four_directions
 
 
 def test_procedural_room_profile_filters_match_asset_semantics() -> None:
@@ -623,12 +650,11 @@ def test_front3d_class_mask_mesh_furniture_mode_uses_mesh_footprint(tmp_path: Pa
 
 
 def test_cli_version_matches_package_version(capsys: pytest.CaptureFixture[str]) -> None:
-    assert __version__ == "3.5.0"
     with pytest.raises(SystemExit) as exc_info:
         parse_args(["--version"])
 
     assert exc_info.value.code == 0
-    assert capsys.readouterr().out.strip() == "SceneGen 3.5.0"
+    assert capsys.readouterr().out.strip() == f"SceneGen {__version__}"
 
 
 def test_bistro_config_is_mode_specific_default_overlay() -> None:
@@ -759,6 +785,21 @@ def test_procedural_room_profiles_accept_custom_names_and_reject_bad_classes(tmp
     )
     with pytest.raises(ValueError, match="procedural.placement_policy.table.zone"):
         load_effective_config(bad_policy_path, root, parse_args([]))
+
+    bad_group_path = tmp_path / "bad_procedural_group.yaml"
+    bad_group_path.write_text(
+        "procedural:\n"
+        "  placement_groups:\n"
+        "    enabled: true\n"
+        "    room_types:\n"
+        "      DiningRoom:\n"
+        "        - name: bad\n"
+        "          anchor_class: lamp\n"
+        "          companion_class: seat\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="procedural.placement_groups.room_types.DiningRoom"):
+        load_effective_config(bad_group_path, root, parse_args([]))
 
 
 def test_prepare_run_dir_clean_only_replaces_named_run(tmp_path: Path) -> None:

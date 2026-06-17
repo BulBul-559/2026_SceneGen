@@ -94,9 +94,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
             },
             "DiningRoom": {
                 "classes": ["table", "seat", "seat", "seat", "seat"],
-                "filters": {"table": {"category": ["dining"]}},
+                "filters": {"table": {"category": ["dining"]}, "seat": {"category": ["dining chair"]}},
             },
-            "StudyRoom": {"classes": ["table", "seat", "floor"], "filters": {}},
+            "StudyRoom": {"classes": ["table", "seat", "floor"], "filters": {"table": {"category": ["desk"]}, "seat": {"category": ["chair"]}}},
         },
         "wall_margin_m": 0.25,
         "object_margin_m": 0.15,
@@ -105,6 +105,31 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "table": {"zone": "center", "wall_offset_m": 0.0, "center_radius_ratio": 0.25},
             "seat": {"zone": "anywhere", "wall_offset_m": 0.0, "center_radius_ratio": 0.35},
             "floor": {"zone": "wall", "wall_offset_m": 0.05, "center_radius_ratio": 0.35},
+        },
+        "placement_groups": {
+            "enabled": True,
+            "room_types": {
+                "DiningRoom": [
+                    {
+                        "name": "dining_table_set",
+                        "anchor_class": "table",
+                        "companion_class": "seat",
+                        "companion_count": [2, 4],
+                        "companion_gap_m": [0.1, 0.35],
+                        "max_attempts": 30,
+                    }
+                ],
+                "StudyRoom": [
+                    {
+                        "name": "desk_chair_pair",
+                        "anchor_class": "table",
+                        "companion_class": "seat",
+                        "companion_count": [1, 1],
+                        "companion_gap_m": [0.1, 0.3],
+                        "max_attempts": 20,
+                    }
+                ],
+            },
         },
         "max_attempts_per_object": 80,
         "asset_pool_limit": 500,
@@ -460,6 +485,51 @@ def normalize_placement_policy(value: Any, key: str = "procedural.placement_poli
     return policies
 
 
+def normalize_placement_groups(value: Any, key: str = "procedural.placement_groups") -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{key} must be a mapping")
+    allowed_classes = {"table", "seat", "floor"}
+    enabled = as_bool(value.get("enabled", True), f"{key}.enabled")
+    raw_room_types = value.get("room_types") or {}
+    if not isinstance(raw_room_types, dict):
+        raise ValueError(f"{key}.room_types must be a mapping")
+    room_types: dict[str, list[dict[str, Any]]] = {}
+    for raw_room_type, raw_specs in raw_room_types.items():
+        room_type = str(raw_room_type).strip()
+        if not room_type:
+            raise ValueError(f"{key}.room_types room type names must not be empty")
+        if not isinstance(raw_specs, list):
+            raise ValueError(f"{key}.room_types.{raw_room_type} must be a list")
+        specs: list[dict[str, Any]] = []
+        for index, raw_spec in enumerate(raw_specs):
+            spec_key = f"{key}.room_types.{raw_room_type}[{index}]"
+            if not isinstance(raw_spec, dict):
+                raise ValueError(f"{spec_key} must be a mapping")
+            name = str(raw_spec.get("name", "")).strip()
+            if not name:
+                raise ValueError(f"{spec_key}.name must not be empty")
+            anchor_class = str(raw_spec.get("anchor_class", "")).strip().lower()
+            companion_class = str(raw_spec.get("companion_class", "")).strip().lower()
+            if anchor_class not in allowed_classes:
+                raise ValueError(f"{spec_key}.anchor_class must be table, seat, or floor")
+            if companion_class not in allowed_classes:
+                raise ValueError(f"{spec_key}.companion_class must be table, seat, or floor")
+            companion_count = parse_int_pair(raw_spec.get("companion_count", [1, 1]), f"{spec_key}.companion_count")
+            companion_gap_m = parse_float_pair(raw_spec.get("companion_gap_m", [0.1, 0.3]), f"{spec_key}.companion_gap_m")
+            specs.append(
+                {
+                    "name": name,
+                    "anchor_class": anchor_class,
+                    "companion_class": companion_class,
+                    "companion_count": companion_count,
+                    "companion_gap_m": companion_gap_m,
+                    "max_attempts": int(raw_spec.get("max_attempts", 20)),
+                }
+            )
+        room_types[room_type] = specs
+    return {"enabled": enabled, "room_types": room_types}
+
+
 def normalize_label_strategy(value: Any, key: str) -> str:
     text = str(value).strip()
     if text == "panel":
@@ -563,6 +633,7 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     procedural["wall_margin_m"] = float(procedural["wall_margin_m"])
     procedural["object_margin_m"] = float(procedural["object_margin_m"])
     procedural["placement_policy"] = normalize_placement_policy(procedural["placement_policy"])
+    procedural["placement_groups"] = normalize_placement_groups(procedural["placement_groups"])
     procedural["max_attempts_per_object"] = int(procedural["max_attempts_per_object"])
     procedural["asset_pool_limit"] = int(procedural["asset_pool_limit"])
     procedural_precheck = procedural["precheck"]
@@ -741,6 +812,18 @@ def validate_effective_config(config: dict[str, Any]) -> None:
             raise ValueError(f"procedural.placement_policy.{class_name}.wall_offset_m must be non-negative")
         if not 0.0 <= policy["center_radius_ratio"] <= 1.0:
             raise ValueError(f"procedural.placement_policy.{class_name}.center_radius_ratio must be between 0 and 1")
+    for room_type, specs in procedural["placement_groups"]["room_types"].items():
+        for index, spec in enumerate(specs):
+            if spec["companion_count"][0] < 0 or spec["companion_count"][1] < spec["companion_count"][0]:
+                raise ValueError(
+                    f"procedural.placement_groups.room_types.{room_type}[{index}].companion_count must be [min, max] with max >= min >= 0"
+                )
+            if spec["companion_gap_m"][0] < 0 or spec["companion_gap_m"][1] < spec["companion_gap_m"][0]:
+                raise ValueError(
+                    f"procedural.placement_groups.room_types.{room_type}[{index}].companion_gap_m must be [min, max] with max >= min >= 0"
+                )
+            if spec["max_attempts"] < 1:
+                raise ValueError(f"procedural.placement_groups.room_types.{room_type}[{index}].max_attempts must be at least 1")
     if procedural["max_attempts_per_object"] < 1:
         raise ValueError("procedural.max_attempts_per_object must be at least 1")
     if procedural["asset_pool_limit"] < 1:
@@ -1009,6 +1092,7 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         procedural_wall_margin_m=procedural["wall_margin_m"],
         procedural_object_margin_m=procedural["object_margin_m"],
         procedural_placement_policy=procedural["placement_policy"],
+        procedural_placement_groups=procedural["placement_groups"],
         procedural_max_attempts_per_object=procedural["max_attempts_per_object"],
         procedural_asset_pool_limit=procedural["asset_pool_limit"],
         procedural_precheck_enabled=procedural["precheck"]["enabled"],
