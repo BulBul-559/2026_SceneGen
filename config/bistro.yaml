@@ -6,33 +6,27 @@ pipeline:
   run_name: null
   clean: false
   index_start: 0
-
 assets:
   catalog: data/catalogs/bistro.v1.json
-
 bistro:
   base_dir: data/scene
   forbidden_xy:
-    - [1.0, 11.0, 4.5, 16.0]
-    - [8.0, 8.0, 14.0, 10.0]
-
+  - [1.0, 11.0, 4.5, 16.0]
+  - [8.0, 8.0, 14.0, 10.0]
 placement:
   tables: [4, 8]
   floor_extras: 6
   tabletop_items: [3, 9]
   bistro_support_items: 18
   max_attempts: 300
-
 validation:
   sionna: false
-
 quality:
   enabled: true
   fail_on_error: true
   collision_padding_m: 0.0
   bistro_static_clearance_m: 0.0
   support_tolerance_m: 0.05
-
 label:
   enabled: true
   fail_on_error: true
@@ -48,10 +42,10 @@ label:
     walk:
       furniture_clearance_m: 0.1
       obstacle_strategy: below_ue_column
-      ignore_low_obstacles_below_m: 0.10
+      ignore_low_obstacles_below_m: 0.1
       blocking_classes: [table, seat, floor]
     connected_area:
-      room_id: "__corridor__"
+      room_id: __corridor__
       room_type: ConnectedArea
   bs:
     strategy: wall_or_corner
@@ -72,7 +66,6 @@ label:
       max_radius_m: 2.0
   overlay:
     enabled: true
-
 floorplan:
   enabled: true
   fail_on_error: true
@@ -86,6 +79,12 @@ floorplan:
       step_m: 0.2
       top_m: null
       bottom_m: 0.0
+  class_mask:
+    enabled: false
+    wall_dilation_m: 0.0
+    furniture_dilation_m: 0.05
+    furniture_mode: mesh
+    furniture_height_m: null
   sampling:
     density_scale: 128.0
     min_points: 100000

@@ -7,7 +7,7 @@
 | Rank | ID | TODO | Summary |
 |---:|---|---|---|
 | 1 | FEAT-LABEL-002 | 增加 LoS/NLoS 点位验证 | 对 BS/UE 点位做轻量 ray test 或 map 级统计，辅助定位实验筛选。 |
-| 2 | FEAT-FRONT3D-001 | 基于 3D-FRONT 资产池随机生成场景 | 从复现原始组合扩展到可控随机布局。 |
+| 2 | FEAT-FRONT3D-001 | 完善程序化随机场景语义自然度 | 在现有 `procedural_front3d` baseline 上提升户型、家具关系、朝向、美观度和可达性。 |
 | 3 | FEAT-LABEL-001 | 扩展 BS 布点策略 | 增加 ceiling AP、wall-mounted AP、覆盖优化等策略。 |
 | 4 | FEAT-RF-001 | 增加 RF proxy 派生监督图 | 在 LoS/wall-count 之外生成 wall thickness、proxy pathloss、material mask 等可选监督。 |
 | 5 | FEAT-MAT-001 | 精细化电磁材质标注 | 利用 category、material、texture 信息提高 Sionna 材质置信度。 |
@@ -27,15 +27,15 @@ Acceptance: 生成结果中能记录每个场景、每个 BS 或每个 label var
 
 Notes: 第一版可以复用派生 map 中的 LoS/wall-count 计算，不必引入 Sionna。
 
-### FEAT-FRONT3D-001: 基于 3D-FRONT 资产池随机生成场景
+### FEAT-FRONT3D-001: 完善程序化随机场景语义自然度
 
-Goal: 在现有 `front3d` 复现模式之外，新增基于 3D-FUTURE 资产池的随机生成模式。
+Goal: 在现有 `procedural_front3d` 规则 baseline 上继续提升语义自然度，让大规模随机生成结果不仅“能生成”，而且更像合理的真实室内场景。
 
-Affected modules: `src/scenegen/sources.py`、`src/scenegen/front3d.py`、placement/quality 模块和配置模板。
+Affected modules: `src/scenegen/procedural.py`、`src/scenegen/sources.py`、placement/quality 模块、配置模板和 `procedural_report.json` 汇总。
 
-Acceptance: 可以按房间类型、资产类别、碰撞和支撑规则随机摆放家具；输出仍保持 `scene.obj`、`scene.xml`、label、floorplan、class mask、manifest 等标准结构。
+Acceptance: 家具关系不只依赖简单规则组合，能表达更稳定的房间级语义模板或约束；户型分布、房间连通和家具朝向更接近真实室内；资产语义标注有可审计的置信度或人工修正入口；生成结果通过可达性/通行空间等质量检查；大规模生产前的抽样 QA 可以减少，但仍保留 visual index 和 report 作为复核工具。
 
-Notes: 需要继承现有 asset catalog/source adapter 抽象，不要把 3D-FRONT 特例散落到 CLI。
+Notes: 当前 `procedural_front3d` 已能基于 3D-FUTURE/3D-FRONT 资产池生成多房间随机场景，但仍是规则 baseline。还不能完全放心的点包括：家具关系是规则组合，不是完整约束求解；房间布局是规则生成，不是从真实户型分布学习；资产语义依赖 3D-FUTURE 的 `category` / `super_category` / `name`，标注不完美；家具朝向、组合美观度和真实可达性仍有提升空间；大规模生产前仍需要抽样看图，不能完全只信 precheck。
 
 ### FEAT-LABEL-001: 扩展 BS 布点策略
 

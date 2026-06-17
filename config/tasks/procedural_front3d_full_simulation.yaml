@@ -6,7 +6,13 @@ pipeline:
   run_name: null
   clean: false
   index_start: 0
-
+assets:
+  catalog: data/catalogs/bistro.v1.json
+bistro:
+  base_dir: data/scene
+  forbidden_xy:
+    - [1.0, 11.0, 4.5, 16.0]
+    - [8.0, 8.0, 14.0, 10.0]
 front3d:
   manifest: data/3D-Front/scenegen_manifest.json
   source_dir: data/3D-Front/3D-FRONT
@@ -32,7 +38,12 @@ front3d:
     min_height_m: 1.6
     include_doors_as_wall: true
     include_windows_as_wall: true
-
+placement:
+  tables: [4, 8]
+  floor_extras: 6
+  tabletop_items: [3, 9]
+  bistro_support_items: 18
+  max_attempts: 300
 procedural:
   layout: mixed
   layout_weights:
@@ -88,13 +99,34 @@ procedural:
     area_per_object_m2: 4.0
     jitter: [-1, 1]
     by_room_type:
-      LivingRoom: {min: 4, max: 10, area_per_object_m2: 4.5}
-      Bedroom: {min: 3, max: 7, area_per_object_m2: 5.0}
-      DiningRoom: {min: 4, max: 8, area_per_object_m2: 4.0}
-      StudyRoom: {min: 2, max: 6, area_per_object_m2: 5.5}
-      Kitchen: {min: 2, max: 5, area_per_object_m2: 7.0}
-      Bathroom: {min: 1, max: 4, area_per_object_m2: 8.0}
-      Hallway: {min: 1, max: 3, area_per_object_m2: 10.0}
+      LivingRoom:
+        min: 4
+        max: 10
+        area_per_object_m2: 4.5
+      Bedroom:
+        min: 3
+        max: 7
+        area_per_object_m2: 5.0
+      DiningRoom:
+        min: 4
+        max: 8
+        area_per_object_m2: 4.0
+      StudyRoom:
+        min: 2
+        max: 6
+        area_per_object_m2: 5.5
+      Kitchen:
+        min: 2
+        max: 5
+        area_per_object_m2: 7.0
+      Bathroom:
+        min: 1
+        max: 4
+        area_per_object_m2: 8.0
+      Hallway:
+        min: 1
+        max: 3
+        area_per_object_m2: 10.0
   room_profiles:
     default:
       classes: [seat, table, floor, seat, table]
@@ -210,15 +242,15 @@ procedural:
         seat:
           zone: center
           wall_offset_m: 0.0
-          center_radius_ratio: 0.30
+          center_radius_ratio: 0.3
       StudyRoom:
         table:
           zone: wall
-          wall_offset_m: 0.10
+          wall_offset_m: 0.1
           center_radius_ratio: 0.35
         seat:
           zone: wall
-          wall_offset_m: 0.10
+          wall_offset_m: 0.1
           center_radius_ratio: 0.35
         floor:
           zone: wall
@@ -325,24 +357,42 @@ procedural:
     min_topology_graph_diameter: null
     max_topology_graph_diameter: null
     room_type_geometry:
-      LivingRoom: {min_area_m2: 16.0, max_area_m2: null, max_aspect_ratio: 3.5}
-      Bedroom: {min_area_m2: 10.0, max_area_m2: null, max_aspect_ratio: 3.5}
-      DiningRoom: {min_area_m2: 10.0, max_area_m2: null, max_aspect_ratio: 3.5}
-      StudyRoom: {min_area_m2: 8.0, max_area_m2: null, max_aspect_ratio: 3.5}
-      Kitchen: {min_area_m2: 8.0, max_area_m2: 35.0, max_aspect_ratio: 3.5}
-      Bathroom: {min_area_m2: 6.0, max_area_m2: 28.0, max_aspect_ratio: 4.0}
-      Hallway: {min_area_m2: 6.0, max_area_m2: 30.0, max_aspect_ratio: 4.0}
-
+      LivingRoom:
+        min_area_m2: 16.0
+        max_area_m2: null
+        max_aspect_ratio: 3.5
+      Bedroom:
+        min_area_m2: 10.0
+        max_area_m2: null
+        max_aspect_ratio: 3.5
+      DiningRoom:
+        min_area_m2: 10.0
+        max_area_m2: null
+        max_aspect_ratio: 3.5
+      StudyRoom:
+        min_area_m2: 8.0
+        max_area_m2: null
+        max_aspect_ratio: 3.5
+      Kitchen:
+        min_area_m2: 8.0
+        max_area_m2: 35.0
+        max_aspect_ratio: 3.5
+      Bathroom:
+        min_area_m2: 6.0
+        max_area_m2: 28.0
+        max_aspect_ratio: 4.0
+      Hallway:
+        min_area_m2: 6.0
+        max_area_m2: 30.0
+        max_aspect_ratio: 4.0
 validation:
   sionna: false
-
 quality:
   enabled: true
   fail_on_error: true
   collision_padding_m: 0.0
   bistro_static_clearance_m: 0.0
   support_tolerance_m: 0.05
-
 label:
   enabled: true
   fail_on_error: true
@@ -358,10 +408,10 @@ label:
     walk:
       furniture_clearance_m: 0.1
       obstacle_strategy: below_ue_column
-      ignore_low_obstacles_below_m: 0.10
+      ignore_low_obstacles_below_m: 0.1
       blocking_classes: [table, seat, floor]
     connected_area:
-      room_id: "__corridor__"
+      room_id: __corridor__
       room_type: ConnectedArea
   bs:
     strategy: wall_or_corner
@@ -382,7 +432,6 @@ label:
       max_radius_m: 2.0
   overlay:
     enabled: true
-
 floorplan:
   enabled: true
   fail_on_error: true
@@ -408,7 +457,6 @@ floorplan:
     max_points: 4000000
   preview:
     tile_size_px: 360
-
 postprocess:
   maps:
     enabled: false
@@ -429,3 +477,10 @@ postprocess:
     scene_glob: procedural_front3d_*
     require_maps: true
     overwrite: false
+batch:
+  workers: 1
+  scheduler: hybrid
+  max_retries: 1
+runtime:
+  batch_child: false
+  skip_summary: false

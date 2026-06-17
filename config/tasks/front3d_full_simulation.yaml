@@ -1,12 +1,11 @@
 pipeline:
   mode: front3d
-  scenes: 1
+  scenes: 6813
   seed: 20260517
   output_dir: results
   run_name: null
   clean: false
   index_start: 0
-
 front3d:
   manifest: data/3D-Front/scenegen_manifest.json
   source_dir: data/3D-Front/3D-FRONT
@@ -32,17 +31,14 @@ front3d:
     min_height_m: 1.6
     include_doors_as_wall: true
     include_windows_as_wall: true
-
 validation:
   sionna: false
-
 quality:
   enabled: true
   fail_on_error: true
   collision_padding_m: 0.0
   bistro_static_clearance_m: 0.0
   support_tolerance_m: 0.05
-
 label:
   enabled: true
   fail_on_error: true
@@ -50,7 +46,7 @@ label:
     height_m: 1.6
     sampling:
       domain: global_floor
-      grid_m: [0.1, 0.2, 0.4, 0.5]
+      grid_m: [0.1, 0.2, 0.5]
       mask_resolution_m: 0.05
       wall_clearance_m: 0.2
       min_component_area_m2: 0.25
@@ -58,10 +54,10 @@ label:
     walk:
       furniture_clearance_m: 0.1
       obstacle_strategy: below_ue_column
-      ignore_low_obstacles_below_m: 0.10
+      ignore_low_obstacles_below_m: 0.1
       blocking_classes: [table, seat, floor]
     connected_area:
-      room_id: "__corridor__"
+      room_id: __corridor__
       room_type: ConnectedArea
   bs:
     strategy: wall_or_corner
@@ -69,8 +65,7 @@ label:
     ceiling_margin_m: 0.3
     wall_clearance_m: 0.2
     count:
-      strategy: fixed_per_room
-      per_room: 4
+      strategy: area_adaptive
       min_per_room: 1
       max_per_room: 8
       min_room_area_m2: 4.0
@@ -82,7 +77,6 @@ label:
       max_radius_m: 2.0
   overlay:
     enabled: true
-
 floorplan:
   enabled: true
   fail_on_error: true
@@ -108,7 +102,6 @@ floorplan:
     max_points: 4000000
   preview:
     tile_size_px: 360
-
 postprocess:
   maps:
     enabled: false
@@ -129,3 +122,7 @@ postprocess:
     scene_glob: front3d_*
     require_maps: true
     overwrite: false
+batch:
+  workers: 24
+  scheduler: hybrid
+  max_retries: 1

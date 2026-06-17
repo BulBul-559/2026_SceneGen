@@ -19,10 +19,10 @@ from scenegen.batch import main as batch_main
 from scenegen.batch import parse_args as parse_batch_args
 from scenegen.cli import evaluate_front3d_precheck, evaluate_procedural_precheck, main, parse_args, prepare_run_dir
 from scenegen.config import DEFAULT_CONFIG, load_effective_config
-from scenegen.exporters import write_clean_obj_full_from_source
+from scenegen.exporters import write_clean_obj_full_from_source, write_front3d_obj
 from scenegen.floorplan import floorplan_layer_filename, generate_front3d_class_mask, process_scene
 from scenegen.front3d import choose_scene_ids, scenegen_transform_for_child
-from scenegen.geometry import load_bistro_base_scene
+from scenegen.geometry import load_bistro_base_scene, load_obj_mesh
 from scenegen.labels import (
     LabelConfig,
     LabelObstacle,
@@ -112,6 +112,16 @@ def assert_keys_subset_of_default(payload: dict[str, object], defaults: dict[str
         default_value = defaults[key]
         if isinstance(value, dict) and isinstance(default_value, dict):
             assert_keys_subset_of_default(value, default_value)
+
+
+def nested_key_paths(payload: dict[str, object], prefix: str = "") -> set[str]:
+    paths: set[str] = set()
+    for key, value in payload.items():
+        path = f"{prefix}.{key}" if prefix else str(key)
+        paths.add(path)
+        if isinstance(value, dict):
+            paths.update(nested_key_paths(value, path))
+    return paths
 
 
 def make_label_config(
@@ -435,6 +445,62 @@ def test_procedural_polygon_shell_layout_splits_notched_shell() -> None:
             visited.add(neighbor)
             frontier.append(neighbor)
     assert visited == set(graph)
+
+
+def test_procedural_source_rewrite_invalidates_architecture_obj_cache(tmp_path: Path) -> None:
+    scene_dir = tmp_path / "procedural_front3d_0000"
+    first_rooms = [ProceduralRoom("proc_room_00", "Room", 0.0, 0.0, 2.0, 3.0, 2.8)]
+    first_meshes, first_children = architecture_meshes_for_rooms(
+        first_rooms,
+        wall_thickness=0.16,
+        door_width=1.0,
+        window_config={"enabled": False},
+        rng=random.Random(1),
+    )
+    architecture_obj, _source_json, _metadata_json, _bbox_min, _bbox_max = write_procedural_source_files(
+        scene_dir,
+        "first",
+        first_rooms,
+        first_meshes,
+        first_children,
+        [],
+    )
+    assert np.asarray(load_obj_mesh(architecture_obj).vertices).max(axis=0)[0] == pytest.approx(2.0)
+
+    second_rooms = [ProceduralRoom("proc_room_00", "Room", 0.0, 0.0, 5.0, 7.0, 2.8)]
+    second_meshes, second_children = architecture_meshes_for_rooms(
+        second_rooms,
+        wall_thickness=0.16,
+        door_width=1.0,
+        window_config={"enabled": False},
+        rng=random.Random(2),
+    )
+    architecture_obj, source_json, metadata_json, bbox_min, bbox_max = write_procedural_source_files(
+        scene_dir,
+        "second",
+        second_rooms,
+        second_meshes,
+        second_children,
+        [],
+    )
+    base_scene = Front3DBaseScene(
+        scene_id="second",
+        scene_obj=architecture_obj,
+        source_scene_json=source_json,
+        metadata_json=metadata_json,
+        bbox_min=bbox_min,
+        bbox_max=bbox_max,
+        source_bbox_min=bbox_min,
+        source_bbox_max=bbox_max,
+        world_offset=(0.0, 0.0, 0.0),
+        source_to_sionna_material={"floor": "itu-concrete", "wall": "itu-concrete"},
+        sionna_material_names=("itu-concrete",),
+    )
+    write_front3d_obj(scene_dir / "scene.obj", base_scene, [], mode="procedural_front3d")
+
+    scene_vertices = np.asarray(load_obj_mesh(scene_dir / "scene.obj").vertices)
+    assert scene_vertices.max(axis=0)[0] == pytest.approx(5.0)
+    assert scene_vertices.max(axis=0)[1] == pytest.approx(7.0)
 
 
 def test_procedural_mixed_layout_uses_configured_weights() -> None:
@@ -1252,46 +1318,140 @@ def test_cli_version_matches_package_version(capsys: pytest.CaptureFixture[str])
     assert capsys.readouterr().out.strip() == f"SceneGen {__version__}"
 
 
-def test_bistro_config_is_mode_specific_default_overlay() -> None:
+@pytest.mark.parametrize(
+    ("config_path", "expected_mode", "expected_sections", "forbidden_sections"),
+    [
+        (
+            "config/bistro.yaml",
+            "bistro",
+            {"pipeline", "assets", "bistro", "placement", "validation", "quality", "label", "floorplan"},
+            {"front3d", "procedural", "postprocess", "batch", "runtime"},
+        ),
+        (
+            "config/front3d.yaml",
+            "front3d",
+            {"pipeline", "front3d", "validation", "quality", "label", "floorplan", "postprocess", "batch"},
+            {"assets", "bistro", "placement", "procedural", "runtime"},
+        ),
+        (
+            "config/procedural_front3d.yaml",
+            "procedural_front3d",
+            {
+                "pipeline",
+                "front3d",
+                "procedural",
+                "validation",
+                "quality",
+                "label",
+                "floorplan",
+                "postprocess",
+                "batch",
+            },
+            {"assets", "bistro", "placement", "runtime"},
+        ),
+    ],
+)
+def test_config_templates_are_workflow_focused(
+    config_path: str,
+    expected_mode: str,
+    expected_sections: set[str],
+    forbidden_sections: set[str],
+) -> None:
     root = find_project_root()
-    payload = yaml.safe_load((root / "config" / "bistro.yaml").read_text(encoding="utf-8"))
+    payload = yaml.safe_load((root / config_path).read_text(encoding="utf-8"))
 
-    assert "front3d" not in payload
-    assert payload["pipeline"]["mode"] == "bistro"
-    assert_subset_of_default(payload, DEFAULT_CONFIG)
-
-
-def test_front3d_config_is_mode_specific_default_overlay() -> None:
-    root = find_project_root()
-    payload = yaml.safe_load((root / "config" / "front3d.yaml").read_text(encoding="utf-8"))
-    expected = deepcopy(DEFAULT_CONFIG["front3d"])
-
-    assert "assets" not in payload
-    assert "bistro" not in payload
-    assert "placement" not in payload
-    assert payload["pipeline"]["mode"] == "front3d"
-    assert payload["front3d"] == expected
-    overlay_payload = deepcopy(payload)
-    overlay_payload["pipeline"]["mode"] = "bistro"
-    assert_subset_of_default(overlay_payload, DEFAULT_CONFIG)
-
-
-def test_procedural_front3d_config_is_mode_specific_default_overlay() -> None:
-    root = find_project_root()
-    payload = yaml.safe_load((root / "config" / "procedural_front3d.yaml").read_text(encoding="utf-8"))
-
-    assert "assets" not in payload
-    assert "bistro" not in payload
-    assert "placement" not in payload
-    assert payload["pipeline"]["mode"] == "procedural_front3d"
-    assert payload["procedural"]["layout"] == "mixed"
-    assert payload["procedural"] == DEFAULT_CONFIG["procedural"]
-    assert payload["floorplan"]["class_mask"]["enabled"] is True
-    assert payload["floorplan"]["class_mask"]["furniture_height_m"] == 1.6
+    assert payload["pipeline"]["mode"] == expected_mode
+    assert set(payload) == expected_sections
+    assert forbidden_sections.isdisjoint(payload)
     assert_keys_subset_of_default(payload, DEFAULT_CONFIG)
 
 
-@pytest.mark.parametrize("config_name", ["bistro.yaml", "front3d.yaml", "procedural_front3d.yaml"])
+def test_front3d_full_simulation_task_is_front3d_focused() -> None:
+    root = find_project_root()
+    payload = yaml.safe_load((root / "config" / "tasks" / "front3d_full_simulation.yaml").read_text(encoding="utf-8"))
+
+    assert set(payload) == {
+        "pipeline",
+        "front3d",
+        "validation",
+        "quality",
+        "label",
+        "floorplan",
+        "postprocess",
+        "batch",
+    }
+    assert "assets" not in payload
+    assert "bistro" not in payload
+    assert "placement" not in payload
+    assert "procedural" not in payload
+    assert "runtime" not in payload
+
+
+def test_front3d_config_keeps_front3d_defaults() -> None:
+    root = find_project_root()
+    payload = yaml.safe_load((root / "config" / "front3d.yaml").read_text(encoding="utf-8"))
+
+    assert payload["pipeline"]["mode"] == "front3d"
+    assert payload["front3d"] == DEFAULT_CONFIG["front3d"]
+    assert payload["floorplan"]["class_mask"] == DEFAULT_CONFIG["floorplan"]["class_mask"]
+    assert "bistro" not in payload
+    assert "procedural" not in payload
+
+
+def test_procedural_front3d_config_keeps_procedural_overrides() -> None:
+    root = find_project_root()
+    payload = yaml.safe_load((root / "config" / "procedural_front3d.yaml").read_text(encoding="utf-8"))
+
+    assert payload["pipeline"]["mode"] == "procedural_front3d"
+    assert payload["front3d"]["arch_variant"] == "raw"
+    assert payload["front3d"]["object_variant"] == "raw"
+    assert set(payload["front3d"]) == {"manifest", "source_dir", "arch_variant", "object_variant", "openings"}
+    assert payload["procedural"]["layout"] == "mixed"
+    assert payload["procedural"] == DEFAULT_CONFIG["procedural"]
+    assert "bistro" not in payload
+    assert "assets" not in payload
+
+
+def test_full_simulation_task_templates_enable_production_outputs() -> None:
+    root = find_project_root()
+    front3d = yaml.safe_load((root / "config" / "tasks" / "front3d_full_simulation.yaml").read_text(encoding="utf-8"))
+    procedural = yaml.safe_load(
+        (root / "config" / "tasks" / "procedural_front3d_full_simulation.yaml").read_text(encoding="utf-8")
+    )
+
+    for payload in (front3d, procedural):
+        assert payload["label"]["ue"]["sampling"]["strategies"] == ["panel", "walk"]
+        assert payload["floorplan"]["class_mask"]["enabled"] is True
+        assert payload["floorplan"]["class_mask"]["furniture_mode"] == "mesh"
+        assert payload["floorplan"]["class_mask"]["furniture_height_m"] == 1.6
+        assert payload["postprocess"]["maps"]["bs_label"]["mode"] == "name"
+        assert payload["postprocess"]["maps"]["bs_label"]["name"] == "label_panel_0p1"
+
+    assert front3d["pipeline"]["scenes"] == 6813
+    assert front3d["front3d"]["select"] == "sequential"
+    assert front3d["label"]["ue"]["sampling"]["grid_m"] == [0.1, 0.2, 0.5]
+    assert front3d["batch"]["workers"] == 24
+    assert front3d["batch"]["scheduler"] == "hybrid"
+    assert front3d["batch"]["max_retries"] == 1
+    assert front3d["postprocess"]["maps"]["scene_glob"] == "front3d_*"
+    assert procedural["pipeline"]["scenes"] == 1
+    assert procedural["label"]["ue"]["sampling"]["grid_m"] == [0.1, 0.2, 0.4, 0.5]
+    assert procedural["batch"]["workers"] == 1
+    assert procedural["postprocess"]["maps"]["scene_glob"] == "procedural_front3d_*"
+    assert procedural["postprocess"]["dataset"]["scene_glob"] == "procedural_front3d_*"
+    assert nested_key_paths(procedural) == nested_key_paths(DEFAULT_CONFIG)
+
+
+@pytest.mark.parametrize(
+    "config_name",
+    [
+        "bistro.yaml",
+        "front3d.yaml",
+        "procedural_front3d.yaml",
+        "tasks/front3d_full_simulation.yaml",
+        "tasks/procedural_front3d_full_simulation.yaml",
+    ],
+)
 def test_project_configs_load_through_config_pipeline(config_name: str) -> None:
     root = find_project_root()
 
@@ -3393,7 +3553,62 @@ def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
 def test_front3d_batch_scheduler_defaults_to_hybrid(tmp_path: Path) -> None:
     args = parse_batch_args(["--config", str(tmp_path / "front3d.yaml")])
 
-    assert args.scheduler == "hybrid"
+    assert args.scheduler is None
+    assert args.workers is None
+    assert args.max_retries is None
+
+
+def test_front3d_batch_uses_yaml_batch_defaults(tmp_path: Path) -> None:
+    pytest.importorskip("trimesh")
+    config_path = make_front3d_runtime_fixture(tmp_path)
+    config_payload = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    config_payload["batch"] = {"workers": 2, "scheduler": "dynamic", "max_retries": 0}
+    config_payload["pipeline"]["run_name"] = "batch_yaml_defaults"
+    config_payload["pipeline"]["scenes"] = 2
+    config_path.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
+
+    exit_code = batch_main(["--config", str(config_path)])
+
+    run_dir = tmp_path / "out" / "batch_yaml_defaults"
+    manifest = json.loads((run_dir / "manifest_batch.json").read_text(encoding="utf-8"))
+    effective = yaml.safe_load((run_dir / "effective_config.yaml").read_text(encoding="utf-8"))
+    assert exit_code == 0
+    assert manifest["workers"] == 2
+    assert manifest["scheduler"] == "dynamic"
+    assert manifest["max_retries"] == 0
+    assert effective["batch"] == {"workers": 2, "scheduler": "dynamic", "max_retries": 0}
+
+
+def test_front3d_batch_cli_overrides_yaml_batch_defaults(tmp_path: Path) -> None:
+    pytest.importorskip("trimesh")
+    config_path = make_front3d_runtime_fixture(tmp_path)
+    config_payload = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    config_payload["batch"] = {"workers": 1, "scheduler": "static", "max_retries": 1}
+    config_payload["pipeline"]["run_name"] = "batch_cli_overrides"
+    config_payload["pipeline"]["scenes"] = 2
+    config_path.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
+
+    exit_code = batch_main(
+        [
+            "--config",
+            str(config_path),
+            "--workers",
+            "2",
+            "--scheduler",
+            "hybrid",
+            "--max-retries",
+            "0",
+        ]
+    )
+
+    run_dir = tmp_path / "out" / "batch_cli_overrides"
+    manifest = json.loads((run_dir / "manifest_batch.json").read_text(encoding="utf-8"))
+    effective = yaml.safe_load((run_dir / "effective_config.yaml").read_text(encoding="utf-8"))
+    assert exit_code == 0
+    assert manifest["workers"] == 2
+    assert manifest["scheduler"] == "hybrid"
+    assert manifest["max_retries"] == 0
+    assert effective["batch"] == {"workers": 2, "scheduler": "hybrid", "max_retries": 0}
 
 
 @pytest.mark.parametrize("scheduler", ["static", "dynamic", "hybrid"])

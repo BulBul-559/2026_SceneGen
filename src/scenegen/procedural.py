@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .front3d import FRONT3D_TO_SCENEGEN, Front3DIndex, matrix_multiply, transformed_bbox
-from .geometry import load_obj_mesh
+from .geometry import clear_obj_mesh_cache, load_obj_mesh
 from .models import Asset, Front3DBaseScene, PlacedAsset, Vec3
 from .paths import find_project_root, portable_path
 
@@ -2608,6 +2608,7 @@ def write_procedural_source_files(
     source_json = source_dir / "scene.json"
     metadata_json = source_dir / "architecture.json"
     write_architecture_obj(architecture_obj, rooms, meshes)
+    clear_obj_mesh_cache()
     bbox_min = (
         min(min(float(value) for value in mesh["xyz"][0::3]) for mesh in meshes),
         min(min(float(value) for value in mesh["xyz"][1::3]) for mesh in meshes),

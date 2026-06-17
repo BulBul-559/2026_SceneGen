@@ -53,18 +53,29 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="SceneGen YAML config. Batch v1 supports front3d and procedural_front3d.",
     )
-    parser.add_argument("--workers", type=int, default=1, help="Number of worker subprocess lanes.")
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="Number of worker subprocess lanes. Overrides batch.workers from YAML when provided.",
+    )
     parser.add_argument(
         "--scheduler",
         choices=("dynamic", "hybrid", "static"),
-        default="hybrid",
+        default=None,
         help=(
-            "Worker scheduling policy. static keeps fixed shard assignment; dynamic uses one shared queue; "
-            "hybrid starts with fixed shards and lets idle workers steal tail tasks."
+            "Worker scheduling policy. Overrides batch.scheduler from YAML when provided. "
+            "static keeps fixed shard assignment; dynamic uses one shared queue; hybrid starts with fixed shards "
+            "and lets idle workers steal tail tasks."
         ),
     )
     parser.add_argument("--resume", action="store_true", help="Resume an existing batch run with the same run_name.")
-    parser.add_argument("--max-retries", type=int, default=1, help="Retries per scene task after subprocess failure.")
+    parser.add_argument(
+        "--max-retries",
+        type=int,
+        default=None,
+        help="Retries per scene task after subprocess failure. Overrides batch.max_retries from YAML when provided.",
+    )
     parser.add_argument(
         "--set",
         action="append",
@@ -228,6 +239,14 @@ def recursive_replace(value: Any, old: str, new: str) -> Any:
     return value
 
 
+def task_seed_for_attempt(task: dict[str, Any], attempt_no: int) -> int:
+    base_seed = int(task["scene_seed"])
+    if attempt_no <= 1 or task.get("mode") != "procedural_front3d":
+        return base_seed
+    retry_rng = random.Random(f"{task['task_id']}:{base_seed}:{attempt_no}")
+    return retry_rng.randrange(1, 2**31)
+
+
 def command_for_task(
     *,
     config_path: Path,
@@ -235,8 +254,10 @@ def command_for_task(
     paths: BatchPaths,
     worker_id: str,
     task: dict[str, Any],
+    attempt_no: int = 1,
 ) -> list[str]:
     worker_output_dir = paths.worker_runs / worker_id
+    scene_seed = task_seed_for_attempt(task, attempt_no)
     set_values = [
         *raw_set_values,
         f"pipeline.output_dir={worker_output_dir}",
@@ -246,7 +267,7 @@ def command_for_task(
         "pipeline.clean=false",
         "runtime.batch_child=true",
         "runtime.skip_summary=true",
-        f"pipeline.seed={int(task['scene_seed'])}",
+        f"pipeline.seed={scene_seed}",
     ]
     if task.get("mode") == "front3d":
         set_values.extend(
@@ -302,7 +323,11 @@ def run_task(
         paths=paths,
         worker_id=worker_id,
         task=task,
+        attempt_no=attempt_no,
     )
+    worker_task_run_dir = paths.worker_runs / worker_id / str(task["task_id"])
+    if worker_task_run_dir.exists():
+        shutil.rmtree(worker_task_run_dir)
     append_jsonl(
         worker_jsonl,
         {
@@ -346,7 +371,7 @@ def run_task(
         raise TaskProcessError(process.returncode, command, process.stdout, process.stderr)
 
     publish_start = time.perf_counter()
-    worker_run_dir = paths.worker_runs / worker_id / str(task["task_id"])
+    worker_run_dir = worker_task_run_dir
     source_scene_key = f"{task.get('scene_prefix', 'front3d')}_0000"
     source_scene_dir = worker_run_dir / source_scene_key
     final_scene_dir = paths.run_dir / str(task["scene_key"])
@@ -681,13 +706,25 @@ def write_manifest_files(paths: BatchPaths, manifest: dict[str, Any]) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    if args.workers < 1:
-        raise ValueError("--workers must be at least 1")
-    if args.max_retries < 0:
-        raise ValueError("--max-retries must be non-negative")
     repo_root = find_project_root()
     config_path = args.config if args.config.is_absolute() else repo_root / args.config
     effective_config, _overrides = load_effective_config(config_path.resolve(), repo_root, args)
+    batch_config = effective_config["batch"]
+    workers = int(args.workers) if args.workers is not None else int(batch_config["workers"])
+    scheduler = str(args.scheduler) if args.scheduler is not None else str(batch_config["scheduler"])
+    max_retries = int(args.max_retries) if args.max_retries is not None else int(batch_config["max_retries"])
+    if workers < 1:
+        raise ValueError("--workers must be at least 1")
+    if max_retries < 0:
+        raise ValueError("--max-retries must be non-negative")
+    if scheduler not in {"dynamic", "hybrid", "static"}:
+        raise ValueError("--scheduler must be dynamic, hybrid, or static")
+    effective_config["batch"] = {
+        **batch_config,
+        "workers": workers,
+        "scheduler": scheduler,
+        "max_retries": max_retries,
+    }
     run_name = effective_config["pipeline"]["run_name"] or make_timestamp()
     effective_config["pipeline"]["run_name"] = run_name
     run_dir = Path(effective_config["pipeline"]["output_dir"]) / run_name
@@ -703,9 +740,9 @@ def main(argv: list[str] | None = None) -> int:
     effective_config.setdefault("runtime", {})
     effective_config["runtime"]["batch"] = {
         "enabled": True,
-        "workers": args.workers,
-        "scheduler": args.scheduler,
-        "max_retries": args.max_retries,
+        "workers": workers,
+        "scheduler": scheduler,
+        "max_retries": max_retries,
         "run_dir": str(run_dir),
     }
     save_effective_config(run_dir / "effective_config.yaml", effective_config)
@@ -713,7 +750,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.resume and paths.plan.is_file():
         tasks = load_plan(paths.plan)
     else:
-        tasks = plan_tasks(effective_config, args.workers)
+        tasks = plan_tasks(effective_config, workers)
         write_plan(paths.plan, tasks)
 
     existing_state = json.loads(paths.state.read_text(encoding="utf-8")) if args.resume and paths.state.is_file() else {}
@@ -721,8 +758,8 @@ def main(argv: list[str] | None = None) -> int:
         "run_name": run_name,
         "run_dir": str(run_dir),
         "status": "running",
-        "workers": args.workers,
-        "max_retries": args.max_retries,
+        "workers": workers,
+        "max_retries": max_retries,
         "total": len(tasks),
         "started_at": existing_state.get("started_at") or now_iso(),
         "tasks": existing_state.get("tasks") or {},
@@ -733,42 +770,42 @@ def main(argv: list[str] | None = None) -> int:
         "batch_started",
         run_name=run_name,
         run_dir=str(run_dir),
-        workers=args.workers,
-        scheduler=args.scheduler,
+        workers=workers,
+        scheduler=scheduler,
         task_count=len(tasks),
         resume=bool(args.resume),
     )
 
     worker_queues: list[queue.Queue[dict[str, Any]]]
-    if args.scheduler in {"static", "hybrid"}:
-        worker_queues = [queue.Queue() for _ in range(args.workers)]
+    if scheduler in {"static", "hybrid"}:
+        worker_queues = [queue.Queue() for _ in range(workers)]
         for task in tasks:
             worker_queues[int(task["shard_id"])].put(task)
     else:
         shared_queue: queue.Queue[dict[str, Any]] = queue.Queue()
         for task in tasks:
             shared_queue.put(task)
-        worker_queues = [shared_queue for _ in range(args.workers)]
+        worker_queues = [shared_queue for _ in range(workers)]
     state_lock = threading.Lock()
     records: list[dict[str, Any]] = []
-    with ThreadPoolExecutor(max_workers=args.workers) as executor:
+    with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = [
             executor.submit(
                 worker_loop,
                 worker_index=worker_index,
                 task_queue=worker_queues[worker_index],
-                steal_queues=worker_queues if args.scheduler == "hybrid" else None,
+                steal_queues=worker_queues if scheduler == "hybrid" else None,
                 total_tasks=len(tasks),
-                scheduler=args.scheduler,
+                scheduler=scheduler,
                 config_path=config_path.resolve(),
                 repo_root=repo_root,
                 raw_set_values=list(args.set_values or []),
                 paths=paths,
-                max_retries=args.max_retries,
+                max_retries=max_retries,
                 state=state,
                 state_lock=state_lock,
             )
-            for worker_index in range(args.workers)
+            for worker_index in range(workers)
         ]
         for future in as_completed(futures):
             records.extend(future.result())
@@ -785,16 +822,16 @@ def main(argv: list[str] | None = None) -> int:
         paths=paths,
         effective_config=effective_config,
         records=records,
-        workers=args.workers,
-        max_retries=args.max_retries,
-        scheduler=args.scheduler,
+        workers=workers,
+        max_retries=max_retries,
+        scheduler=scheduler,
     )
     failed_count = int(manifest["failed_scenes"])
     try:
         postprocess_report = run_batch_postprocess(
             run_dir=paths.run_dir,
             effective_config=effective_config,
-            batch_workers=args.workers,
+            batch_workers=workers,
         )
     except Exception as exc:
         state["status"] = "failed"

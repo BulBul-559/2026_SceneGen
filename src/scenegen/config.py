@@ -434,6 +434,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "overwrite": False,
         },
     },
+    "batch": {
+        "workers": 1,
+        "scheduler": "hybrid",
+        "max_retries": 1,
+    },
     "runtime": {
         "batch_child": False,
         "skip_summary": False,
@@ -1254,6 +1259,11 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     dataset["scene_glob"] = str(dataset["scene_glob"])
     dataset["require_maps"] = as_bool(dataset["require_maps"], "postprocess.dataset.require_maps")
     dataset["overwrite"] = as_bool(dataset["overwrite"], "postprocess.dataset.overwrite")
+
+    batch = normalized["batch"]
+    batch["workers"] = int(batch["workers"])
+    batch["scheduler"] = str(batch["scheduler"])
+    batch["max_retries"] = int(batch["max_retries"])
     return normalized
 
 
@@ -1639,6 +1649,14 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("postprocess.dataset.scene_glob must not be empty")
     if dataset["name"] is not None and ("/" in dataset["name"] or "\\" in dataset["name"]):
         raise ValueError("postprocess.dataset.name must be a directory name, not a path")
+
+    batch = config["batch"]
+    if batch["workers"] < 1:
+        raise ValueError("batch.workers must be at least 1")
+    if batch["scheduler"] not in {"dynamic", "hybrid", "static"}:
+        raise ValueError("batch.scheduler must be 'dynamic', 'hybrid', or 'static'")
+    if batch["max_retries"] < 0:
+        raise ValueError("batch.max_retries must be non-negative")
 
 
 def save_effective_config(path: Path, config: dict[str, Any]) -> None:

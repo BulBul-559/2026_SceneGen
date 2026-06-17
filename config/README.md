@@ -1,10 +1,22 @@
 # SceneGen Config v2 Reference
 
-`config/` 下提供三个模式专用模板：`bistro.yaml`、`front3d.yaml` 和 `procedural_front3d.yaml`。CLI 默认读取 `config/bistro.yaml`；需要合成 3D-FRONT 时使用 `--config config/front3d.yaml`；需要自动生成类 3D-FRONT 场景时使用 `--config config/procedural_front3d.yaml`。模板只保留对应模式常用的配置段，未写出的字段由代码内置默认值补齐。配置 v2 是破坏性版本：旧 YAML 字段和旧显式 CLI 参数不再兼容，未知字段会直接报错。
+`config/` 下提供三份一级基础模板：`bistro.yaml`、`front3d.yaml` 和 `procedural_front3d.yaml`。CLI 默认读取 `config/bistro.yaml`；需要合成 3D-FRONT 时使用 `--config config/front3d.yaml`；需要自动生成类 3D-FRONT 场景时使用 `--config config/procedural_front3d.yaml`。
+
+这三份一级模板按工作流拆分，只保留该任务真正相关的配置段：
+
+- `bistro.yaml`: Bistro 空场景 + Bistro asset catalog + Bistro 随机摆放。
+- `front3d.yaml`: 合成已有 3D-FRONT 场景。
+- `procedural_front3d.yaml`: 自动生成类 3D-FRONT 户型，并使用 3D-FUTURE 家具池摆放物体。
+
+没有写在模板里的字段仍会从代码内置 `DEFAULT_CONFIG` 补齐，并最终写入 run 目录的 `effective_config.yaml`。因此一级模板负责“可读的基础入口”，`config/tasks/*.yaml` 负责具体生产任务参数。
+
+配置 v2 是破坏性版本：旧 YAML 字段和旧显式 CLI 参数不再兼容，未知字段会直接报错。
 
 每次运行都会在 run 目录写出 `effective_config.yaml`，它记录最终真正生效的配置。
 
-`config/tasks/front3d_full_simulation.yaml` 和 `config/tasks/procedural_front3d_full_simulation.yaml` 是后续大规模仿真的任务模板，默认打开 label、geometry sampling floorplan、class mask 和 mesh furniture mask；`label.ue.sampling.strategies` 使用 `[panel, walk]`，`label.ue.sampling.grid_m` 使用 `[0.1, 0.2, 0.4, 0.5]` 四档。label 可行域 mask 固定用 `label.ue.sampling.mask_resolution_m` 构建，默认 `0.05m`，再从这张高精度 mask 中抽取不同 `grid_m` 的 UE 点。任务模板还包含 batch-only 的 `postprocess` 段，默认关闭，需要时可生成 derived maps 并构建 compact vision dataset。
+`config/tasks/front3d_full_simulation.yaml` 是专门合成全量 3D-FRONT 场景的生产任务模板，只保留 Front3D 生产真正用到的配置段，不包含 Bistro、generated 或 `procedural_front3d` 的配置。它默认按 `front3d.select: sequential` 顺序合成本地 phase1 manifest 中的 `6813` 个场景，`batch.workers: 24`，label 使用 `[panel, walk]` 两种策略和 `[0.1, 0.2, 0.5]` 三档 UE 间隔。
+
+`config/tasks/procedural_front3d_full_simulation.yaml` 是自动随机生成场景的任务模板。任务模板同样会通过 `DEFAULT_CONFIG` 补齐未写字段，并在 run 目录的 `effective_config.yaml` 里记录最终生效配置。
 
 ## 合并规则
 
@@ -317,7 +329,7 @@ procedural:
 | 字段 | 可选值 / 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `enabled` | boolean | `false` | 是否在 batch 场景生成后为成功 scene 生成 `maps/geometry.npz`、`maps/propagation.npz` 和 `maps/metadata.json`。 |
-| `workers` | integer / `null` | `null` | maps 阶段 worker 数；为 `null` 时继承 `scenegen-batch --workers`。 |
+| `workers` | integer / `null` | `null` | maps 阶段 worker 数；为 `null` 时继承最终 batch worker 数，即 YAML `batch.workers` 或命令行 `--workers` 覆盖后的值。 |
 | `scene_glob` | glob string | `front3d_*` | 在 run 目录中选择 scene 目录。 |
 | `overwrite` | boolean | `false` | 已有完整 `maps/` 时是否重新生成；`false` 可用于 resume。 |
 | `r_max_m` | float, `>0` | `3.0` | SDF 裁剪半径。 |
@@ -342,6 +354,16 @@ procedural:
 | `scene_glob` | glob string | `front3d_*` | 参与 dataset 构建的 scene 目录。 |
 | `require_maps` | boolean | `true` | 是否要求每个 scene 已有 `maps/geometry.npz` 和 `maps/propagation.npz`。 |
 | `overwrite` | boolean | `false` | dataset 中已有同名 scene 目录时是否覆盖。 |
+
+## batch
+
+`batch` 只由 `scenegen-batch` 使用；普通 `scenegen` 单进程入口不会读取这部分。`scenegen-batch` 会优先使用 YAML 中的 `batch.*`，如果命令行显式传入 `--workers`、`--scheduler` 或 `--max-retries`，则命令行覆盖 YAML。`config/tasks/front3d_full_simulation.yaml` 默认设置为 `workers: 24`，用于全量 Front3D 合成。
+
+| 字段 | 可选值 / 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `workers` | integer, `>=1` | `1` | batch worker 数。Front3D 全量任务模板默认 `24`。 |
+| `scheduler` | `dynamic` / `hybrid` / `static` | `hybrid` | worker 调度策略。`hybrid` 先固定分片，空闲后偷取尾部任务；`dynamic` 共享队列；`static` 严格固定分片。 |
+| `max_retries` | integer, `>=0` | `1` | 单个 scene 子进程失败后的最大重试次数。 |
 
 ## quality
 
@@ -468,7 +490,7 @@ procedural:
 
 ### floorplan.class_mask
 
-仅 `front3d` 支持。开口判定使用共享的 `front3d.openings`。
+仅 `front3d` / `procedural_front3d` 支持。开口判定使用共享的 `front3d.openings`。
 
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
@@ -495,6 +517,15 @@ procedural:
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `tile_size_px` | integer, `>=1` | `360` | 分层预览图 tile 尺寸。 |
+
+## runtime
+
+`runtime` 是运行期控制段，主要给 `scenegen-batch` 子进程使用。普通用户一般保持默认即可。一级模板通常不直接写 `runtime`；它会由 `DEFAULT_CONFIG` 补齐，并出现在最终的 `effective_config.yaml` 中。
+
+| 字段 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `batch_child` | boolean | `false` | 标记当前进程是否由 `scenegen-batch` 作为 worker child 调起。手动单进程运行保持 `false`。 |
+| `skip_summary` | boolean | `false` | batch child 使用，避免每个 worker 子 run 都生成 summary；最终由 batch 顶层统一汇总。 |
 
 ## 常用示例
 
@@ -542,16 +573,12 @@ uv run scenegen \
   --set floorplan.geometry.projection=ray_height_filtered
 ```
 
-使用 3D-FRONT 正式生产模板跑 4 worker batch：
+使用 3D-FRONT 全量正式生产模板。该模板默认 `pipeline.scenes: 6813`、`front3d.select: sequential`、`batch.workers: 24`：
 
 ```bash
 uv run scenegen-batch \
   --config config/tasks/front3d_full_simulation.yaml \
-  --workers 4 \
-  --scheduler hybrid \
-  --max-retries 1 \
-  --set pipeline.scenes=2000 \
-  --set pipeline.run_name=front3d_production_2000
+  --set pipeline.run_name=front3d_full_6813
 ```
 
 使用自动场景生成正式生产模板跑 4 worker batch：
@@ -566,7 +593,7 @@ uv run scenegen-batch \
   --set pipeline.run_name=procedural_front3d_batch_sample
 ```
 
-`scenegen-batch` 不是新的 YAML 字段，而是生产管理入口。它会复用同一份配置和 `--set` 语法，目前支持 `front3d` 和 `procedural_front3d`，并在 run 目录写出 `batch/scene_plan.jsonl`、`batch/state.json`、worker 日志、失败队列、重试队列和 `manifest_batch.json`。`--scheduler hybrid` 是默认策略：先固定分片，worker 自己队列清空后才从剩余任务最多的队列偷取尾部任务；`--scheduler static` 会严格保持固定分片；`--scheduler dynamic` 使用共享任务队列。正式大批量前建议用 30-90 个 scene 试跑对比 worker 数和调度策略。batch child 会跳过自己的 `summary/` 汇总复制，最终由 batch 顶层统一生成 summary；成功 scene 会从 `batch/worker_runs` move 到 run 根目录，worker 子目录只保留日志、配置和失败场景调试材料。
+`scenegen-batch` 是生产管理入口。它会复用同一份配置和 `--set` 语法，目前支持 `front3d` 和 `procedural_front3d`，并在 run 目录写出 `batch/scene_plan.jsonl`、`batch/state.json`、worker 日志、失败队列、重试队列和 `manifest_batch.json`。默认 worker、调度策略和重试次数来自 YAML 的 `batch.*`；命令行 `--workers` / `--scheduler` / `--max-retries` 仍可临时覆盖。batch child 会跳过自己的 `summary/` 汇总复制，最终由 batch 顶层统一生成 summary；成功 scene 会从 `batch/worker_runs` move 到 run 根目录，worker 子目录只保留日志、配置和失败场景调试材料。
 
 单进程和 batch 结束后都会在 run 根目录写出 `visual_index.html`，把每个 scene 的主 `floorplan_*.png`、`class_mask_preview.png` 和 `label_floorplan/*.png` 聚合成一个可打开的检查页。该文件由已有产物生成，不是新的配置项。
 
@@ -575,10 +602,7 @@ uv run scenegen-batch \
 ```bash
 uv run scenegen-batch \
   --config config/tasks/front3d_full_simulation.yaml \
-  --workers 8 \
-  --max-retries 1 \
-  --set pipeline.scenes=2000 \
-  --set pipeline.run_name=front3d_production_2000 \
+  --set pipeline.run_name=front3d_full_6813_maps \
   --set postprocess.maps.enabled=true \
   --set postprocess.dataset.enabled=true \
   --set postprocess.maps.bs_label.mode=name \

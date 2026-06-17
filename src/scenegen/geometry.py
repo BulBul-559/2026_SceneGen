@@ -61,6 +61,12 @@ def load_obj_mesh(path: Path) -> ObjMesh:
     return _load_obj_mesh_cached(str(path.expanduser().resolve()))
 
 
+def clear_obj_mesh_cache() -> None:
+    """Clear cached OBJ meshes after generated OBJ files are overwritten."""
+    _load_obj_mesh_cached.cache_clear()
+    _load_obj_material_mesh_cached.cache_clear()
+
+
 @lru_cache(maxsize=OBJ_MESH_CACHE_SIZE)
 def _load_obj_mesh_cached(path_text: str) -> ObjMesh:
     path = Path(path_text)

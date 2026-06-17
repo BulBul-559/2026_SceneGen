@@ -30,9 +30,9 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 - `src/scenegen/batch.py`: 生产管理入口，支持 `front3d` 和 `procedural_front3d`，负责 scene plan、worker、resume、失败/重试队列和 batch manifest。
 - `src/scenegen/assets/`: Bistro 资产契约、loader、legacy converter、材质映射。
 - `tools/prepare_front3d_phase1.py`: 3D-FRONT 第一阶段离线整理脚本。
-- `config/bistro.yaml`: Bistro 专用模板，也是默认 YAML 入口。
-- `config/front3d.yaml`: 3D-FRONT 专用模板。
-- `config/procedural_front3d.yaml`: 自动生成类 3D-FRONT 场景的实验模板。
+- `config/bistro.yaml`: Bistro 模式一级基础模板，也是默认 YAML 入口。
+- `config/front3d.yaml`: 3D-FRONT 合成模式一级基础模板。
+- `config/procedural_front3d.yaml`: 自动生成类 3D-FRONT 场景的一级基础模板。
 - `data/3D-Front/`: 本地 3D-FRONT 原始数据和整理结果，默认 git ignored。
 
 ## 配置链路
@@ -50,8 +50,8 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 
 维护规则：
 
-- `config/bistro.yaml`、`config/front3d.yaml` 和 `config/procedural_front3d.yaml` 是模式专用覆盖文件，不需要包含无关模式配置。
-- `DEFAULT_CONFIG` 仍是完整 schema；模板缺失的字段会在配置合并时由默认值补齐。
+- `config/bistro.yaml`、`config/front3d.yaml` 和 `config/procedural_front3d.yaml` 按工作流拆分，只保留各自任务相关字段；未写字段由 `DEFAULT_CONFIG` 补齐。
+- `DEFAULT_CONFIG` 是完整 schema 和兜底默认值来源；新增字段时需要同步判断它属于哪个一级模板或具体 `config/tasks/*.yaml`，并更新 `config/README.md`。
 - 需要实验配置时复制对应模板到其他位置，或通过 CLI 覆盖。
 - 配置 v2 不兼容旧 YAML 字段和旧显式 CLI 参数。
 - YAML 或 `--set` 写错字段会直接报错，不应静默忽略。
@@ -134,12 +134,10 @@ uv run scenegen --config config/procedural_front3d.yaml --set pipeline.scenes=1 
 ```bash
 uv run scenegen-batch \
   --config config/tasks/front3d_full_simulation.yaml \
-  --workers 4 \
-  --scheduler hybrid \
-  --max-retries 1 \
-  --set pipeline.scenes=2000 \
-  --set pipeline.run_name=front3d_production_2000
+  --set pipeline.run_name=front3d_full_6813
 ```
+
+`config/tasks/front3d_full_simulation.yaml` 是专门合成 Front3D 全量场景的生产模板，只保留 Front3D 相关配置。它默认 `pipeline.scenes: 6813`、`front3d.select: sequential`、`batch.workers: 24`、`batch.scheduler: hybrid`，label 默认生成 `[panel, walk] * [0.1, 0.2, 0.5]`。
 
 正式 procedural_front3d batch 生产：
 
@@ -153,17 +151,14 @@ uv run scenegen-batch \
   --set pipeline.run_name=procedural_front3d_production_2000
 ```
 
-`scenegen-batch --scheduler hybrid` 是默认调度策略：先固定分片，只有当 worker 自己队列清空且其他队列仍有待处理任务时，才从剩余任务最多的队列偷取尾部任务。`--scheduler static` 会严格保持固定分片；`--scheduler dynamic` 使用共享任务队列，空闲 worker 会继续领取后续 scene。正式大批量前建议用 30-90 scene 对比调度策略和 worker 数。batch child 会设置 `runtime.skip_summary=true`，跳过自己的 `summary/` 汇总复制，最终由 batch 顶层统一生成 summary。成功 scene 发布时会从 `batch/worker_runs` move 到 run 根目录，worker 子 run 不再保留成功场景的完整重复副本，只保留日志、配置、小 manifest 和失败场景调试材料。batch 完成后会写 `manifest.json`、`manifest_batch.json` 和 `manifest_<mode>.json`。
+`scenegen-batch` 默认读取 YAML 的 `batch.workers`、`batch.scheduler` 和 `batch.max_retries`；命令行 `--workers`、`--scheduler`、`--max-retries` 可临时覆盖。`hybrid` 调度会先固定分片，只有当 worker 自己队列清空且其他队列仍有待处理任务时，才从剩余任务最多的队列偷取尾部任务；`static` 严格保持固定分片；`dynamic` 使用共享任务队列。batch child 会设置 `runtime.skip_summary=true`，跳过自己的 `summary/` 汇总复制，最终由 batch 顶层统一生成 summary。成功 scene 发布时会从 `batch/worker_runs` move 到 run 根目录，worker 子 run 不再保留成功场景的完整重复副本，只保留日志、配置、小 manifest 和失败场景调试材料。batch 完成后会写 `manifest.json`、`manifest_batch.json` 和 `manifest_<mode>.json`。
 
 正式生产时也可以在 batch 末尾自动生成 derived maps 和 compact vision dataset：
 
 ```bash
 uv run scenegen-batch \
   --config config/tasks/front3d_full_simulation.yaml \
-  --workers 8 \
-  --max-retries 1 \
-  --set pipeline.scenes=2000 \
-  --set pipeline.run_name=front3d_production_2000 \
+  --set pipeline.run_name=front3d_full_6813_maps \
   --set postprocess.maps.enabled=true \
   --set postprocess.dataset.enabled=true \
   --set postprocess.maps.bs_label.mode=name \
@@ -177,10 +172,8 @@ uv run scenegen-batch \
 ```bash
 uv run scenegen-batch \
   --config config/tasks/front3d_full_simulation.yaml \
-  --workers 4 \
   --resume \
-  --set pipeline.scenes=2000 \
-  --set pipeline.run_name=front3d_production_2000
+  --set pipeline.run_name=front3d_full_6813
 ```
 
 快速 smoke，不生成 floorplan：
