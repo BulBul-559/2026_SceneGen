@@ -4,6 +4,7 @@ import hashlib
 import json
 import random
 from argparse import Namespace
+from collections import Counter
 from copy import deepcopy
 from pathlib import Path
 
@@ -51,6 +52,7 @@ from scenegen.procedural import (
     architecture_meshes_for_rooms,
     assign_room_types_to_areas,
     assign_room_types_to_geometry,
+    candidates_for_asset_reuse,
     candidate_pose_for_policy,
     companion_directions,
     desired_classes_from_profile,
@@ -521,6 +523,44 @@ def test_procedural_placement_groups_select_by_room_type_and_directions() -> Non
     assert rotate_direction((1.0, 0.0), np.pi / 2.0) == pytest.approx((0.0, 1.0))
 
 
+def test_procedural_asset_reuse_filters_room_and_scene_counts() -> None:
+    asset = Asset(
+        name="asset",
+        export_name="asset",
+        obj_file=Path("asset.obj"),
+        width=1.0,
+        length=1.0,
+        height=1.0,
+        placement_class="seat",
+        source_to_sionna_material={},
+        sionna_material_names=("itu-wood",),
+    )
+    sofa_a = ProceduralAssetEntry(model_id="sofa-a", asset=asset, payload={}, semantic={})
+    sofa_b = ProceduralAssetEntry(model_id="sofa-b", asset=asset, payload={}, semantic={})
+
+    allowed, relaxed = candidates_for_asset_reuse(
+        [sofa_a, sofa_b],
+        "room",
+        Counter({"sofa-a": 1}),
+        Counter({"sofa-b": 1}),
+        {"max_per_scene": 1, "max_per_room": 1, "relax_if_needed": True},
+    )
+
+    assert allowed == [sofa_a, sofa_b]
+    assert relaxed is True
+
+    allowed, relaxed = candidates_for_asset_reuse(
+        [sofa_a, sofa_b],
+        "room",
+        Counter({"sofa-a": 1}),
+        Counter({"sofa-b": 1}),
+        {"max_per_scene": 2, "max_per_room": 1, "relax_if_needed": True},
+    )
+
+    assert allowed == [sofa_a]
+    assert relaxed is False
+
+
 def test_procedural_room_profile_filters_match_asset_semantics() -> None:
     asset = Asset(
         name="asset",
@@ -986,6 +1026,20 @@ def test_procedural_object_count_accepts_room_type_overrides(tmp_path: Path) -> 
     assert studio["max"] == 4
     assert studio["area_per_object_m2"] == 8.0
     assert studio["jitter"] == [0, 0]
+
+
+def test_procedural_asset_reuse_rejects_invalid_limits(tmp_path: Path) -> None:
+    root = find_project_root()
+    config_path = tmp_path / "bad_asset_reuse.yaml"
+    config_path.write_text(
+        "procedural:\n"
+        "  asset_reuse:\n"
+        "    max_per_room: 0\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="procedural.asset_reuse.max_per_room"):
+        load_effective_config(config_path, root, parse_args([]))
 
 
 def test_procedural_room_type_weights_reject_all_zero_for_configured_rooms(tmp_path: Path) -> None:

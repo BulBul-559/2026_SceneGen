@@ -984,6 +984,55 @@ def object_count_config_for_room(room_type: str, object_count_config: dict[str, 
     return {key: value for key, value in object_count_config.items() if key != "by_room_type"}
 
 
+def candidates_for_asset_reuse(
+    candidates: list[ProceduralAssetEntry],
+    room_id: str,
+    scene_model_counts: Counter[str],
+    room_model_counts: Counter[str],
+    asset_reuse_config: dict[str, Any],
+) -> tuple[list[ProceduralAssetEntry], bool]:
+    max_per_room = asset_reuse_config.get("max_per_room")
+    max_per_scene = asset_reuse_config.get("max_per_scene")
+    allowed = [
+        entry
+        for entry in candidates
+        if (max_per_room is None or room_model_counts[entry.model_id] < int(max_per_room))
+        and (max_per_scene is None or scene_model_counts[entry.model_id] < int(max_per_scene))
+    ]
+    if allowed:
+        return allowed, False
+    if bool(asset_reuse_config.get("relax_if_needed", True)):
+        return candidates, True
+    return [], False
+
+
+def choose_entry_with_reuse(
+    candidates: list[ProceduralAssetEntry],
+    room_id: str,
+    scene_model_counts: Counter[str],
+    room_model_counts: Counter[str],
+    asset_reuse_config: dict[str, Any],
+    rng: random.Random,
+    stats: dict[str, object],
+) -> ProceduralAssetEntry | None:
+    allowed, relaxed = candidates_for_asset_reuse(candidates, room_id, scene_model_counts, room_model_counts, asset_reuse_config)
+    if relaxed:
+        stats["asset_reuse_relaxed_count"] = int(stats["asset_reuse_relaxed_count"]) + 1
+    if not allowed:
+        stats["asset_reuse_limit_reject_count"] = int(stats["asset_reuse_limit_reject_count"]) + 1
+        return None
+    return rng.choice(allowed)
+
+
+def record_asset_reuse(
+    entry: ProceduralAssetEntry,
+    scene_model_counts: Counter[str],
+    room_model_counts: Counter[str],
+) -> None:
+    scene_model_counts[entry.model_id] += 1
+    room_model_counts[entry.model_id] += 1
+
+
 def semantic_matches_filter(semantic: dict[str, Any], class_filter: dict[str, list[str]]) -> bool:
     for field_name, terms in class_filter.items():
         value = str(semantic.get(field_name, "")).lower()
@@ -1571,6 +1620,8 @@ class ProceduralFront3DGenerator:
         room_boxes: list[tuple[float, float, float, float, float, float]],
         placements: list[PlacedAsset],
         mesh_cache: dict[Path, list[Vec3]],
+        scene_model_counts: Counter[str],
+        room_model_counts: Counter[str],
         stats: dict[str, object],
     ) -> bool:
         anchor_class = str(spec["anchor_class"])
@@ -1585,7 +1636,20 @@ class ProceduralFront3DGenerator:
         gap_min, gap_max = (float(value) for value in spec["companion_gap_m"])
         for _attempt in range(max_attempts):
             stats["relation_group_attempt_count"] = int(stats["relation_group_attempt_count"]) + 1
-            entry = rng.choice(anchor_candidates)
+            attempt_scene_counts = Counter(scene_model_counts)
+            attempt_room_counts = Counter(room_model_counts)
+            entry = choose_entry_with_reuse(
+                anchor_candidates,
+                room.room_id,
+                attempt_scene_counts,
+                attempt_room_counts,
+                self.args.procedural_asset_reuse,
+                rng,
+                stats,
+            )
+            if entry is None:
+                return False
+            record_asset_reuse(entry, attempt_scene_counts, attempt_room_counts)
             policy = placement_policy_for_class(self.args.procedural_placement_policy, anchor_class)
             yaw, center_x, center_y, width, length, _zone = candidate_pose_for_policy(room, entry, policy, margin, rng)
             if width >= room.width - 2.0 * margin or length >= room.length - 2.0 * margin:
@@ -1615,7 +1679,19 @@ class ProceduralFront3DGenerator:
             rng.shuffle(directions)
             group_failed = False
             for direction_x, direction_y in directions:
-                companion = rng.choice(companion_candidates)
+                companion = choose_entry_with_reuse(
+                    companion_candidates,
+                    room.room_id,
+                    attempt_scene_counts,
+                    attempt_room_counts,
+                    self.args.procedural_asset_reuse,
+                    rng,
+                    stats,
+                )
+                if companion is None:
+                    group_failed = True
+                    break
+                record_asset_reuse(companion, attempt_scene_counts, attempt_room_counts)
                 companion_yaw = math.atan2(-direction_y, -direction_x)
                 companion_width, companion_length = procedural_asset_footprint_size(companion, companion_yaw)
                 anchor_half = abs(direction_x) * anchor_width / 2.0 + abs(direction_y) * anchor_length / 2.0
@@ -1665,6 +1741,10 @@ class ProceduralFront3DGenerator:
                         "placement_group_role": role,
                     },
                 )
+            scene_model_counts.clear()
+            scene_model_counts.update(attempt_scene_counts)
+            room_model_counts.clear()
+            room_model_counts.update(attempt_room_counts)
             room_boxes.extend(group_boxes)
             stats["relation_group_success_count"] = group_index + 1
             stats["relation_group_placement_count"] = int(stats["relation_group_placement_count"]) + len(group_items)
@@ -1683,6 +1763,8 @@ class ProceduralFront3DGenerator:
         room_boxes: list[tuple[float, float, float, float, float, float]],
         placements: list[PlacedAsset],
         mesh_cache: dict[Path, list[Vec3]],
+        scene_model_counts: Counter[str],
+        room_model_counts: Counter[str],
         stats: dict[str, object],
     ) -> None:
         for spec in select_room_group_specs(room.room_type, self.args.procedural_placement_groups):
@@ -1706,6 +1788,8 @@ class ProceduralFront3DGenerator:
                 room_boxes,
                 placements,
                 mesh_cache,
+                scene_model_counts,
+                room_model_counts,
                 stats,
             )
             if not placed:
@@ -1737,8 +1821,12 @@ class ProceduralFront3DGenerator:
             "relation_group_name_counts": {},
             "desired_object_counts": desired_object_counts,
             "policy_zone_counts": {},
+            "asset_reuse_relaxed_count": 0,
+            "asset_reuse_limit_reject_count": 0,
         }
         room_boxes: dict[str, list[tuple[float, float, float, float, float, float]]] = {room.room_id: [] for room in rooms}
+        room_model_counts: dict[str, Counter[str]] = {room.room_id: Counter() for room in rooms}
+        scene_model_counts: Counter[str] = Counter()
         mesh_cache: dict[Path, list[Vec3]] = {}
         for room in rooms:
             desired_classes = self.desired_classes_for_room(room, rng)
@@ -1751,6 +1839,8 @@ class ProceduralFront3DGenerator:
                 room_boxes[room.room_id],
                 placements,
                 mesh_cache,
+                scene_model_counts,
+                room_model_counts[room.room_id],
                 stats,
             )
             for class_name in desired_classes:
@@ -1761,7 +1851,17 @@ class ProceduralFront3DGenerator:
                 placed = False
                 for _attempt in range(int(self.args.procedural_max_attempts_per_object)):
                     stats["attempt_count"] = int(stats["attempt_count"]) + 1
-                    entry = rng.choice(candidates)
+                    entry = choose_entry_with_reuse(
+                        candidates,
+                        room.room_id,
+                        scene_model_counts,
+                        room_model_counts[room.room_id],
+                        self.args.procedural_asset_reuse,
+                        rng,
+                        stats,
+                    )
+                    if entry is None:
+                        break
                     margin = float(self.args.procedural_wall_margin_m)
                     policy = placement_policy_for_class(self.args.procedural_placement_policy, class_name)
                     yaw, center_x, center_y, width, length, zone = candidate_pose_for_policy(room, entry, policy, margin, rng)
@@ -1792,6 +1892,7 @@ class ProceduralFront3DGenerator:
                         bbox=bbox,
                         yaw=yaw,
                     )
+                    record_asset_reuse(entry, scene_model_counts, room_model_counts[room.room_id])
                     room_boxes[room.room_id].append(bbox)
                     zone_counts = stats["policy_zone_counts"]
                     if isinstance(zone_counts, dict):

@@ -204,6 +204,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         },
         "max_attempts_per_object": 80,
         "asset_pool_limit": 500,
+        "asset_reuse": {
+            "max_per_room": 1,
+            "max_per_scene": 2,
+            "relax_if_needed": True,
+        },
         "precheck": {
             "enabled": True,
             "max_attempts_per_scene": 5,
@@ -912,6 +917,10 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     procedural["placement_groups"] = normalize_placement_groups(procedural["placement_groups"])
     procedural["max_attempts_per_object"] = int(procedural["max_attempts_per_object"])
     procedural["asset_pool_limit"] = int(procedural["asset_pool_limit"])
+    asset_reuse = procedural["asset_reuse"]
+    asset_reuse["max_per_room"] = None if asset_reuse["max_per_room"] is None else int(asset_reuse["max_per_room"])
+    asset_reuse["max_per_scene"] = None if asset_reuse["max_per_scene"] is None else int(asset_reuse["max_per_scene"])
+    asset_reuse["relax_if_needed"] = as_bool(asset_reuse["relax_if_needed"], "procedural.asset_reuse.relax_if_needed")
     procedural_precheck = procedural["precheck"]
     procedural_precheck["enabled"] = as_bool(procedural_precheck["enabled"], "procedural.precheck.enabled")
     procedural_precheck["max_attempts_per_scene"] = int(procedural_precheck["max_attempts_per_scene"])
@@ -1145,6 +1154,11 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("procedural.max_attempts_per_object must be at least 1")
     if procedural["asset_pool_limit"] < 1:
         raise ValueError("procedural.asset_pool_limit must be at least 1")
+    asset_reuse = procedural["asset_reuse"]
+    if asset_reuse["max_per_room"] is not None and asset_reuse["max_per_room"] < 1:
+        raise ValueError("procedural.asset_reuse.max_per_room must be at least 1 or null")
+    if asset_reuse["max_per_scene"] is not None and asset_reuse["max_per_scene"] < 1:
+        raise ValueError("procedural.asset_reuse.max_per_scene must be at least 1 or null")
     procedural_precheck = procedural["precheck"]
     if procedural_precheck["max_attempts_per_scene"] < 1:
         raise ValueError("procedural.precheck.max_attempts_per_scene must be at least 1")
@@ -1422,6 +1436,7 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         procedural_placement_groups=procedural["placement_groups"],
         procedural_max_attempts_per_object=procedural["max_attempts_per_object"],
         procedural_asset_pool_limit=procedural["asset_pool_limit"],
+        procedural_asset_reuse=procedural["asset_reuse"],
         procedural_precheck_enabled=procedural["precheck"]["enabled"],
         procedural_precheck_max_attempts_per_scene=procedural["precheck"]["max_attempts_per_scene"],
         procedural_precheck_min_placements=procedural["precheck"]["min_placements"],

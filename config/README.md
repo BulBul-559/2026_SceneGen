@@ -132,6 +132,7 @@ uv run scenegen \
 | `placement_groups` | mapping | 见模板 | 可选的关系式家具组合，先尝试 anchor + companion 成组摆放，再用普通采样补齐剩余家具。 |
 | `max_attempts_per_object` | integer, `>=1` | `80` | 每个家具候选最多尝试多少次随机位置和朝向。 |
 | `asset_pool_limit` | integer, `>=1` | `500` | 每个 placement class 最多缓存多少个 3D-FUTURE 资产用于采样。 |
+| `asset_reuse` | mapping | 见模板 | 同一 3D-FUTURE model 在 room/scene 内的复用限制。 |
 | `precheck` | mapping | 见模板 | 程序化场景预检和失败重试设置。 |
 
 ### procedural.object_count
@@ -239,6 +240,18 @@ uv run scenegen \
 `room_type_max_counts` 会在必选房间之后继续约束剩余 room type 抽样，用于避免单个场景里出现过多厨房、餐厅或卫浴。必选数量不能超过对应类型上限；如果所有启用的 `room_types` 都设置了有限上限，上限总容量必须覆盖 `room_count` 的最大值。额外写入但未启用的类型会被忽略，方便通过 YAML 局部覆盖缩小 `room_types`。
 
 `room_type_weights` 只影响剩余 room type 的生成分布，不改变 room profile 本身。权重只对同时出现在 `room_types` 中的类型生效；额外写入的类型会被忽略。所有已启用 `room_types` 的权重都为 `0` 时会报错，避免生成阶段没有可选 room type。
+
+### procedural.asset_reuse
+
+用于减少同一模型在单个房间或单个场景内重复出现，提升程序化数据的多样性。
+
+| 字段 | 可选值 / 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `max_per_room` | integer / `null` | `1` | 同一 model 在同一个 room 中最多出现几次；`null` 表示不限制。 |
+| `max_per_scene` | integer / `null` | `2` | 同一 model 在同一个 scene 中最多出现几次；`null` 表示不限制。 |
+| `relax_if_needed` | boolean | `true` | 当候选池不足、严格限制会导致无法摆放时，是否临时放宽复用限制。 |
+
+放宽次数会写入 `procedural.placement_stats.asset_reuse_relaxed_count`，便于批量生产后检查资产池是否过窄。
 
 示例：
 

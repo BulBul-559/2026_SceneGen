@@ -187,6 +187,10 @@ procedural:
           max_attempts: 20
   max_attempts_per_object: 80
   asset_pool_limit: 500
+  asset_reuse:
+    max_per_room: 1
+    max_per_scene: 2
+    relax_if_needed: true
   precheck:
     enabled: true
     max_attempts_per_scene: 5
