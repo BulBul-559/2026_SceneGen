@@ -11,7 +11,7 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 - `bistro`: 主实验模式。读取 `data/scene/scene.obj` 和 `data/catalogs/bistro.v1.json`，随机摆放桌椅、地面物体、桌面小物和 Bistro 已有台面小物。
 - `generated`: 简单矩形房间 smoke/test 模式，保留用于快速验证生成链路。
 - `front3d`: 复现并合成 3D-FRONT 原始已有组合场景。读取 `data/3D-Front/scenegen_manifest.json`，使用整理后的建筑结构和家具实例输出与 Bistro 一致的目录结构。
-- `procedural_front3d`: 实验性自动生成模式。按 `procedural.layout` 采样多房间户型，默认 `split_tree` 从完整 apartment footprint 递归切分房间；随后写出 Front3D-like 建筑 `procedural_source/scene.json` / `architecture.obj`，包括 floor、ceiling、wall、door 和外墙 window mesh；再按 `procedural.object_count` 计算每房家具数量，并从 3D-FUTURE 资产池中按 `procedural.room_profiles` 的类别序列和 semantic filter 摆放家具。位置采样由 `procedural.placement_policy` 控制，默认 `floor` 靠墙、`table` 靠中心、`seat` 自由采样；餐厅、卧室、书房等可通过 `procedural.placement_groups` 先生成 anchor + companion 关系组，例如餐桌椅、床 + 床头柜或书桌椅。生成后会按 `procedural.precheck` 检查摆放数量完成率，失败时换 seed 重试同一编号；通过后复用 front3d 的 OBJ/XML、label、floorplan、class mask、quality 和 statistics 输出链路。
+- `procedural_front3d`: 实验性自动生成模式。按 `procedural.layout` 采样多房间户型，默认 `split_tree` 从完整 apartment footprint 递归切分房间；随后写出 Front3D-like 建筑 `procedural_source/scene.json` / `architecture.obj`，包括 floor、ceiling、wall、door、外墙 window mesh、room adjacency 和门洞 bbox；再按 `procedural.object_count` 计算每房家具数量，并从 3D-FUTURE 资产池中按 `procedural.room_profiles` 的类别序列和 semantic filter 摆放家具。位置采样由 `procedural.placement_policy` 控制，默认 `floor` 靠墙、`table` 靠中心、`seat` 自由采样；餐厅、卧室、书房等可通过 `procedural.placement_groups` 先生成 anchor + companion 关系组，例如餐桌椅、床 + 床头柜或书桌椅。生成后会按 `procedural.precheck` 检查摆放数量完成率，失败时换 seed 重试同一编号；通过后复用 front3d 的 OBJ/XML、label、floorplan、class mask、quality 和 statistics 输出链路。
 
 `front3d` v1 只合成已有 3D-FRONT 场景，不做基于 3D-FRONT 资产池的随机重排。`procedural_front3d` 是正在开发的无限场景生成 baseline，当前仍是规则系统，不是完整 ProcTHOR/Infinigen 级别的语义约束生成器。
 
@@ -239,7 +239,7 @@ summary/
 
 `front3d` 的 `placements.json` 中 `sionna_assets.timings_s` 会记录 Sionna XML 资产导出的细分耗时，包括建筑拆分、家具资产拆分和 XML 写入，用于定位 `build_scene` 阶段瓶颈。
 
-`procedural_front3d` 的 scene record 中 `procedural.rooms[*].profile` / `profile_classes` 会记录每个房间使用的 furniture profile；`procedural.timings_s` 和 `procedural.placement_stats` 会记录 layout、建筑 mesh/source 写出、家具摆放、关系组尝试/成功次数、候选尝试次数、精确 bbox 计算次数和粗略碰撞拒绝次数。当前摆放阶段先用资产目录尺寸做近似 footprint 过滤，只有候选通过房间边界和粗略避碰后才加载 OBJ 计算精确 bbox；这是程序化模式第一轮性能优化的关键。
+`procedural_front3d` 的 scene record 中 `procedural.rooms[*].profile` / `profile_classes` 会记录每个房间使用的 furniture profile；`procedural.adjacency` 会记录相邻 room、共享墙方向、门洞 bbox 和门中心点；`procedural.timings_s` 和 `procedural.placement_stats` 会记录 layout、建筑 mesh/source 写出、家具摆放、关系组尝试/成功次数、候选尝试次数、精确 bbox 计算次数和粗略碰撞拒绝次数。当前摆放阶段先用资产目录尺寸做近似 footprint 过滤，只有候选通过房间边界和粗略避碰后才加载 OBJ 计算精确 bbox；这是程序化模式第一轮性能优化的关键。
 
 `label.overlays[*].timings_s` 会记录每张 label floorplan overlay 的读入、画布准备、点位绘制和缩放保存耗时。当前 overlay PNG 使用无损快速压缩级别 `png_compress_level: 1`；全配置下 overlay 通常瓶颈在 `resize_save`，不是 UE/BS 点绘制。
 

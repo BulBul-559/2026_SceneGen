@@ -233,7 +233,7 @@ uv run scenegen-batch \
 `procedural_front3d` 是自动场景生成的第一版 baseline，目标是提供接近无限的类 Front3D 样本。它当前按阶段执行：
 
 1. 按 `procedural.layout` 采样多房间户型：默认 `split_tree` 会从完整 apartment footprint 递归切分房间，`grid` 可用于规整行列对照；随后生成 floor、ceiling、wall、door 和外墙 window mesh。
-2. 写出 Front3D-like `procedural_source/scene.json` 与 `procedural_source/architecture.json`，供 label、class mask 和 floorplan 复用。
+2. 写出 Front3D-like `procedural_source/scene.json` 与 `procedural_source/architecture.json`，同时记录 room adjacency 和门洞 bbox，供 label、class mask、floorplan、路径规划和 debug 复用。
 3. 按 `procedural.object_count` 为每个 room 计算家具数量，小房间少放、大房间多放。
 4. 从 `data/3D-Front/scenegen_manifest.json` 的 3D-FUTURE 物体池中按 `procedural.room_profiles` 配置的房间家具类别序列和 semantic filter 筛选家具。
 5. 先按 `procedural.placement_groups` 尝试生成局部关系组，例如餐厅的餐桌椅组合、卧室的床 + 床头柜组合、书房的书桌椅组合；失败时不会丢弃目标 class，会回落到普通逐个摆放。
@@ -242,7 +242,7 @@ uv run scenegen-batch \
 8. 按 `procedural.precheck` 检查实际家具数、目标完成率和跳过比例；失败时自动换 seed 重试补齐同一输出编号。
 9. 复用现有 `scene.obj`、`scene.xml`、`label/`、`floorplan/`、`class_mask`、quality 和 statistics 输出链路。
 
-第一版仍是规则 baseline：房间拓扑和关系约束还比较轻量；建筑结构已支持外墙窗户玻璃面；家具数量已经支持 `procedural.object_count` 面积自适应，家具组合已经迁移到 `procedural.room_profiles`，可以按房间类型配置 `table`、`seat`、`floor` 的组合序列，并可用 `category`、`super_category`、`name`、`material` 关键词筛选更合适的资产；位置采样支持 `procedural.placement_policy` 的中心/靠墙偏置，局部组合支持 `procedural.placement_groups` 的 anchor + companion 关系。程序化预检会在 label/floorplan 前过滤摆放过少或失败比例过高的样本。后续可以逐步替换为更强的 room planner、语义资产组、约束求解器和可达性/连通性验证。
+第一版仍是规则 baseline：房间拓扑和关系约束还比较轻量；建筑结构已支持外墙窗户玻璃面，并会输出相邻房间的连通关系和门洞位置；家具数量已经支持 `procedural.object_count` 面积自适应，家具组合已经迁移到 `procedural.room_profiles`，可以按房间类型配置 `table`、`seat`、`floor` 的组合序列，并可用 `category`、`super_category`、`name`、`material` 关键词筛选更合适的资产；位置采样支持 `procedural.placement_policy` 的中心/靠墙偏置，局部组合支持 `procedural.placement_groups` 的 anchor + companion 关系。程序化预检会在 label/floorplan 前过滤摆放过少或失败比例过高的样本。后续可以逐步替换为更强的 room planner、语义资产组、约束求解器和可达性/连通性验证。
 
 ## 生产运行与日志
 

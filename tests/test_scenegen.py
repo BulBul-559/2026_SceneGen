@@ -58,6 +58,7 @@ from scenegen.procedural import (
     procedural_asset_approx_bbox,
     procedural_asset_footprint_size,
     rotate_direction,
+    room_adjacencies_for_rooms,
     select_room_group_specs,
     select_room_profile,
     write_procedural_source_files,
@@ -206,12 +207,21 @@ def test_procedural_architecture_source_contract(tmp_path: Path) -> None:
     assert max(all_x) == pytest.approx(8.0)
     assert max(all_y) == pytest.approx(3.0)
 
+    adjacencies = room_adjacencies_for_rooms(rooms, wall_thickness=0.2, door_width=1.0)
+    assert len(adjacencies) == 1
+    adjacency = adjacencies[0]
+    assert adjacency["rooms"] == ["proc_room_00", "proc_room_01"]
+    assert adjacency["orientation"] == "vertical"
+    assert adjacency["door_width_m"] == pytest.approx(1.0)
+    assert adjacency["door_center_xy"] == pytest.approx([4.0, 1.5])
+
     architecture_obj, source_json, metadata_json, bbox_min, bbox_max = write_procedural_source_files(
         tmp_path / "scene",
         "procedural_test_scene",
         rooms,
         meshes,
         room_children,
+        adjacencies,
     )
     source_payload = json.loads(source_json.read_text(encoding="utf-8"))
     metadata = json.loads(metadata_json.read_text(encoding="utf-8"))
@@ -221,12 +231,16 @@ def test_procedural_architecture_source_contract(tmp_path: Path) -> None:
     assert "usemtl window" in obj_text
     assert source_payload["uid"] == "procedural_test_scene"
     assert len(source_payload["scene"]["room"]) == 2
+    assert source_payload["procedural"]["adjacency_count"] == 1
+    assert source_payload["procedural"]["adjacency"][0]["rooms"] == ["proc_room_00", "proc_room_01"]
     assert any(mesh["type"] == "Door" for mesh in source_payload["mesh"])
     assert any(mesh["type"] == "Window" for mesh in source_payload["mesh"])
     assert bbox_min == pytest.approx((0.0, 0.0, 0.0))
     assert bbox_max == pytest.approx((8.0, 3.0, 3.0))
     assert metadata["asset_kind"] == "architecture"
     assert metadata["procedural"]["room_count"] == 2
+    assert metadata["procedural"]["adjacency_count"] == 1
+    assert metadata["procedural"]["adjacency"][0]["door_bounds_xy"] == pytest.approx([3.9, 1.0, 4.1, 2.0])
     assert "itu-glass" in metadata["materials"]["sionna"]
     assert any(mapping["source"] == "window" and mapping["sionna"] == "itu-glass" for mapping in metadata["materials"]["source_to_sionna"])
 

@@ -663,6 +663,74 @@ def append_wall_with_center_door(
     meshes.append(mesh_payload(f"door_vertical_{len(meshes):04d}", "Door", door_vertices, door_faces))
 
 
+def room_adjacencies_for_rooms(
+    rooms: list[ProceduralRoom],
+    *,
+    wall_thickness: float,
+    door_width: float,
+) -> list[dict[str, object]]:
+    adjacencies: list[dict[str, object]] = []
+    for left_index, left_room in enumerate(rooms):
+        for right_room in rooms[left_index + 1 :]:
+            if abs(left_room.x1 - right_room.x0) < 1e-6 or abs(right_room.x1 - left_room.x0) < 1e-6:
+                x = left_room.x1 if abs(left_room.x1 - right_room.x0) < 1e-6 else right_room.x1
+                interval = overlapping_interval(left_room.y0, left_room.y1, right_room.y0, right_room.y1)
+                if interval is None:
+                    continue
+                start, end = interval
+                length = end - start
+                gap = min(max(0.0, door_width), max(0.0, length - 2.0e-6))
+                gap_start = start + (length - gap) / 2.0
+                gap_end = gap_start + gap
+                adjacencies.append(
+                    {
+                        "rooms": [left_room.room_id, right_room.room_id],
+                        "room_types": [left_room.room_type, right_room.room_type],
+                        "orientation": "vertical",
+                        "wall_axis": "x",
+                        "wall_center_m": round(x, 6),
+                        "shared_interval_m": [round(start, 6), round(end, 6)],
+                        "door_width_m": round(gap, 6),
+                        "door_bounds_xy": [
+                            round(x - wall_thickness / 2.0, 6),
+                            round(gap_start, 6),
+                            round(x + wall_thickness / 2.0, 6),
+                            round(gap_end, 6),
+                        ],
+                        "door_center_xy": [round(x, 6), round((gap_start + gap_end) / 2.0, 6)],
+                    }
+                )
+            if abs(left_room.y1 - right_room.y0) < 1e-6 or abs(right_room.y1 - left_room.y0) < 1e-6:
+                y = left_room.y1 if abs(left_room.y1 - right_room.y0) < 1e-6 else right_room.y1
+                interval = overlapping_interval(left_room.x0, left_room.x1, right_room.x0, right_room.x1)
+                if interval is None:
+                    continue
+                start, end = interval
+                length = end - start
+                gap = min(max(0.0, door_width), max(0.0, length - 2.0e-6))
+                gap_start = start + (length - gap) / 2.0
+                gap_end = gap_start + gap
+                adjacencies.append(
+                    {
+                        "rooms": [left_room.room_id, right_room.room_id],
+                        "room_types": [left_room.room_type, right_room.room_type],
+                        "orientation": "horizontal",
+                        "wall_axis": "y",
+                        "wall_center_m": round(y, 6),
+                        "shared_interval_m": [round(start, 6), round(end, 6)],
+                        "door_width_m": round(gap, 6),
+                        "door_bounds_xy": [
+                            round(gap_start, 6),
+                            round(y - wall_thickness / 2.0, 6),
+                            round(gap_end, 6),
+                            round(y + wall_thickness / 2.0, 6),
+                        ],
+                        "door_center_xy": [round((gap_start + gap_end) / 2.0, 6), round(y, 6)],
+                    }
+                )
+    return adjacencies
+
+
 def exterior_window_sides(
     room: ProceduralRoom,
     min_x: float,
@@ -872,6 +940,7 @@ def write_procedural_source_files(
     rooms: list[ProceduralRoom],
     meshes: list[dict[str, object]],
     room_children: list[dict[str, object]],
+    adjacencies: list[dict[str, object]] | None = None,
 ) -> tuple[Path, Path, Path, tuple[float, float, float], tuple[float, float, float]]:
     source_dir = scene_dir / "procedural_source"
     source_dir.mkdir(parents=True, exist_ok=True)
@@ -909,6 +978,7 @@ def write_procedural_source_files(
         "furniture": [],
         "mesh": meshes,
         "scene": {"room": rooms_payload},
+        "procedural": {"adjacency_count": len(adjacencies or []), "adjacency": adjacencies or []},
     }
     source_json.write_text(json.dumps(source_payload, ensure_ascii=False, indent=2), encoding="utf-8")
     metadata_payload = {
@@ -933,6 +1003,8 @@ def write_procedural_source_files(
         },
         "procedural": {
             "room_count": len(rooms),
+            "adjacency_count": len(adjacencies or []),
+            "adjacency": adjacencies or [],
             "rooms": [
                 {
                     "room_id": room.room_id,
@@ -1316,6 +1388,11 @@ class ProceduralFront3DGenerator:
             window_config=dict(self.args.procedural_windows),
             rng=rng,
         )
+        adjacencies = room_adjacencies_for_rooms(
+            rooms,
+            wall_thickness=float(self.args.procedural_wall_thickness_m),
+            door_width=float(self.args.procedural_door_width_m),
+        )
         scene_id = f"procedural_{scene_index:04d}_{rng.randrange(1, 2**31):08x}"
         timings["architecture_mesh"] = time.perf_counter() - stage_start
         stage_start = time.perf_counter()
@@ -1325,6 +1402,7 @@ class ProceduralFront3DGenerator:
             rooms,
             meshes,
             room_children,
+            adjacencies,
         )
         timings["write_procedural_source"] = time.perf_counter() - stage_start
         base_scene = Front3DBaseScene(
@@ -1348,6 +1426,8 @@ class ProceduralFront3DGenerator:
             "scene_id": scene_id,
             "layout": str(self.args.procedural_layout),
             "room_count": len(rooms),
+            "adjacency_count": len(adjacencies),
+            "adjacency": adjacencies,
             "window_count": sum(1 for mesh in meshes if str(mesh["type"]).lower() == "window"),
             "rooms": [
                 self._room_report(
