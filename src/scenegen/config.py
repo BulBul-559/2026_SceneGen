@@ -90,7 +90,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             },
             "Bedroom": {
                 "classes": ["floor", "table", "table", "seat"],
-                "filters": {"floor": {"super_category": ["bed"]}},
+                "filters": {"floor": {"super_category": ["bed"]}, "table": {"category": ["nightstand"]}},
             },
             "DiningRoom": {
                 "classes": ["table", "seat", "seat", "seat", "seat"],
@@ -116,6 +116,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
                         "companion_class": "seat",
                         "companion_count": [2, 4],
                         "companion_gap_m": [0.1, 0.35],
+                        "max_attempts": 30,
+                    }
+                ],
+                "Bedroom": [
+                    {
+                        "name": "bed_side_tables",
+                        "anchor_class": "floor",
+                        "companion_class": "table",
+                        "companion_count": [1, 2],
+                        "companion_gap_m": [0.05, 0.25],
                         "max_attempts": 30,
                     }
                 ],

@@ -57,6 +57,7 @@ from scenegen.procedural import (
     placement_policy_for_class,
     procedural_asset_approx_bbox,
     procedural_asset_footprint_size,
+    rotate_direction,
     select_room_group_specs,
     select_room_profile,
     write_procedural_source_files,
@@ -357,10 +358,13 @@ def test_procedural_placement_groups_select_by_room_type_and_directions() -> Non
 
     specs = select_room_group_specs("LargeDiningRoom", groups)
     assert specs[0]["name"] == "dining_table_set"
+    assert select_room_group_specs("Bedroom", DEFAULT_CONFIG["procedural"]["placement_groups"])[0]["name"] == "bed_side_tables"
+    assert DEFAULT_CONFIG["procedural"]["room_profiles"]["Bedroom"]["filters"]["table"]["category"] == ["nightstand"]
     assert companion_directions(2) == [(-1.0, 0.0), (1.0, 0.0)]
     four_directions = companion_directions(4)
     assert len(four_directions) == 4
     assert (0.0, -1.0) in four_directions
+    assert rotate_direction((1.0, 0.0), np.pi / 2.0) == pytest.approx((0.0, 1.0))
 
 
 def test_procedural_room_profile_filters_match_asset_semantics() -> None:

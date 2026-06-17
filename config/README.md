@@ -162,6 +162,7 @@ uv run scenegen \
 当前第一版支持 `anchor_class + companion_class` 的局部组合，适合餐桌椅、书桌椅这类结构。默认：
 
 - `DiningRoom`: `dining_table_set`，1 张 `table` + 2 到 4 把 `seat`。
+- `Bedroom`: `bed_side_tables`，1 个 `floor` 大件床 + 1 到 2 个 `table` 床头柜。
 - `StudyRoom`: `desk_chair_pair`，1 张 `table` + 1 把 `seat`。
 
 | 字段 | 可选值 / 类型 | 默认值 | 说明 |
@@ -211,11 +212,15 @@ procedural:
       filters:
         floor:
           super_category: [bed]
+        table:
+          category: [nightstand]
     DiningRoom:
       classes: [table, seat, seat, seat, seat]
       filters:
         table:
           category: [dining]
+        seat:
+          category: [dining chair]
 ```
 
 ## validation

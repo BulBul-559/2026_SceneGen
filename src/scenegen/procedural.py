@@ -577,6 +577,13 @@ def companion_directions(count: int) -> list[tuple[float, float]]:
     return [(math.cos(index * math.tau / count), math.sin(index * math.tau / count)) for index in range(count)]
 
 
+def rotate_direction(direction: tuple[float, float], yaw: float) -> tuple[float, float]:
+    cos_yaw = math.cos(yaw)
+    sin_yaw = math.sin(yaw)
+    x, y = direction
+    return (x * cos_yaw - y * sin_yaw, x * sin_yaw + y * cos_yaw)
+
+
 def overlapping_interval(a0: float, a1: float, b0: float, b1: float) -> tuple[float, float] | None:
     start = max(a0, b0)
     end = min(a1, b1)
@@ -947,7 +954,7 @@ class ProceduralFront3DGenerator:
             anchor_center_y = (bbox[2] + bbox[3]) / 2.0
             anchor_width = bbox[1] - bbox[0]
             anchor_length = bbox[3] - bbox[2]
-            directions = companion_directions(companion_count)
+            directions = [rotate_direction(direction, yaw) for direction in companion_directions(companion_count)]
             rng.shuffle(directions)
             group_failed = False
             for direction_x, direction_y in directions:
