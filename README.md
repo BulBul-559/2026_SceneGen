@@ -445,6 +445,7 @@ label:
       min_room_area_m2: 4.0
       area_per_point_m2: 12.0
     center:
+      enabled: true
       initial_radius_m: 0.2
       radius_step_m: 0.1
       max_radius_m: 2.0
@@ -553,4 +554,4 @@ uv run scenegen --set pipeline.mode=bistro --set pipeline.scenes=1 --set pipelin
   - `manifest.json`
   - `effective_config.yaml`
   - 测试用例
-- floorplan 几何图基于生成后的 OBJ，因此会反映最终几何结果；语义图基于内存中的 `PlacedAsset`，需要时可以通过配置打开。
+- floorplan 几何图基于生成后的 OBJ，因此会反映最终几何结果；训练语义类信息现在由可选 `floorplan.class_mask` 输出，不再保留旧 semantic floorplan。
