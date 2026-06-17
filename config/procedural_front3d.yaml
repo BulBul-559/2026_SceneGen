@@ -21,6 +21,7 @@ front3d:
     include_windows_as_wall: true
 
 procedural:
+  layout: split_tree
   room_count: [3, 6]
   room_width_m: [3.2, 5.8]
   room_length_m: [3.2, 6.4]

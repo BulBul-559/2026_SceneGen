@@ -232,7 +232,7 @@ uv run scenegen-batch \
 
 `procedural_front3d` 是自动场景生成的第一版 baseline，目标是提供接近无限的类 Front3D 样本。它当前按阶段执行：
 
-1. 随机采样多房间矩形户型，生成 floor、ceiling、wall 和 door mesh。
+1. 按 `procedural.layout` 采样多房间户型：默认 `split_tree` 会从完整 apartment footprint 递归切分房间，`grid` 可用于规整行列对照；随后生成 floor、ceiling、wall 和 door mesh。
 2. 写出 Front3D-like `procedural_source/scene.json` 与 `procedural_source/architecture.json`，供 label、class mask 和 floorplan 复用。
 3. 从 `data/3D-Front/scenegen_manifest.json` 的 3D-FUTURE 物体池中按 placement class 和简单房间语义筛选家具。
 4. 在每个 room 内进行 bbox 约束摆放，避免越界和家具间碰撞。

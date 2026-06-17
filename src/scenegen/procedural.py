@@ -55,6 +55,26 @@ class ProceduralSceneBuild:
     generation_report: dict[str, object]
 
 
+@dataclass(frozen=True)
+class LayoutRegion:
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+
+    @property
+    def width(self) -> float:
+        return self.x1 - self.x0
+
+    @property
+    def length(self) -> float:
+        return self.y1 - self.y0
+
+    @property
+    def area(self) -> float:
+        return self.width * self.length
+
+
 def rotation_z_matrix(yaw: float) -> tuple[float, ...]:
     cos_yaw = math.cos(yaw)
     sin_yaw = math.sin(yaw)
@@ -244,7 +264,20 @@ def write_architecture_obj(path: Path, rooms: list[ProceduralRoom], meshes: list
         handle.write(f"# room_count {len(rooms)}\n")
 
 
-def make_room_layout(
+def room_type_sequence(room_count: int, room_types: tuple[str, ...], rng: random.Random, *, shuffle: bool) -> list[str]:
+    if not room_types:
+        return ["Room" for _ in range(room_count)]
+    if not shuffle:
+        return [room_types[index % len(room_types)] for index in range(room_count)]
+    sequence: list[str] = []
+    while len(sequence) < room_count:
+        batch = list(room_types)
+        rng.shuffle(batch)
+        sequence.extend(batch)
+    return sequence[:room_count]
+
+
+def make_grid_room_layout(
     rng: random.Random,
     room_count_range: tuple[int, int],
     room_width_range: tuple[float, float],
@@ -258,6 +291,7 @@ def make_room_layout(
     column_widths = [round(rng.uniform(*room_width_range), 3) for _ in range(columns)]
     row_lengths = [round(rng.uniform(*room_length_range), 3) for _ in range(rows)]
     height = round(rng.uniform(*height_range), 3)
+    type_sequence = room_type_sequence(room_count, room_types, rng, shuffle=False)
     rooms: list[ProceduralRoom] = []
     room_index = 0
     y0 = 0.0
@@ -266,11 +300,10 @@ def make_room_layout(
         for col in range(columns):
             if room_index >= room_count:
                 break
-            room_type = room_types[room_index % len(room_types)] if room_types else "Room"
             rooms.append(
                 ProceduralRoom(
                     room_id=f"proc_room_{room_index:02d}",
-                    room_type=room_type,
+                    room_type=type_sequence[room_index],
                     x0=round(x0, 6),
                     y0=round(y0, 6),
                     x1=round(x0 + column_widths[col], 6),
@@ -282,6 +315,145 @@ def make_room_layout(
             room_index += 1
         y0 += row_lengths[row]
     return rooms
+
+
+def split_region_once(
+    rng: random.Random,
+    region: LayoutRegion,
+    room_width_range: tuple[float, float],
+    room_length_range: tuple[float, float],
+) -> tuple[LayoutRegion, LayoutRegion] | None:
+    min_width = float(room_width_range[0])
+    min_length = float(room_length_range[0])
+    can_split_x = region.width >= 2.0 * min_width
+    can_split_y = region.length >= 2.0 * min_length
+    if not can_split_x and not can_split_y:
+        return None
+    if can_split_x and can_split_y:
+        split_x = region.width / max(region.length, 1e-9) >= rng.uniform(0.75, 1.25)
+    else:
+        split_x = can_split_x
+    ratio = rng.uniform(0.38, 0.62)
+    if split_x:
+        cut = region.x0 + region.width * ratio
+        cut = min(max(cut, region.x0 + min_width), region.x1 - min_width)
+        cut = round(cut, 6)
+        return (
+            LayoutRegion(region.x0, region.y0, cut, region.y1),
+            LayoutRegion(cut, region.y0, region.x1, region.y1),
+        )
+    cut = region.y0 + region.length * ratio
+    cut = min(max(cut, region.y0 + min_length), region.y1 - min_length)
+    cut = round(cut, 6)
+    return (
+        LayoutRegion(region.x0, region.y0, region.x1, cut),
+        LayoutRegion(region.x0, cut, region.x1, region.y1),
+    )
+
+
+def make_split_tree_room_layout(
+    rng: random.Random,
+    room_count_range: tuple[int, int],
+    room_width_range: tuple[float, float],
+    room_length_range: tuple[float, float],
+    height_range: tuple[float, float],
+    room_types: tuple[str, ...],
+) -> list[ProceduralRoom]:
+    room_count = rng.randint(room_count_range[0], room_count_range[1])
+    scale = math.sqrt(room_count)
+    root_width = round(rng.uniform(room_width_range[0] * scale, room_width_range[1] * scale), 3)
+    root_length = round(rng.uniform(room_length_range[0] * scale, room_length_range[1] * scale), 3)
+    regions = [LayoutRegion(0.0, 0.0, root_width, root_length)]
+    while len(regions) < room_count:
+        candidates = sorted(enumerate(regions), key=lambda item: item[1].area, reverse=True)
+        split_result: tuple[int, tuple[LayoutRegion, LayoutRegion]] | None = None
+        for index, region in candidates:
+            split = split_region_once(rng, region, room_width_range, room_length_range)
+            if split is not None:
+                split_result = (index, split)
+                break
+        if split_result is None:
+            # Configuration is too tight for the sampled count; returning fewer rooms is better than
+            # manufacturing invalid zero-area regions.
+            break
+        index, (left, right) = split_result
+        regions.pop(index)
+        regions.extend([left, right])
+    regions = sorted(regions, key=lambda region: (region.y0, region.x0))
+    height = round(rng.uniform(*height_range), 3)
+    type_sequence = room_type_sequence(len(regions), room_types, rng, shuffle=True)
+    return [
+        ProceduralRoom(
+            room_id=f"proc_room_{index:02d}",
+            room_type=type_sequence[index],
+            x0=round(region.x0, 6),
+            y0=round(region.y0, 6),
+            x1=round(region.x1, 6),
+            y1=round(region.y1, 6),
+            height=height,
+        )
+        for index, region in enumerate(regions)
+    ]
+
+
+def make_room_layout(
+    rng: random.Random,
+    layout: str,
+    room_count_range: tuple[int, int],
+    room_width_range: tuple[float, float],
+    room_length_range: tuple[float, float],
+    height_range: tuple[float, float],
+    room_types: tuple[str, ...],
+) -> list[ProceduralRoom]:
+    if layout == "grid":
+        return make_grid_room_layout(rng, room_count_range, room_width_range, room_length_range, height_range, room_types)
+    if layout == "split_tree":
+        return make_split_tree_room_layout(rng, room_count_range, room_width_range, room_length_range, height_range, room_types)
+    raise ValueError(f"Unsupported procedural layout: {layout}")
+
+
+def overlapping_interval(a0: float, a1: float, b0: float, b1: float) -> tuple[float, float] | None:
+    start = max(a0, b0)
+    end = min(a1, b1)
+    if end - start <= 1e-6:
+        return None
+    return start, end
+
+
+def append_wall_with_center_door(
+    meshes: list[dict[str, object]],
+    wall_specs: list[tuple[float, float, float, float, str]],
+    *,
+    x0: float,
+    y0: float,
+    x1: float,
+    y1: float,
+    door_width: float,
+    horizontal: bool,
+) -> None:
+    length = (x1 - x0) if horizontal else (y1 - y0)
+    gap = min(max(0.0, door_width), max(0.0, length - 2.0e-6))
+    if gap <= 0.0:
+        wall_specs.append((x0, y0, x1, y1, "Wall"))
+        return
+    if horizontal:
+        gap_x0 = x0 + (length - gap) / 2.0
+        gap_x1 = gap_x0 + gap
+        if gap_x0 > x0:
+            wall_specs.append((x0, y0, gap_x0, y1, "Wall"))
+        if gap_x1 < x1:
+            wall_specs.append((gap_x1, y0, x1, y1, "Wall"))
+        door_vertices, door_faces = plane_mesh(gap_x0, y0, 0.0, gap_x1, y1)
+        meshes.append(mesh_payload(f"door_horizontal_{len(meshes):04d}", "Door", door_vertices, door_faces))
+        return
+    gap_y0 = y0 + (length - gap) / 2.0
+    gap_y1 = gap_y0 + gap
+    if gap_y0 > y0:
+        wall_specs.append((x0, y0, x1, gap_y0, "Wall"))
+    if gap_y1 < y1:
+        wall_specs.append((x0, gap_y1, x1, y1, "Wall"))
+    door_vertices, door_faces = plane_mesh(x0, gap_y0, 0.0, x1, gap_y1)
+    meshes.append(mesh_payload(f"door_vertical_{len(meshes):04d}", "Door", door_vertices, door_faces))
 
 
 def architecture_meshes_for_rooms(
@@ -329,35 +501,42 @@ def architecture_meshes_for_rooms(
         (max_x - wall_thickness, min_y, max_x, max_y, "Wall"),
     ]
 
-    # Internal boundaries are split into two wall segments with a door-sized gap.
-    xs = sorted({room.x0 for room in rooms} | {room.x1 for room in rooms})
-    ys = sorted({room.y0 for room in rooms} | {room.y1 for room in rooms})
-    for x in xs[1:-1]:
-        intervals = [(room.y0, room.y1) for room in rooms if room.x0 < x < room.x1 or abs(room.x0 - x) < 1e-6 or abs(room.x1 - x) < 1e-6]
-        for y0, y1 in sorted(set(intervals)):
-            length = y1 - y0
-            gap = min(door_width, max(0.0, length - 2.0 * wall_thickness))
-            gap_y0 = y0 + (length - gap) / 2.0
-            gap_y1 = gap_y0 + gap
-            if gap_y0 > y0:
-                wall_specs.append((x - wall_thickness / 2.0, y0, x + wall_thickness / 2.0, gap_y0, "Wall"))
-            if gap_y1 < y1:
-                wall_specs.append((x - wall_thickness / 2.0, gap_y1, x + wall_thickness / 2.0, y1, "Wall"))
-            door_vertices, door_faces = plane_mesh(x - wall_thickness / 2.0, gap_y0, 0.0, x + wall_thickness / 2.0, gap_y1)
-            meshes.append(mesh_payload(f"door_vertical_{len(meshes):04d}", "Door", door_vertices, door_faces))
-    for y in ys[1:-1]:
-        intervals = [(room.x0, room.x1) for room in rooms if room.y0 < y < room.y1 or abs(room.y0 - y) < 1e-6 or abs(room.y1 - y) < 1e-6]
-        for x0, x1 in sorted(set(intervals)):
-            length = x1 - x0
-            gap = min(door_width, max(0.0, length - 2.0 * wall_thickness))
-            gap_x0 = x0 + (length - gap) / 2.0
-            gap_x1 = gap_x0 + gap
-            if gap_x0 > x0:
-                wall_specs.append((x0, y - wall_thickness / 2.0, gap_x0, y + wall_thickness / 2.0, "Wall"))
-            if gap_x1 < x1:
-                wall_specs.append((gap_x1, y - wall_thickness / 2.0, x1, y + wall_thickness / 2.0, "Wall"))
-            door_vertices, door_faces = plane_mesh(gap_x0, y - wall_thickness / 2.0, 0.0, gap_x1, y + wall_thickness / 2.0)
-            meshes.append(mesh_payload(f"door_horizontal_{len(meshes):04d}", "Door", door_vertices, door_faces))
+    # Internal walls are generated only on true shared room edges. This supports split-tree
+    # layouts where not every room boundary aligns to a global grid line.
+    for left_index, left_room in enumerate(rooms):
+        for right_room in rooms[left_index + 1 :]:
+            if abs(left_room.x1 - right_room.x0) < 1e-6 or abs(right_room.x1 - left_room.x0) < 1e-6:
+                x = left_room.x1 if abs(left_room.x1 - right_room.x0) < 1e-6 else right_room.x1
+                interval = overlapping_interval(left_room.y0, left_room.y1, right_room.y0, right_room.y1)
+                if interval is None:
+                    continue
+                y0, y1 = interval
+                append_wall_with_center_door(
+                    meshes,
+                    wall_specs,
+                    x0=x - wall_thickness / 2.0,
+                    y0=y0,
+                    x1=x + wall_thickness / 2.0,
+                    y1=y1,
+                    door_width=door_width,
+                    horizontal=False,
+                )
+            if abs(left_room.y1 - right_room.y0) < 1e-6 or abs(right_room.y1 - left_room.y0) < 1e-6:
+                y = left_room.y1 if abs(left_room.y1 - right_room.y0) < 1e-6 else right_room.y1
+                interval = overlapping_interval(left_room.x0, left_room.x1, right_room.x0, right_room.x1)
+                if interval is None:
+                    continue
+                x0, x1 = interval
+                append_wall_with_center_door(
+                    meshes,
+                    wall_specs,
+                    x0=x0,
+                    y0=y - wall_thickness / 2.0,
+                    x1=x1,
+                    y1=y + wall_thickness / 2.0,
+                    door_width=door_width,
+                    horizontal=True,
+                )
 
     for wall_index, (x0, y0, x1, y1, mesh_type) in enumerate(wall_specs):
         if x1 <= x0 or y1 <= y0:
@@ -607,6 +786,7 @@ class ProceduralFront3DGenerator:
         stage_start = time.perf_counter()
         rooms = make_room_layout(
             rng,
+            str(self.args.procedural_layout),
             tuple(int(value) for value in self.args.procedural_room_count),
             tuple(float(value) for value in self.args.procedural_room_width_m),
             tuple(float(value) for value in self.args.procedural_room_length_m),
@@ -650,6 +830,7 @@ class ProceduralFront3DGenerator:
         timings["total"] = time.perf_counter() - total_start
         report = {
             "scene_id": scene_id,
+            "layout": str(self.args.procedural_layout),
             "room_count": len(rooms),
             "rooms": [
                 {

@@ -66,6 +66,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_attempts": 300,
     },
     "procedural": {
+        "layout": "split_tree",
         "room_count": [3, 6],
         "room_width_m": [3.2, 5.8],
         "room_length_m": [3.2, 6.4],
@@ -432,6 +433,7 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     placement["max_attempts"] = int(placement["max_attempts"])
 
     procedural = normalized["procedural"]
+    procedural["layout"] = str(procedural["layout"])
     procedural["room_count"] = parse_int_pair(procedural["room_count"], "procedural.room_count")
     procedural["room_width_m"] = parse_float_pair(procedural["room_width_m"], "procedural.room_width_m")
     procedural["room_length_m"] = parse_float_pair(procedural["room_length_m"], "procedural.room_length_m")
@@ -573,6 +575,8 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("placement.max_attempts must be at least 1")
 
     procedural = config["procedural"]
+    if procedural["layout"] not in {"grid", "split_tree"}:
+        raise ValueError("procedural.layout must be 'grid' or 'split_tree'")
     if procedural["room_count"][0] < 1 or procedural["room_count"][1] < procedural["room_count"][0]:
         raise ValueError("procedural.room_count must be [min, max] with max >= min >= 1")
     for key in ("room_width_m", "room_length_m", "room_height_m"):
@@ -837,6 +841,7 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         max_tabletop_items=placement["tabletop_items"][1],
         bistro_support_items=placement["bistro_support_items"],
         max_attempts=placement["max_attempts"],
+        procedural_layout=procedural["layout"],
         procedural_room_count=procedural["room_count"],
         procedural_room_width_m=procedural["room_width_m"],
         procedural_room_length_m=procedural["room_length_m"],

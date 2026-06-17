@@ -48,6 +48,7 @@ from scenegen.procedural import (
     ProceduralAssetEntry,
     ProceduralRoom,
     architecture_meshes_for_rooms,
+    make_room_layout,
     procedural_asset_approx_bbox,
     procedural_asset_footprint_size,
     write_procedural_source_files,
@@ -198,6 +199,33 @@ def test_procedural_architecture_source_contract(tmp_path: Path) -> None:
     assert bbox_max == pytest.approx((8.0, 3.0, 3.0))
     assert metadata["asset_kind"] == "architecture"
     assert metadata["procedural"]["room_count"] == 2
+
+
+def test_procedural_split_tree_layout_tiles_complete_positive_footprint() -> None:
+    rooms = make_room_layout(
+        random.Random(2026),
+        "split_tree",
+        (5, 5),
+        (3.0, 5.0),
+        (3.0, 5.0),
+        (2.8, 2.8),
+        ("LivingRoom", "Bedroom", "DiningRoom"),
+    )
+    assert len(rooms) == 5
+    assert min(room.x0 for room in rooms) == pytest.approx(0.0)
+    assert min(room.y0 for room in rooms) == pytest.approx(0.0)
+    assert all(room.width >= 3.0 for room in rooms)
+    assert all(room.length >= 3.0 for room in rooms)
+    total_area = sum(room.area for room in rooms)
+    bbox_area = (max(room.x1 for room in rooms) - min(room.x0 for room in rooms)) * (
+        max(room.y1 for room in rooms) - min(room.y0 for room in rooms)
+    )
+    assert total_area == pytest.approx(bbox_area)
+    for left_index, left_room in enumerate(rooms):
+        for right_room in rooms[left_index + 1 :]:
+            x_overlap = min(left_room.x1, right_room.x1) - max(left_room.x0, right_room.x0)
+            y_overlap = min(left_room.y1, right_room.y1) - max(left_room.y0, right_room.y0)
+            assert x_overlap <= 1e-6 or y_overlap <= 1e-6
 
 
 def test_procedural_asset_approx_footprint_uses_scenegen_xy() -> None:
@@ -535,6 +563,15 @@ def test_invalid_config_value_is_rejected(tmp_path: Path) -> None:
     config_path.write_text("floorplan:\n  sampling:\n    density_scale: 0\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="floorplan.sampling.density_scale"):
+        load_effective_config(config_path, root, parse_args([]))
+
+
+def test_invalid_procedural_layout_is_rejected(tmp_path: Path) -> None:
+    root = find_project_root()
+    config_path = tmp_path / "bad_config.yaml"
+    config_path.write_text("procedural:\n  layout: maze\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="procedural.layout"):
         load_effective_config(config_path, root, parse_args([]))
 
 

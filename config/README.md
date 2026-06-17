@@ -110,6 +110,7 @@ uv run scenegen \
 
 | 字段 | 可选值 / 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
+| `layout` | `grid` / `split_tree` | `split_tree` | 户型布局策略。`grid` 是早期规整行列；`split_tree` 从完整 apartment footprint 递归切分房间，默认用于提升布局多样性并避免空白格。 |
 | `room_count` | `[min, max]` | `[3, 6]` | 每个程序化场景的 room 数量范围。 |
 | `room_width_m` | `[min, max]` | `[3.2, 5.8]` | 单个 room 宽度范围。 |
 | `room_length_m` | `[min, max]` | `[3.2, 6.4]` | 单个 room 长度范围。 |
