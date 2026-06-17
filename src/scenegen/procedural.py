@@ -513,42 +513,63 @@ def room_type_sequence(
     *,
     shuffle: bool,
     required_room_types: dict[str, int] | None = None,
+    room_type_max_counts: dict[str, int | None] | None = None,
     room_type_weights: dict[str, float] | None = None,
 ) -> list[str]:
     if not room_types:
         return ["Room" for _ in range(room_count)]
-    required: list[str] = []
+    counts: Counter[str] = Counter()
+    sequence: list[str] = []
+
+    def under_limit(room_type: str) -> bool:
+        max_count = (room_type_max_counts or {}).get(room_type)
+        return max_count is None or counts[room_type] < int(max_count)
+
+    def append_room_type(room_type: str) -> None:
+        sequence.append(room_type)
+        counts[room_type] += 1
+
     if required_room_types:
         for room_type in room_types:
-            required.extend([room_type] * max(0, int(required_room_types.get(room_type, 0))))
-    if required:
-        required = required[:room_count]
-        remaining_count = room_count - len(required)
-        sequence = list(required)
-        if remaining_count > 0:
-            sequence.extend(
-                room_type_sequence(
-                    remaining_count,
-                    room_types,
-                    rng,
-                    shuffle=shuffle,
-                    room_type_weights=room_type_weights,
-                )
-            )
-        if shuffle:
-            rng.shuffle(sequence)
-        return sequence
-    if room_type_weights:
-        weights = [max(0.0, float(room_type_weights.get(room_type, 0.0))) for room_type in room_types]
-        if any(weight > 0.0 for weight in weights):
-            return rng.choices(list(room_types), weights=weights, k=room_count)
-    if not shuffle:
-        return [room_types[index % len(room_types)] for index in range(room_count)]
-    sequence: list[str] = []
+            for _ in range(max(0, int(required_room_types.get(room_type, 0)))):
+                if len(sequence) >= room_count:
+                    break
+                append_room_type(room_type)
+
+    cycle_index = 0
     while len(sequence) < room_count:
-        batch = list(room_types)
-        rng.shuffle(batch)
-        sequence.extend(batch)
+        candidates = [room_type for room_type in room_types if under_limit(room_type)]
+        if not candidates:
+            break
+
+        weights = [max(0.0, float((room_type_weights or {}).get(room_type, 0.0))) for room_type in candidates]
+        if room_type_weights and any(weight > 0.0 for weight in weights):
+            append_room_type(rng.choices(candidates, weights=weights, k=1)[0])
+            continue
+
+        if shuffle:
+            batch = list(candidates)
+            rng.shuffle(batch)
+            for room_type in batch:
+                if len(sequence) >= room_count:
+                    break
+                if under_limit(room_type):
+                    append_room_type(room_type)
+            continue
+
+        appended = False
+        for _ in range(len(room_types)):
+            room_type = room_types[cycle_index % len(room_types)]
+            cycle_index += 1
+            if under_limit(room_type):
+                append_room_type(room_type)
+                appended = True
+                break
+        if not appended:
+            break
+
+    if required_room_types and shuffle:
+        rng.shuffle(sequence)
     return sequence[:room_count]
 
 
@@ -584,6 +605,7 @@ def make_grid_room_layout(
     required_room_types: dict[str, int] | None = None,
     room_type_assignment: str = "sequence",
     room_type_area_priority: tuple[str, ...] = (),
+    room_type_max_counts: dict[str, int | None] | None = None,
     room_type_weights: dict[str, float] | None = None,
 ) -> list[ProceduralRoom]:
     required_total = sum(max(0, int(count)) for count in (required_room_types or {}).values())
@@ -599,6 +621,7 @@ def make_grid_room_layout(
         rng,
         shuffle=False,
         required_room_types=required_room_types,
+        room_type_max_counts=room_type_max_counts,
         room_type_weights=room_type_weights,
     )
     room_areas: list[float] = []
@@ -682,6 +705,7 @@ def make_split_tree_room_layout(
     required_room_types: dict[str, int] | None = None,
     room_type_assignment: str = "sequence",
     room_type_area_priority: tuple[str, ...] = (),
+    room_type_max_counts: dict[str, int | None] | None = None,
     room_type_weights: dict[str, float] | None = None,
 ) -> list[ProceduralRoom]:
     required_total = sum(max(0, int(count)) for count in (required_room_types or {}).values())
@@ -713,6 +737,7 @@ def make_split_tree_room_layout(
         rng,
         shuffle=True,
         required_room_types=required_room_types,
+        room_type_max_counts=room_type_max_counts,
         room_type_weights=room_type_weights,
     )
     type_sequence = assign_room_types_to_areas(
@@ -746,6 +771,7 @@ def make_room_layout(
     required_room_types: dict[str, int] | None = None,
     room_type_assignment: str = "sequence",
     room_type_area_priority: tuple[str, ...] = (),
+    room_type_max_counts: dict[str, int | None] | None = None,
     room_type_weights: dict[str, float] | None = None,
 ) -> list[ProceduralRoom]:
     if layout == "grid":
@@ -759,6 +785,7 @@ def make_room_layout(
             required_room_types=required_room_types,
             room_type_assignment=room_type_assignment,
             room_type_area_priority=room_type_area_priority,
+            room_type_max_counts=room_type_max_counts,
             room_type_weights=room_type_weights,
         )
     if layout == "split_tree":
@@ -772,6 +799,7 @@ def make_room_layout(
             required_room_types=required_room_types,
             room_type_assignment=room_type_assignment,
             room_type_area_priority=room_type_area_priority,
+            room_type_max_counts=room_type_max_counts,
             room_type_weights=room_type_weights,
         )
     raise ValueError(f"Unsupported procedural layout: {layout}")
@@ -1662,6 +1690,7 @@ class ProceduralFront3DGenerator:
             required_room_types=dict(self.args.procedural_required_room_types),
             room_type_assignment=str(self.args.procedural_room_type_assignment),
             room_type_area_priority=tuple(str(value) for value in self.args.procedural_room_type_area_priority),
+            room_type_max_counts=dict(self.args.procedural_room_type_max_counts),
             room_type_weights=dict(self.args.procedural_room_type_weights),
         )
         timings["layout"] = time.perf_counter() - stage_start

@@ -306,6 +306,24 @@ def test_procedural_room_type_sequence_keeps_required_types() -> None:
     assert sequence.count("Bathroom") == 2
 
 
+def test_procedural_room_type_sequence_respects_max_counts() -> None:
+    sequence = room_type_sequence(
+        6,
+        ("LivingRoom", "Bedroom", "Kitchen", "Bathroom"),
+        random.Random(12),
+        shuffle=True,
+        required_room_types={"LivingRoom": 1, "Bedroom": 1, "Kitchen": 1},
+        room_type_max_counts={"LivingRoom": 1, "Bedroom": None, "Kitchen": 1, "Bathroom": 1},
+        room_type_weights={"LivingRoom": 10.0, "Bedroom": 1.0, "Kitchen": 10.0, "Bathroom": 10.0},
+    )
+
+    assert len(sequence) == 6
+    assert sequence.count("LivingRoom") == 1
+    assert sequence.count("Kitchen") == 1
+    assert sequence.count("Bathroom") == 1
+    assert sequence.count("Bedroom") == 3
+
+
 def test_procedural_room_type_area_priority_maps_large_rooms() -> None:
     assigned = assign_room_types_to_areas(
         ["Bathroom", "Bedroom", "LivingRoom"],
@@ -903,6 +921,7 @@ def test_procedural_room_type_weights_reject_all_zero_for_configured_rooms(tmp_p
     config_path.write_text(
         "procedural:\n"
         "  room_types: [Kitchen, Bathroom]\n"
+        "  room_count: [2, 2]\n"
         "  required_room_types: null\n"
         "  room_type_weights:\n"
         "    Kitchen: 0\n"
@@ -949,6 +968,66 @@ def test_procedural_required_room_types_reject_inconsistent_config(tmp_path: Pat
     )
     with pytest.raises(ValueError, match="procedural.required_room_types"):
         load_effective_config(fractional_path, root, parse_args([]))
+
+
+def test_procedural_room_type_max_counts_filters_disabled_room_types(tmp_path: Path) -> None:
+    root = find_project_root()
+    config_path = tmp_path / "filtered_room_type_max_counts.yaml"
+    config_path.write_text(
+        "procedural:\n"
+        "  room_types: [LivingRoom]\n"
+        "  room_count: [1, 1]\n"
+        "  required_room_types: null\n"
+        "  room_type_max_counts:\n"
+        "    LivingRoom: 1\n"
+        "    Kitchen: 1\n",
+        encoding="utf-8",
+    )
+
+    effective, _overrides = load_effective_config(config_path, root, parse_args([]))
+
+    assert effective["procedural"]["room_type_max_counts"] == {"LivingRoom": 1}
+
+
+def test_procedural_room_type_max_counts_reject_inconsistent_config(tmp_path: Path) -> None:
+    root = find_project_root()
+
+    required_exceeds_path = tmp_path / "required_exceeds_room_type_max_counts.yaml"
+    required_exceeds_path.write_text(
+        "procedural:\n"
+        "  room_types: [LivingRoom, Bedroom, Kitchen, DiningRoom, StudyRoom, Bathroom, Hallway]\n"
+        "  room_count: [2, 4]\n"
+        "  required_room_types:\n"
+        "    LivingRoom: 2\n"
+        "    Bedroom: 1\n"
+        "    Kitchen: 1\n"
+        "  room_type_max_counts:\n"
+        "    LivingRoom: 1\n"
+        "    Bedroom: null\n"
+        "    Kitchen: null\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="procedural.required_room_types.LivingRoom"):
+        load_effective_config(required_exceeds_path, root, parse_args([]))
+
+    low_capacity_path = tmp_path / "low_capacity_room_type_max_counts.yaml"
+    low_capacity_path.write_text(
+        "procedural:\n"
+        "  room_types: [LivingRoom, Bedroom, Kitchen, DiningRoom, StudyRoom, Bathroom, Hallway]\n"
+        "  room_count: [2, 8]\n"
+        "  required_room_types: null\n"
+        "  room_type_max_counts:\n"
+        "    LivingRoom: 1\n"
+        "    Bedroom: 1\n"
+        "    Kitchen: 1\n"
+        "    DiningRoom: 1\n"
+        "    StudyRoom: 1\n"
+        "    Bathroom: 1\n"
+        "    Hallway: 1\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="procedural.room_type_max_counts capacity"):
+        load_effective_config(low_capacity_path, root, parse_args([]))
 
 
 def test_procedural_room_type_assignment_rejects_invalid_mode(tmp_path: Path) -> None:

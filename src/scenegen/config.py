@@ -75,6 +75,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "required_room_types": {"LivingRoom": 1, "Bedroom": 1, "Kitchen": 1},
         "room_type_assignment": "area_priority",
         "room_type_area_priority": ["LivingRoom", "DiningRoom", "Bedroom", "Kitchen", "StudyRoom", "Bathroom", "Hallway"],
+        "room_type_max_counts": {
+            "LivingRoom": 2,
+            "Bedroom": None,
+            "DiningRoom": 1,
+            "StudyRoom": 2,
+            "Kitchen": 1,
+            "Bathroom": 2,
+            "Hallway": 2,
+        },
         "room_type_weights": {
             "LivingRoom": 2.0,
             "Bedroom": 2.0,
@@ -580,6 +589,31 @@ def normalize_required_room_types(value: Any, key: str = "procedural.required_ro
     return required
 
 
+def normalize_room_type_max_counts(value: Any, key: str = "procedural.room_type_max_counts") -> dict[str, int | None]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"{key} must be a mapping or null")
+    max_counts: dict[str, int | None] = {}
+    for raw_name, raw_count in value.items():
+        room_type = str(raw_name).strip()
+        if not room_type:
+            raise ValueError(f"{key} room type names must not be empty")
+        if raw_count is None:
+            max_counts[room_type] = None
+            continue
+        if isinstance(raw_count, bool):
+            raise ValueError(f"{key}.{raw_name} must be an integer or null")
+        count_float = float(raw_count)
+        if not count_float.is_integer():
+            raise ValueError(f"{key}.{raw_name} must be an integer or null")
+        count = int(count_float)
+        if count < 0:
+            raise ValueError(f"{key}.{raw_name} must be non-negative or null")
+        max_counts[room_type] = count
+    return max_counts
+
+
 def normalize_placement_policy(value: Any, key: str = "procedural.placement_policy") -> dict[str, dict[str, Any]]:
     if not isinstance(value, dict) or not value:
         raise ValueError(f"{key} must be a non-empty mapping")
@@ -775,6 +809,13 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     procedural["room_type_area_priority"] = parse_optional_string_sequence(
         procedural["room_type_area_priority"], "procedural.room_type_area_priority"
     )
+    procedural["room_type_max_counts"] = normalize_room_type_max_counts(procedural.get("room_type_max_counts"))
+    enabled_room_types = set(procedural["room_types"])
+    procedural["room_type_max_counts"] = {
+        room_type: max_count
+        for room_type, max_count in procedural["room_type_max_counts"].items()
+        if room_type in enabled_room_types
+    }
     procedural["room_type_weights"] = normalize_room_type_weights(procedural.get("room_type_weights"))
     procedural["wall_thickness_m"] = float(procedural["wall_thickness_m"])
     procedural["door_width_m"] = float(procedural["door_width_m"])
@@ -963,6 +1004,20 @@ def validate_effective_config(config: dict[str, Any]) -> None:
     unknown_required = sorted(set(procedural["required_room_types"]) - set(procedural["room_types"]))
     if unknown_required:
         raise ValueError(f"procedural.required_room_types contains room types not enabled in procedural.room_types: {unknown_required}")
+    for room_type, required_count in procedural["required_room_types"].items():
+        max_count = procedural["room_type_max_counts"].get(room_type)
+        if max_count is not None and int(required_count) > int(max_count):
+            raise ValueError(f"procedural.required_room_types.{room_type} must not exceed procedural.room_type_max_counts.{room_type}")
+    finite_capacity = 0
+    has_unlimited_capacity = False
+    for room_type in procedural["room_types"]:
+        max_count = procedural["room_type_max_counts"].get(room_type)
+        if max_count is None:
+            has_unlimited_capacity = True
+            break
+        finite_capacity += int(max_count)
+    if not has_unlimited_capacity and finite_capacity < int(procedural["room_count"][1]):
+        raise ValueError("procedural.room_type_max_counts capacity must cover procedural.room_count max")
     required_total = sum(int(count) for count in procedural["required_room_types"].values())
     if required_total > int(procedural["room_count"][1]):
         raise ValueError("procedural.required_room_types count must not exceed procedural.room_count max")
@@ -1292,6 +1347,7 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         procedural_required_room_types=procedural["required_room_types"],
         procedural_room_type_assignment=procedural["room_type_assignment"],
         procedural_room_type_area_priority=procedural["room_type_area_priority"],
+        procedural_room_type_max_counts=procedural["room_type_max_counts"],
         procedural_room_type_weights=procedural["room_type_weights"],
         procedural_wall_thickness_m=procedural["wall_thickness_m"],
         procedural_door_width_m=procedural["door_width_m"],

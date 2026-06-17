@@ -46,6 +46,14 @@ procedural:
     Kitchen: 1
   room_type_assignment: area_priority
   room_type_area_priority: [LivingRoom, DiningRoom, Bedroom, Kitchen, StudyRoom, Bathroom, Hallway]
+  room_type_max_counts:
+    LivingRoom: 2
+    Bedroom: null
+    DiningRoom: 1
+    StudyRoom: 2
+    Kitchen: 1
+    Bathroom: 2
+    Hallway: 2
   room_type_weights:
     LivingRoom: 2.0
     Bedroom: 2.0
