@@ -76,11 +76,20 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "door_width_m": 1.0,
         "objects_per_room": [3, 7],
         "room_profiles": {
-            "default": {"classes": ["seat", "table", "floor", "seat", "table"]},
-            "LivingRoom": {"classes": ["seat", "table", "floor", "seat", "table"]},
-            "Bedroom": {"classes": ["floor", "table", "table", "seat"]},
-            "DiningRoom": {"classes": ["table", "seat", "seat", "seat", "seat"]},
-            "StudyRoom": {"classes": ["table", "seat", "floor"]},
+            "default": {"classes": ["seat", "table", "floor", "seat", "table"], "filters": {}},
+            "LivingRoom": {
+                "classes": ["seat", "table", "floor", "seat", "table"],
+                "filters": {"seat": {"super_category": ["sofa"]}},
+            },
+            "Bedroom": {
+                "classes": ["floor", "table", "table", "seat"],
+                "filters": {"floor": {"super_category": ["bed"]}},
+            },
+            "DiningRoom": {
+                "classes": ["table", "seat", "seat", "seat", "seat"],
+                "filters": {"table": {"category": ["dining"]}},
+            },
+            "StudyRoom": {"classes": ["table", "seat", "floor"], "filters": {}},
         },
         "wall_margin_m": 0.25,
         "object_margin_m": 0.15,
@@ -366,11 +375,12 @@ def parse_float_pair(value: Any, key: str) -> list[float]:
     return [float(parts[0]), float(parts[1])]
 
 
-def normalize_room_profiles(value: Any, key: str = "procedural.room_profiles") -> dict[str, dict[str, list[str]]]:
+def normalize_room_profiles(value: Any, key: str = "procedural.room_profiles") -> dict[str, dict[str, Any]]:
     if not isinstance(value, dict) or not value:
         raise ValueError(f"{key} must be a non-empty mapping")
     allowed_classes = {"table", "seat", "floor"}
-    profiles: dict[str, dict[str, list[str]]] = {}
+    allowed_filter_fields = {"category", "super_category", "name", "material"}
+    profiles: dict[str, dict[str, Any]] = {}
     for raw_name, raw_profile in value.items():
         profile_name = str(raw_name).strip()
         if not profile_name:
@@ -381,7 +391,28 @@ def normalize_room_profiles(value: Any, key: str = "procedural.room_profiles") -
         classes = [item.lower() for item in parse_string_sequence(raw_profile.get("classes"), classes_key)]
         if any(item not in allowed_classes for item in classes):
             raise ValueError(f"{classes_key} values must be table, seat, or floor")
-        profiles[profile_name] = {"classes": classes}
+        filters_key = f"{key}.{profile_name}.filters"
+        raw_filters = raw_profile.get("filters") or {}
+        if not isinstance(raw_filters, dict):
+            raise ValueError(f"{filters_key} must be a mapping")
+        filters: dict[str, dict[str, list[str]]] = {}
+        for raw_class_name, raw_class_filter in raw_filters.items():
+            class_name = str(raw_class_name).strip().lower()
+            class_key = f"{filters_key}.{raw_class_name}"
+            if class_name not in allowed_classes:
+                raise ValueError(f"{class_key} must be table, seat, or floor")
+            if not isinstance(raw_class_filter, dict) or not raw_class_filter:
+                raise ValueError(f"{class_key} must be a non-empty mapping")
+            class_filter: dict[str, list[str]] = {}
+            for raw_field_name, raw_terms in raw_class_filter.items():
+                field_name = str(raw_field_name).strip()
+                field_key = f"{class_key}.{raw_field_name}"
+                if field_name not in allowed_filter_fields:
+                    raise ValueError(f"{field_key} must be category, super_category, name, or material")
+                terms = [term.lower() for term in parse_string_sequence(raw_terms, field_key)]
+                class_filter[field_name] = terms
+            filters[class_name] = class_filter
+        profiles[profile_name] = {"classes": classes, "filters": filters}
     if "default" not in profiles:
         raise ValueError(f"{key}.default is required")
     return profiles

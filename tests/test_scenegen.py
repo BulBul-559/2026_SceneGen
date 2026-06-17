@@ -49,6 +49,7 @@ from scenegen.procedural import (
     ProceduralRoom,
     architecture_meshes_for_rooms,
     desired_classes_from_profile,
+    entries_matching_profile_filter,
     make_room_layout,
     procedural_asset_approx_bbox,
     procedural_asset_footprint_size,
@@ -259,6 +260,48 @@ def test_procedural_room_profiles_select_and_expand_classes() -> None:
     assert select_room_profile("MasterBedroom", profiles)[0] == "Bedroom"
     assert desired_classes_from_profile("Bedroom", profiles, (2, 2), random.Random(1)) == ["floor", "table"]
     assert desired_classes_from_profile("Kitchen", profiles, (3, 3), random.Random(2)) == ["seat", "seat", "seat"]
+
+
+def test_procedural_room_profile_filters_match_asset_semantics() -> None:
+    asset = Asset(
+        name="asset",
+        export_name="asset",
+        obj_file=Path("asset.obj"),
+        width=1.0,
+        length=1.0,
+        height=1.0,
+        placement_class="seat",
+        source_to_sionna_material={},
+        sionna_material_names=("itu-wood",),
+    )
+    sofa = ProceduralAssetEntry(
+        model_id="sofa",
+        asset=asset,
+        payload={},
+        semantic={"category": "three-seat sofa", "super_category": "Sofa", "material": "fabric"},
+    )
+    chair = ProceduralAssetEntry(
+        model_id="chair",
+        asset=asset,
+        payload={},
+        semantic={"category": "dining chair", "super_category": "Chair", "material": "wood"},
+    )
+
+    filtered, matched = entries_matching_profile_filter(
+        [chair, sofa],
+        {"classes": ["seat"], "filters": {"seat": {"super_category": ["sofa"]}}},
+        "seat",
+    )
+    fallback, fallback_matched = entries_matching_profile_filter(
+        [chair, sofa],
+        {"classes": ["seat"], "filters": {"seat": {"material": ["metal"]}}},
+        "seat",
+    )
+
+    assert matched is True
+    assert [entry.model_id for entry in filtered] == ["sofa"]
+    assert fallback_matched is False
+    assert fallback == [chair, sofa]
 
 
 def write_height_filtered_fixture_obj(path: Path) -> None:
@@ -506,12 +549,12 @@ def test_front3d_class_mask_mesh_furniture_mode_uses_mesh_footprint(tmp_path: Pa
 
 
 def test_cli_version_matches_package_version(capsys: pytest.CaptureFixture[str]) -> None:
-    assert __version__ == "3.1.0"
+    assert __version__ == "3.2.0"
     with pytest.raises(SystemExit) as exc_info:
         parse_args(["--version"])
 
     assert exc_info.value.code == 0
-    assert capsys.readouterr().out.strip() == "SceneGen 3.1.0"
+    assert capsys.readouterr().out.strip() == "SceneGen 3.2.0"
 
 
 def test_bistro_config_is_mode_specific_default_overlay() -> None:
@@ -605,6 +648,7 @@ def test_procedural_room_profiles_accept_custom_names_and_reject_bad_classes(tmp
     effective, _overrides = load_effective_config(config_path, root, parse_args([]))
 
     assert effective["procedural"]["room_profiles"]["Kitchen"]["classes"] == ["table", "floor"]
+    assert effective["procedural"]["room_profiles"]["Kitchen"]["filters"] == {}
 
     bad_path = tmp_path / "bad_procedural_profiles.yaml"
     bad_path.write_text(
@@ -616,6 +660,20 @@ def test_procedural_room_profiles_accept_custom_names_and_reject_bad_classes(tmp
     )
     with pytest.raises(ValueError, match="procedural.room_profiles.default.classes"):
         load_effective_config(bad_path, root, parse_args([]))
+
+    bad_filter_path = tmp_path / "bad_procedural_filter.yaml"
+    bad_filter_path.write_text(
+        "procedural:\n"
+        "  room_profiles:\n"
+        "    default:\n"
+        "      classes: [seat]\n"
+        "      filters:\n"
+        "        seat:\n"
+        "          unknown_field: [sofa]\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="procedural.room_profiles.default.filters.seat.unknown_field"):
+        load_effective_config(bad_filter_path, root, parse_args([]))
 
 
 def test_prepare_run_dir_clean_only_replaces_named_run(tmp_path: Path) -> None:

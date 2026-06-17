@@ -412,20 +412,27 @@ def make_room_layout(
     raise ValueError(f"Unsupported procedural layout: {layout}")
 
 
-def select_room_profile(room_type: str, profiles: dict[str, dict[str, list[str]]]) -> tuple[str, list[str]]:
+def select_room_profile_spec(room_type: str, profiles: dict[str, dict[str, Any]]) -> tuple[str, dict[str, Any]]:
     """Select the configured furnishing profile for a procedural room type."""
 
     if room_type in profiles:
-        return room_type, list(profiles[room_type]["classes"])
+        return room_type, profiles[room_type]
     lowered = room_type.lower()
     for name, profile in profiles.items():
         if name.lower() == lowered:
-            return name, list(profile["classes"])
+            return name, profile
     for name, profile in profiles.items():
         name_lowered = name.lower()
         if name != "default" and (name_lowered in lowered or lowered in name_lowered):
-            return name, list(profile["classes"])
-    return "default", list(profiles["default"]["classes"])
+            return name, profile
+    return "default", profiles["default"]
+
+
+def select_room_profile(room_type: str, profiles: dict[str, dict[str, Any]]) -> tuple[str, list[str]]:
+    """Select a room profile name and class sequence."""
+
+    profile_name, profile = select_room_profile_spec(room_type, profiles)
+    return profile_name, list(profile["classes"])
 
 
 def desired_classes_from_profile(
@@ -441,6 +448,26 @@ def desired_classes_from_profile(
     if target_count <= len(classes):
         return classes[:target_count]
     return classes + [rng.choice(classes) for _ in range(target_count - len(classes))]
+
+
+def semantic_matches_filter(semantic: dict[str, Any], class_filter: dict[str, list[str]]) -> bool:
+    for field_name, terms in class_filter.items():
+        value = str(semantic.get(field_name, "")).lower()
+        if not any(term in value for term in terms):
+            return False
+    return True
+
+
+def entries_matching_profile_filter(
+    entries: list[ProceduralAssetEntry],
+    profile: dict[str, Any],
+    class_name: str,
+) -> tuple[list[ProceduralAssetEntry], bool]:
+    class_filter = dict(profile.get("filters") or {}).get(class_name, {})
+    if not class_filter:
+        return entries, False
+    filtered = [entry for entry in entries if semantic_matches_filter(entry.semantic, class_filter)]
+    return (filtered or entries), bool(filtered)
 
 
 def overlapping_interval(a0: float, a1: float, b0: float, b1: float) -> tuple[float, float] | None:
@@ -694,20 +721,16 @@ class ProceduralFront3DGenerator:
         entries = self.asset_pool.get(class_name, [])
         if not entries:
             return []
-        text = room_type.lower()
-        if "bed" in text and class_name == "floor":
-            filtered = [entry for entry in entries if "bed" in str(entry.semantic.get("super_category", "")).lower()]
-            return filtered or entries
-        if "dining" in text and class_name == "table":
-            filtered = [entry for entry in entries if "dining" in str(entry.semantic.get("category", "")).lower()]
-            return filtered or entries
-        if "living" in text and class_name == "seat":
-            filtered = [entry for entry in entries if "sofa" in str(entry.semantic.get("super_category", "")).lower()]
-            return filtered or entries
-        return entries
+        _profile_name, profile = select_room_profile_spec(room_type, self.args.procedural_room_profiles)
+        filtered, _matched = entries_matching_profile_filter(entries, profile, class_name)
+        return filtered
 
     def room_profile_for_room(self, room_type: str) -> tuple[str, list[str]]:
         return select_room_profile(room_type, self.args.procedural_room_profiles)
+
+    def room_profile_detail_for_room(self, room_type: str) -> tuple[str, list[str], dict[str, dict[str, list[str]]]]:
+        profile_name, profile = select_room_profile_spec(room_type, self.args.procedural_room_profiles)
+        return profile_name, list(profile["classes"]), dict(profile.get("filters") or {})
 
     def desired_classes_for_room(self, room_type: str, rng: random.Random) -> list[str]:
         return desired_classes_from_profile(
@@ -860,17 +883,7 @@ class ProceduralFront3DGenerator:
             "scene_id": scene_id,
             "layout": str(self.args.procedural_layout),
             "room_count": len(rooms),
-            "rooms": [
-                {
-                    "room_id": room.room_id,
-                    "room_type": room.room_type,
-                    "profile": self.room_profile_for_room(room.room_type)[0],
-                    "profile_classes": self.room_profile_for_room(room.room_type)[1],
-                    "bounds_xy": [room.x0, room.y0, room.x1, room.y1],
-                    "area_m2": round(room.area, 3),
-                }
-                for room in rooms
-            ],
+            "rooms": [self._room_report(room) for room in rooms],
             "asset_pool_counts": {key: len(value) for key, value in sorted(self.asset_pool.items())},
             "skipped_object_count": len(skipped),
             "skipped_objects": skipped,
@@ -885,3 +898,15 @@ class ProceduralFront3DGenerator:
             skipped_objects=skipped,
             generation_report=report,
         )
+
+    def _room_report(self, room: ProceduralRoom) -> dict[str, object]:
+        profile_name, profile_classes, profile_filters = self.room_profile_detail_for_room(room.room_type)
+        return {
+            "room_id": room.room_id,
+            "room_type": room.room_type,
+            "profile": profile_name,
+            "profile_classes": profile_classes,
+            "profile_filters": profile_filters,
+            "bounds_xy": [room.x0, room.y0, room.x1, room.y1],
+            "area_m2": round(room.area, 3),
+        }

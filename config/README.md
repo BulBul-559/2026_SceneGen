@@ -119,7 +119,7 @@ uv run scenegen \
 | `wall_thickness_m` | float, `>0` | `0.16` | 生成墙体厚度。 |
 | `door_width_m` | float, `>=0` | `1.0` | 内墙门洞宽度；为 `0` 时基本不保留门洞。 |
 | `objects_per_room` | `[min, max]` | `[3, 7]` | 每个 room 尝试摆放的家具数量范围。 |
-| `room_profiles` | mapping | 见模板 | 房间类型到 furniture class 序列的映射。必须包含 `default`；可新增任意 room type 名。 |
+| `room_profiles` | mapping | 见模板 | 房间类型到 furniture class 序列和语义筛选规则的映射。必须包含 `default`；可新增任意 room type 名。 |
 | `wall_margin_m` | float, `>=0` | `0.25` | 家具 bbox 与 room 边界的最小距离。 |
 | `object_margin_m` | float, `>=0` | `0.15` | 家具 bbox 之间的额外间距。 |
 | `max_attempts_per_object` | integer, `>=1` | `80` | 每个家具候选最多尝试多少次随机位置和朝向。 |
@@ -127,7 +127,14 @@ uv run scenegen \
 
 ### procedural.room_profiles
 
-每个 profile 目前只包含 `classes`，值必须是 `table`、`seat`、`floor` 的序列。生成时先按 room type 精确匹配 profile；找不到时做大小写/子串匹配；仍找不到就使用 `default`。`objects_per_room` 会决定本次实际取多少个 class：数量少于 profile 序列时从前往后截断，数量多于 profile 序列时从该 profile 内随机补齐。
+每个 profile 包含：
+
+- `classes`：必须是 `table`、`seat`、`floor` 的序列。
+- `filters`：可选，按 furniture class 配置 semantic 关键词筛选。支持字段为 `category`、`super_category`、`name`、`material`。
+
+生成时先按 room type 精确匹配 profile；找不到时做大小写/子串匹配；仍找不到就使用 `default`。`objects_per_room` 会决定本次实际取多少个 class：数量少于 profile 序列时从前往后截断，数量多于 profile 序列时从该 profile 内随机补齐。
+
+`filters` 使用大小写不敏感的包含匹配。例如 `LivingRoom.filters.seat.super_category: [sofa]` 会让客厅的 `seat` 优先选择 `super_category` 含有 sofa 的资产；如果没有任何资产匹配，系统会回退到该 class 的完整资产池，避免因为 3D-FUTURE 标注不齐导致房间完全摆不出家具。
 
 示例：
 
@@ -136,10 +143,17 @@ procedural:
   room_profiles:
     default:
       classes: [seat, table, floor]
+      filters: {}
     Bedroom:
       classes: [floor, table, table, seat]
+      filters:
+        floor:
+          super_category: [bed]
     DiningRoom:
       classes: [table, seat, seat, seat, seat]
+      filters:
+        table:
+          category: [dining]
 ```
 
 ## validation

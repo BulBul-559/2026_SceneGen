@@ -33,14 +33,25 @@ procedural:
   room_profiles:
     default:
       classes: [seat, table, floor, seat, table]
+      filters: {}
     LivingRoom:
       classes: [seat, table, floor, seat, table]
+      filters:
+        seat:
+          super_category: [sofa]
     Bedroom:
       classes: [floor, table, table, seat]
+      filters:
+        floor:
+          super_category: [bed]
     DiningRoom:
       classes: [table, seat, seat, seat, seat]
+      filters:
+        table:
+          category: [dining]
     StudyRoom:
       classes: [table, seat, floor]
+      filters: {}
   wall_margin_m: 0.25
   object_margin_m: 0.15
   max_attempts_per_object: 80
