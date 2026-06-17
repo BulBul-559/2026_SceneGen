@@ -396,6 +396,10 @@ def test_procedural_placement_groups_select_by_room_type_and_directions() -> Non
     assert specs[0]["name"] == "dining_table_set"
     assert select_room_group_specs("Bedroom", DEFAULT_CONFIG["procedural"]["placement_groups"])[0]["name"] == "bed_side_tables"
     assert DEFAULT_CONFIG["procedural"]["room_profiles"]["Bedroom"]["filters"]["table"]["category"] == ["nightstand"]
+    assert "Kitchen" in DEFAULT_CONFIG["procedural"]["room_types"]
+    assert DEFAULT_CONFIG["procedural"]["room_profiles"]["Kitchen"]["filters"]["floor"]["category"] == ["cabinet", "kitchen", "shelf"]
+    assert DEFAULT_CONFIG["procedural"]["room_profiles"]["Bathroom"]["filters"]["floor"]["super_category"] == ["toilet", "bath", "cabinet"]
+    assert select_room_profile("EntryHallway", DEFAULT_CONFIG["procedural"]["room_profiles"])[0] == "Hallway"
     assert companion_directions(2) == [(-1.0, 0.0), (1.0, 0.0)]
     four_directions = companion_directions(4)
     assert len(four_directions) == 4
@@ -788,7 +792,7 @@ def test_procedural_room_profiles_accept_custom_names_and_reject_bad_classes(tmp
     effective, _overrides = load_effective_config(config_path, root, parse_args([]))
 
     assert effective["procedural"]["room_profiles"]["Kitchen"]["classes"] == ["table", "floor"]
-    assert effective["procedural"]["room_profiles"]["Kitchen"]["filters"] == {}
+    assert effective["procedural"]["room_profiles"]["Kitchen"]["filters"]["floor"]["category"] == ["cabinet", "kitchen", "shelf"]
 
     bad_path = tmp_path / "bad_procedural_profiles.yaml"
     bad_path.write_text(

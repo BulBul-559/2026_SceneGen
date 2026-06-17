@@ -235,7 +235,7 @@ uv run scenegen-batch \
 1. 按 `procedural.layout` 采样多房间户型：默认 `split_tree` 会从完整 apartment footprint 递归切分房间，`grid` 可用于规整行列对照；随后生成 floor、ceiling、wall、door 和外墙 window mesh。
 2. 写出 Front3D-like `procedural_source/scene.json` 与 `procedural_source/architecture.json`，同时记录 room adjacency 和门洞 bbox，供 label、class mask、floorplan、路径规划和 debug 复用。
 3. 按 `procedural.object_count` 为每个 room 计算家具数量，小房间少放、大房间多放。
-4. 从 `data/3D-Front/scenegen_manifest.json` 的 3D-FUTURE 物体池中按 `procedural.room_profiles` 配置的房间家具类别序列和 semantic filter 筛选家具。
+4. 从 `data/3D-Front/scenegen_manifest.json` 的 3D-FUTURE 物体池中按 `procedural.room_profiles` 配置的房间家具类别序列和 semantic filter 筛选家具；默认 room type 覆盖客厅、卧室、餐厅、书房、厨房、卫浴和走廊/玄关。
 5. 先按 `procedural.placement_groups` 尝试生成局部关系组，例如餐厅的餐桌椅组合、卧室的床 + 床头柜组合、书房的书桌椅组合；失败时不会丢弃目标 class，会回落到普通逐个摆放。
 6. 按 `procedural.placement_policy` 采样剩余家具位置：默认床/柜类 `floor` 物体更靠墙，`table` 更靠房间中心，`seat` 保持自由采样。
 7. 在每个 room 内进行 bbox 约束摆放，避免越界和家具间碰撞。

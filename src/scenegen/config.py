@@ -71,7 +71,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "room_width_m": [3.2, 5.8],
         "room_length_m": [3.2, 6.4],
         "room_height_m": [2.8, 3.4],
-        "room_types": ["LivingRoom", "Bedroom", "DiningRoom", "StudyRoom"],
+        "room_types": ["LivingRoom", "Bedroom", "DiningRoom", "StudyRoom", "Kitchen", "Bathroom", "Hallway"],
         "wall_thickness_m": 0.16,
         "door_width_m": 1.0,
         "windows": {
@@ -106,6 +106,28 @@ DEFAULT_CONFIG: dict[str, Any] = {
                 "filters": {"table": {"category": ["dining"]}, "seat": {"category": ["dining chair"]}},
             },
             "StudyRoom": {"classes": ["table", "seat", "floor"], "filters": {"table": {"category": ["desk"]}, "seat": {"category": ["chair"]}}},
+            "Kitchen": {
+                "classes": ["floor", "table", "floor", "seat"],
+                "filters": {
+                    "floor": {"category": ["cabinet", "kitchen", "shelf"], "super_category": ["cabinet"]},
+                    "table": {"category": ["counter", "kitchen", "dining", "table"]},
+                    "seat": {"category": ["stool", "chair"]},
+                },
+            },
+            "Bathroom": {
+                "classes": ["floor", "floor", "table"],
+                "filters": {
+                    "floor": {"category": ["toilet", "bath", "bathroom", "cabinet"], "super_category": ["toilet", "bath", "cabinet"]},
+                    "table": {"category": ["sink", "vanity", "cabinet"]},
+                },
+            },
+            "Hallway": {
+                "classes": ["floor", "table"],
+                "filters": {
+                    "floor": {"category": ["cabinet", "shelf", "wardrobe", "shoe"]},
+                    "table": {"category": ["console", "side table", "table"]},
+                },
+            },
         },
         "wall_margin_m": 0.25,
         "object_margin_m": 0.15,

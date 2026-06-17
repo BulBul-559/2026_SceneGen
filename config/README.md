@@ -115,7 +115,7 @@ uv run scenegen \
 | `room_width_m` | `[min, max]` | `[3.2, 5.8]` | 单个 room 宽度范围。 |
 | `room_length_m` | `[min, max]` | `[3.2, 6.4]` | 单个 room 长度范围。 |
 | `room_height_m` | `[min, max]` | `[2.8, 3.4]` | 建筑层高范围。 |
-| `room_types` | list of string | `[LivingRoom, Bedroom, DiningRoom, StudyRoom]` | 程序化 room 类型循环池，后续家具筛选会参考该类型。 |
+| `room_types` | list of string | `[LivingRoom, Bedroom, DiningRoom, StudyRoom, Kitchen, Bathroom, Hallway]` | 程序化 room 类型循环池，后续家具筛选会参考该类型。 |
 | `wall_thickness_m` | float, `>0` | `0.16` | 生成墙体厚度。 |
 | `door_width_m` | float, `>=0` | `1.0` | 内墙门洞宽度；为 `0` 时基本不保留门洞。 |
 | `windows` | mapping | 见模板 | 外墙窗户生成配置。当前窗户是贴在外墙上的玻璃面，不切掉整段墙体。 |
@@ -216,6 +216,8 @@ uv run scenegen \
 生成时先按 room type 精确匹配 profile；找不到时做大小写/子串匹配；仍找不到就使用 `default`。`object_count` 会决定本次实际取多少个 class：数量少于 profile 序列时从前往后截断，数量多于 profile 序列时从该 profile 内随机补齐。
 
 `filters` 使用大小写不敏感的包含匹配。例如 `LivingRoom.filters.seat.super_category: [sofa]` 会让客厅的 `seat` 优先选择 `super_category` 含有 sofa 的资产；如果没有任何资产匹配，系统会回退到该 class 的完整资产池，避免因为 3D-FUTURE 标注不齐导致房间完全摆不出家具。
+
+默认 profile 覆盖 `LivingRoom`、`Bedroom`、`DiningRoom`、`StudyRoom`、`Kitchen`、`Bathroom` 和 `Hallway`。后三类主要通过 `category` / `super_category` 关键词偏向橱柜、卫浴、置物柜、鞋柜、console table 等资产；如果本地 3D-FUTURE 标注不足，仍会回退到同 placement class 的完整资产池。
 
 示例：
 
