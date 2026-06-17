@@ -1234,7 +1234,7 @@ def test_aggregate_procedural_run_report_summarizes_structure() -> None:
                 "scene_dir": "procedural_front3d_0000",
                 "placement_count": 3,
                 "skipped_object_count": 1,
-                "precheck": {"ok": True, "errors": []},
+                "precheck": {"ok": True, "errors": [], "room_type_geometry": {"ok": True}},
                 "procedural": {
                     "scene_id": "scene-a",
                     "room_count": 2,
@@ -1258,7 +1258,16 @@ def test_aggregate_procedural_run_report_summarizes_structure() -> None:
                 "scene_dir": "procedural_front3d_0001",
                 "placement_count": 2,
                 "skipped_object_count": 0,
-                "precheck": {"ok": True, "errors": []},
+                "precheck": {
+                    "ok": False,
+                    "errors": [{"code": "room_type_area_too_small"}],
+                    "room_type_geometry": {
+                        "ok": False,
+                        "too_small": [{"room_id": "c"}],
+                        "too_large": [],
+                        "too_elongated": [],
+                    },
+                },
                 "procedural": {
                     "scene_id": "scene-b",
                     "room_count": 1,
@@ -1280,7 +1289,15 @@ def test_aggregate_procedural_run_report_summarizes_structure() -> None:
     assert report["room_area_m2"] == {"min": 9.0, "max": 16.0, "mean": 12.333333}
     assert report["placement_ratio"] == {"min": 0.75, "max": 1.0, "mean": 0.875}
     assert report["placement_group_success_total"] == {"bed_side_tables": 1}
+    assert report["precheck_ok_count"] == 1
+    assert report["precheck_failed_count"] == 1
+    assert report["precheck_ok_rate"] == 0.5
+    assert report["precheck_error_counts"] == {"room_type_area_too_small": 1}
+    assert report["room_type_geometry_failed_count"] == 1
+    assert report["room_type_geometry_issue_counts"] == {"too_small": 1}
     assert report["scenes"][0]["room_type_counts"] == {"Bedroom": 1, "LivingRoom": 1}
+    assert report["scenes"][0]["room_type_geometry_ok"] is True
+    assert report["scenes"][1]["room_type_geometry_ok"] is False
 
 
 def test_label_plane_grid_respects_floor_domain_and_ignores_obstacles() -> None:

@@ -105,6 +105,10 @@ def aggregate_procedural_run_report(scene_records: list[dict[str, object]]) -> d
     precheck_error_totals: Counter[str] = Counter()
     group_attempt_totals: Counter[str] = Counter()
     group_success_totals: Counter[str] = Counter()
+    precheck_ok_count = 0
+    precheck_failed_count = 0
+    room_type_geometry_failed_count = 0
+    room_type_geometry_issue_totals: Counter[str] = Counter()
     scene_summaries: list[dict[str, object]] = []
 
     for record in procedural_records:
@@ -160,10 +164,23 @@ def aggregate_procedural_run_report(scene_records: list[dict[str, object]]) -> d
             group_success_totals[str(name)] += int(count)
 
         precheck = record.get("precheck") if isinstance(record.get("precheck"), dict) else {}
+        precheck_ok = precheck.get("ok")
+        if precheck_ok is True:
+            precheck_ok_count += 1
+        elif precheck_ok is False:
+            precheck_failed_count += 1
         errors = precheck.get("errors") if isinstance(precheck.get("errors"), list) else []
         for error in errors:
             if isinstance(error, dict):
                 precheck_error_totals[str(error.get("code") or "unknown")] += 1
+        room_type_geometry = precheck.get("room_type_geometry") if isinstance(precheck.get("room_type_geometry"), dict) else {}
+        if room_type_geometry:
+            if room_type_geometry.get("ok") is False:
+                room_type_geometry_failed_count += 1
+            for issue_key in ("too_small", "too_large", "too_elongated"):
+                issues = room_type_geometry.get(issue_key)
+                if isinstance(issues, list) and issues:
+                    room_type_geometry_issue_totals[issue_key] += len(issues)
 
         scene_summaries.append(
             {
@@ -181,6 +198,7 @@ def aggregate_procedural_run_report(scene_records: list[dict[str, object]]) -> d
                 "skipped_object_count": skipped_count,
                 "placement_ratio": rounded(placement_count / desired_total) if desired_total > 0 else None,
                 "precheck_ok": precheck.get("ok"),
+                "room_type_geometry_ok": room_type_geometry.get("ok") if room_type_geometry else None,
             }
         )
 
@@ -205,7 +223,12 @@ def aggregate_procedural_run_report(scene_records: list[dict[str, object]]) -> d
         "placement_ratio": numeric_summary(placement_ratios),
         "placement_group_attempts_total": dict(sorted(group_attempt_totals.items())),
         "placement_group_success_total": dict(sorted(group_success_totals.items())),
+        "precheck_ok_count": precheck_ok_count,
+        "precheck_failed_count": precheck_failed_count,
+        "precheck_ok_rate": rounded(precheck_ok_count / scene_count) if scene_count else 0.0,
         "precheck_error_counts": dict(sorted(precheck_error_totals.items())),
+        "room_type_geometry_failed_count": room_type_geometry_failed_count,
+        "room_type_geometry_issue_counts": dict(sorted(room_type_geometry_issue_totals.items())),
         "scenes": scene_summaries,
     }
 
