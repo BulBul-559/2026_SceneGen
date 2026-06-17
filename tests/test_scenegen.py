@@ -1696,6 +1696,26 @@ def test_procedural_precheck_rejects_invalid_footprint_threshold_config(tmp_path
     with pytest.raises(ValueError, match="max_topology_graph_diameter"):
         load_effective_config(bad_topology, root, parse_args([]))
 
+    bad_unique_ratio = tmp_path / "bad_unique_model_ratio.yaml"
+    bad_unique_ratio.write_text(
+        "procedural:\n"
+        "  precheck:\n"
+        "    min_unique_model_ratio: 1.2\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="min_unique_model_ratio"):
+        load_effective_config(bad_unique_ratio, root, parse_args([]))
+
+    bad_duplicate_count = tmp_path / "bad_duplicate_model_count.yaml"
+    bad_duplicate_count.write_text(
+        "procedural:\n"
+        "  precheck:\n"
+        "    max_duplicate_model_count: -1\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="max_duplicate_model_count"):
+        load_effective_config(bad_duplicate_count, root, parse_args([]))
+
 
 def test_procedural_precheck_rejects_bad_footprint_metrics() -> None:
     args = Namespace(
@@ -1881,6 +1901,48 @@ def test_procedural_precheck_rejects_low_placement_ratio() -> None:
     assert result["desired_object_count"] == 10
     assert {error["code"] for error in result["errors"]} == {
         "placement_ratio_too_low",
+    }
+
+
+def test_procedural_precheck_rejects_low_asset_diversity() -> None:
+    args = Namespace(
+        mode="procedural_front3d",
+        procedural_precheck_enabled=True,
+        procedural_precheck_min_placements=1,
+        procedural_precheck_min_placement_ratio=0.0,
+        procedural_precheck_min_unique_model_ratio=0.75,
+        procedural_precheck_max_duplicate_model_count=1,
+        procedural_precheck_max_skipped_ratio=1.0,
+    )
+
+    result = evaluate_procedural_precheck(
+        args,
+        {"placement_count": 4},
+        {
+            "skipped_object_count": 0,
+            "procedural": {
+                "placement_stats": {
+                    "desired_object_counts": {"room_a": 4},
+                    "placed_object_counts": {"room_a": 4},
+                    "model_instance_count": 4,
+                    "unique_model_count": 2,
+                    "duplicate_model_count": 2,
+                    "unique_model_ratio": 0.5,
+                }
+            },
+        },
+    )
+
+    assert result["ok"] is False
+    assert result["asset_diversity"] == {
+        "model_instance_count": 4,
+        "unique_model_count": 2,
+        "duplicate_model_count": 2,
+        "unique_model_ratio": 0.5,
+    }
+    assert {error["code"] for error in result["errors"]} == {
+        "duplicate_model_count_too_high",
+        "unique_model_ratio_too_low",
     }
 
 
@@ -2097,6 +2159,11 @@ def test_aggregate_procedural_run_report_summarizes_structure() -> None:
                     ],
                     "placement_stats": {
                         "desired_object_counts": {"a": 2, "b": 2},
+                        "model_counts": {"model-a": 2, "model-b": 1},
+                        "model_instance_count": 3,
+                        "unique_model_count": 2,
+                        "duplicate_model_count": 1,
+                        "unique_model_ratio": 0.666667,
                         "desired_class_counts": {"table": 2, "seat": 2},
                         "placed_class_counts": {"table": 1, "seat": 2},
                         "skipped_class_counts": {"table": 1},
@@ -2155,6 +2222,11 @@ def test_aggregate_procedural_run_report_summarizes_structure() -> None:
                     ],
                     "placement_stats": {
                         "desired_object_counts": {"c": 2},
+                        "model_counts": {"model-c": 2},
+                        "model_instance_count": 2,
+                        "unique_model_count": 1,
+                        "duplicate_model_count": 1,
+                        "unique_model_ratio": 0.5,
                         "desired_class_counts": {"floor": 1, "seat": 1},
                         "placed_class_counts": {"floor": 1, "seat": 1},
                         "placed_room_type_counts": {"LivingRoom": 2},
@@ -2193,6 +2265,14 @@ def test_aggregate_procedural_run_report_summarizes_structure() -> None:
     assert report["topology"]["leaf_room_count"] == {"min": 0.0, "max": 2.0, "mean": 1.0}
     assert report["topology"]["graph_diameter"] == {"min": 0.0, "max": 1.0, "mean": 0.5}
     assert report["placement_ratio"] == {"min": 0.75, "max": 1.0, "mean": 0.875}
+    assert report["model_instance_count"] == {"min": 2.0, "max": 3.0, "mean": 2.5}
+    assert report["unique_model_count"] == {"min": 1.0, "max": 2.0, "mean": 1.5}
+    assert report["duplicate_model_count"] == {"min": 1.0, "max": 1.0, "mean": 1.0}
+    assert report["unique_model_ratio"] == {"min": 0.5, "max": 0.666667, "mean": 0.583333}
+    assert report["top_reused_models"] == [
+        {"model_id": "model-a", "count": 2},
+        {"model_id": "model-c", "count": 2},
+    ]
     assert report["desired_class_counts_total"] == {"floor": 1, "seat": 3, "table": 2}
     assert report["placed_class_counts_total"] == {"floor": 1, "seat": 3, "table": 1}
     assert report["skipped_class_counts_total"] == {"table": 1}
@@ -2232,6 +2312,7 @@ def test_aggregate_procedural_run_report_summarizes_structure() -> None:
     assert report["scenes"][0]["desired_class_counts"] == {"seat": 2, "table": 2}
     assert report["scenes"][0]["placed_class_counts"] == {"seat": 2, "table": 1}
     assert report["scenes"][0]["skipped_class_counts"] == {"table": 1}
+    assert report["scenes"][0]["unique_model_ratio"] == 0.666667
     assert report["scenes"][0]["room_type_geometry_ok"] is True
     assert report["scenes"][1]["room_type_geometry_ok"] is False
 

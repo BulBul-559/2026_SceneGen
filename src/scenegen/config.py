@@ -282,6 +282,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "min_placement_ratio": 0.5,
             "min_room_placement_ratio": 0.34,
             "max_skipped_ratio": 0.8,
+            "min_unique_model_ratio": None,
+            "max_duplicate_model_count": None,
             "require_connected_rooms": True,
             "min_room_area_m2": 8.0,
             "max_room_aspect_ratio": 4.0,
@@ -1070,6 +1072,16 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     procedural_precheck["min_placement_ratio"] = float(procedural_precheck["min_placement_ratio"])
     procedural_precheck["min_room_placement_ratio"] = float(procedural_precheck["min_room_placement_ratio"])
     procedural_precheck["max_skipped_ratio"] = float(procedural_precheck["max_skipped_ratio"])
+    procedural_precheck["min_unique_model_ratio"] = (
+        None
+        if procedural_precheck["min_unique_model_ratio"] is None
+        else float(procedural_precheck["min_unique_model_ratio"])
+    )
+    procedural_precheck["max_duplicate_model_count"] = (
+        None
+        if procedural_precheck["max_duplicate_model_count"] is None
+        else int(procedural_precheck["max_duplicate_model_count"])
+    )
     procedural_precheck["require_connected_rooms"] = as_bool(
         procedural_precheck["require_connected_rooms"],
         "procedural.precheck.require_connected_rooms",
@@ -1414,6 +1426,10 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("procedural.precheck.min_room_placement_ratio must be between 0 and 1")
     if not 0.0 <= procedural_precheck["max_skipped_ratio"] <= 1.0:
         raise ValueError("procedural.precheck.max_skipped_ratio must be between 0 and 1")
+    if procedural_precheck["min_unique_model_ratio"] is not None and not 0.0 <= procedural_precheck["min_unique_model_ratio"] <= 1.0:
+        raise ValueError("procedural.precheck.min_unique_model_ratio must be between 0 and 1 or null")
+    if procedural_precheck["max_duplicate_model_count"] is not None and procedural_precheck["max_duplicate_model_count"] < 0:
+        raise ValueError("procedural.precheck.max_duplicate_model_count must be non-negative or null")
     if procedural_precheck["min_room_area_m2"] < 0:
         raise ValueError("procedural.precheck.min_room_area_m2 must be non-negative")
     if procedural_precheck["max_room_aspect_ratio"] is not None and procedural_precheck["max_room_aspect_ratio"] < 1:
@@ -1691,6 +1707,8 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         procedural_precheck_min_placement_ratio=procedural["precheck"]["min_placement_ratio"],
         procedural_precheck_min_room_placement_ratio=procedural["precheck"]["min_room_placement_ratio"],
         procedural_precheck_max_skipped_ratio=procedural["precheck"]["max_skipped_ratio"],
+        procedural_precheck_min_unique_model_ratio=procedural["precheck"]["min_unique_model_ratio"],
+        procedural_precheck_max_duplicate_model_count=procedural["precheck"]["max_duplicate_model_count"],
         procedural_precheck_require_connected_rooms=procedural["precheck"]["require_connected_rooms"],
         procedural_precheck_min_room_area_m2=procedural["precheck"]["min_room_area_m2"],
         procedural_precheck_max_room_aspect_ratio=procedural["precheck"]["max_room_aspect_ratio"],

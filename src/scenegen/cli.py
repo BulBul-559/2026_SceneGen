@@ -148,6 +148,10 @@ def evaluate_procedural_precheck(
     placed_counts = placement_stats.get("placed_object_counts") if isinstance(placement_stats.get("placed_object_counts"), dict) else {}
     desired_total = sum(int(value) for value in desired_counts.values()) if desired_counts else 0
     skipped_count = int(record.get("skipped_object_count") or (procedural.get("skipped_object_count", 0) if procedural else 0))
+    unique_model_count = int(placement_stats.get("unique_model_count", 0) or 0)
+    duplicate_model_count = int(placement_stats.get("duplicate_model_count", 0) or 0)
+    model_instance_count = int(placement_stats.get("model_instance_count", placement_count) or 0)
+    unique_model_ratio = float(placement_stats.get("unique_model_ratio", 0.0) or 0.0)
     footprint = procedural.get("footprint") if isinstance(procedural.get("footprint"), dict) else {}
     topology = procedural.get("topology") if isinstance(procedural.get("topology"), dict) else {}
 
@@ -247,6 +251,29 @@ def evaluate_procedural_precheck(
         if max_threshold is not None and value > int(max_threshold):
             errors.append({"code": f"{error_prefix}_too_high", "value": value, "threshold": int(max_threshold)})
 
+    min_unique_model_ratio = getattr(args, "procedural_precheck_min_unique_model_ratio", None)
+    if min_unique_model_ratio is not None and model_instance_count > 0 and unique_model_ratio < float(min_unique_model_ratio):
+        errors.append(
+            {
+                "code": "unique_model_ratio_too_low",
+                "value": round(unique_model_ratio, 6),
+                "threshold": float(min_unique_model_ratio),
+                "unique_model_count": unique_model_count,
+                "model_instance_count": model_instance_count,
+            }
+        )
+    max_duplicate_model_count = getattr(args, "procedural_precheck_max_duplicate_model_count", None)
+    if max_duplicate_model_count is not None and duplicate_model_count > int(max_duplicate_model_count):
+        errors.append(
+            {
+                "code": "duplicate_model_count_too_high",
+                "value": duplicate_model_count,
+                "threshold": int(max_duplicate_model_count),
+                "unique_model_count": unique_model_count,
+                "model_instance_count": model_instance_count,
+            }
+        )
+
     if desired_total > 0:
         placement_ratio = placement_count / desired_total
         skipped_ratio = skipped_count / desired_total
@@ -303,6 +330,12 @@ def evaluate_procedural_precheck(
     result["placement_count"] = placement_count
     result["skipped_object_count"] = skipped_count
     result["placed_object_counts"] = dict(placed_counts) if placed_counts else {}
+    result["asset_diversity"] = {
+        "model_instance_count": model_instance_count,
+        "unique_model_count": unique_model_count,
+        "duplicate_model_count": duplicate_model_count,
+        "unique_model_ratio": round(unique_model_ratio, 6),
+    }
     result["room_connectivity"] = connectivity
     result["room_geometry"] = room_geometry
     result["room_type_geometry"] = room_type_geometry
@@ -544,6 +577,8 @@ def procedural_precheck_settings(args: argparse.Namespace) -> dict[str, object]:
         "min_placement_ratio": float(args.procedural_precheck_min_placement_ratio),
         "min_room_placement_ratio": float(args.procedural_precheck_min_room_placement_ratio),
         "max_skipped_ratio": float(args.procedural_precheck_max_skipped_ratio),
+        "min_unique_model_ratio": args.procedural_precheck_min_unique_model_ratio,
+        "max_duplicate_model_count": args.procedural_precheck_max_duplicate_model_count,
         "require_connected_rooms": bool(args.procedural_precheck_require_connected_rooms),
         "min_room_area_m2": float(args.procedural_precheck_min_room_area_m2),
         "max_room_aspect_ratio": args.procedural_precheck_max_room_aspect_ratio,

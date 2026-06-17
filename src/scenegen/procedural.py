@@ -238,9 +238,14 @@ def aggregate_procedural_run_report(
     placement_counts: list[float] = []
     skipped_counts: list[float] = []
     placement_ratios: list[float] = []
+    model_instance_counts: list[float] = []
+    unique_model_counts: list[float] = []
+    duplicate_model_counts: list[float] = []
+    unique_model_ratios: list[float] = []
     type_totals: Counter[str] = Counter()
     layout_totals: Counter[str] = Counter()
     configured_layout_totals: Counter[str] = Counter()
+    model_totals: Counter[str] = Counter()
     precheck_error_totals: Counter[str] = Counter()
     group_attempt_totals: Counter[str] = Counter()
     group_success_totals: Counter[str] = Counter()
@@ -353,6 +358,16 @@ def aggregate_procedural_run_report(
         _merge_nested_counter(desired_class_by_room_type_totals, placement_stats.get("desired_class_by_room_type"))
         _merge_nested_counter(placed_class_by_room_type_totals, placement_stats.get("placed_class_by_room_type"))
         _merge_nested_counter(skipped_class_by_room_type_totals, placement_stats.get("skipped_class_by_room_type"))
+        model_instance_count = int(placement_stats.get("model_instance_count", placement_count) or 0)
+        unique_model_count = int(placement_stats.get("unique_model_count", 0) or 0)
+        duplicate_model_count = int(placement_stats.get("duplicate_model_count", 0) or 0)
+        unique_model_ratio = float(placement_stats.get("unique_model_ratio", 0.0) or 0.0)
+        model_instance_counts.append(float(model_instance_count))
+        unique_model_counts.append(float(unique_model_count))
+        duplicate_model_counts.append(float(duplicate_model_count))
+        if model_instance_count > 0:
+            unique_model_ratios.append(unique_model_ratio)
+        _merge_counter(model_totals, placement_stats.get("model_counts"))
 
         group_stats = placement_stats.get("group_stats") if isinstance(placement_stats.get("group_stats"), dict) else {}
         attempted = group_stats.get("attempted") if isinstance(group_stats.get("attempted"), dict) else {}
@@ -403,12 +418,21 @@ def aggregate_procedural_run_report(
                 "desired_class_counts": dict(sorted((str(key), int(value)) for key, value in desired_class_counts.items())),
                 "placed_class_counts": dict(sorted((str(key), int(value)) for key, value in placed_class_counts.items())),
                 "skipped_class_counts": dict(sorted((str(key), int(value)) for key, value in skipped_class_counts.items())),
+                "model_instance_count": model_instance_count,
+                "unique_model_count": unique_model_count,
+                "duplicate_model_count": duplicate_model_count,
+                "unique_model_ratio": rounded(unique_model_ratio),
                 "precheck_ok": precheck.get("ok"),
                 "room_type_geometry_ok": room_type_geometry.get("ok") if room_type_geometry else None,
             }
         )
 
     scene_count = len(procedural_records)
+    top_reused_models = [
+        {"model_id": model_id, "count": int(count)}
+        for model_id, count in sorted(model_totals.items(), key=lambda item: (-item[1], item[0]))[:20]
+        if int(count) > 1
+    ]
     return {
         "schema_version": "scenegen.procedural.run_report.v1",
         "scene_count": scene_count,
@@ -440,6 +464,11 @@ def aggregate_procedural_run_report(
         "placement_count": numeric_summary(placement_counts),
         "skipped_object_count": numeric_summary(skipped_counts),
         "placement_ratio": numeric_summary(placement_ratios),
+        "model_instance_count": numeric_summary(model_instance_counts),
+        "unique_model_count": numeric_summary(unique_model_counts),
+        "duplicate_model_count": numeric_summary(duplicate_model_counts),
+        "unique_model_ratio": numeric_summary(unique_model_ratios),
+        "top_reused_models": top_reused_models,
         "desired_class_counts_total": dict(sorted(desired_class_totals.items())),
         "placed_class_counts_total": dict(sorted(placed_class_totals.items())),
         "skipped_class_counts_total": dict(sorted(skipped_class_totals.items())),
@@ -3012,6 +3041,15 @@ class ProceduralFront3DGenerator:
                     skipped.append({"room_id": room.room_id, "class": class_name, "reason": "placement_failed"})
                     skipped_object_counts[room.room_id] = int(skipped_object_counts.get(room.room_id, 0)) + 1
                     _record_skipped_class_stats(stats, room, class_name, "placement_failed")
+        model_counts = dict(sorted(scene_model_counts.items()))
+        model_instance_count = sum(int(value) for value in model_counts.values())
+        unique_model_count = len(model_counts)
+        duplicate_model_count = sum(max(0, int(value) - 1) for value in model_counts.values())
+        stats["model_counts"] = model_counts
+        stats["model_instance_count"] = model_instance_count
+        stats["unique_model_count"] = unique_model_count
+        stats["duplicate_model_count"] = duplicate_model_count
+        stats["unique_model_ratio"] = rounded(unique_model_count / model_instance_count) if model_instance_count else 0.0
         return placements, skipped, stats
 
     def build_scene(self, scene_dir: Path, scene_index: int, rng: random.Random) -> ProceduralSceneBuild:
