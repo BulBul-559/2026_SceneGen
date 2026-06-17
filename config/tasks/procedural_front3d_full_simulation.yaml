@@ -43,6 +43,17 @@ procedural:
   wall_thickness_m: 0.16
   door_width_m: 1.0
   objects_per_room: [3, 7]
+  room_profiles:
+    default:
+      classes: [seat, table, floor, seat, table]
+    LivingRoom:
+      classes: [seat, table, floor, seat, table]
+    Bedroom:
+      classes: [floor, table, table, seat]
+    DiningRoom:
+      classes: [table, seat, seat, seat, seat]
+    StudyRoom:
+      classes: [table, seat, floor]
   wall_margin_m: 0.25
   object_margin_m: 0.15
   max_attempts_per_object: 80

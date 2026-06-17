@@ -48,9 +48,11 @@ from scenegen.procedural import (
     ProceduralAssetEntry,
     ProceduralRoom,
     architecture_meshes_for_rooms,
+    desired_classes_from_profile,
     make_room_layout,
     procedural_asset_approx_bbox,
     procedural_asset_footprint_size,
+    select_room_profile,
     write_procedural_source_files,
 )
 
@@ -245,6 +247,18 @@ def test_procedural_asset_approx_footprint_uses_scenegen_xy() -> None:
     assert procedural_asset_footprint_size(entry, 0.0) == pytest.approx((2.0, 4.0))
     assert procedural_asset_footprint_size(entry, np.pi / 2.0) == pytest.approx((4.0, 2.0))
     assert procedural_asset_approx_bbox(entry, 0.0, 10.0, 20.0) == pytest.approx((9.0, 11.0, 18.0, 22.0, 0.0, 1.5))
+
+
+def test_procedural_room_profiles_select_and_expand_classes() -> None:
+    profiles = {
+        "default": {"classes": ["seat"]},
+        "Bedroom": {"classes": ["floor", "table"]},
+        "LivingRoom": {"classes": ["seat", "table", "floor"]},
+    }
+
+    assert select_room_profile("MasterBedroom", profiles)[0] == "Bedroom"
+    assert desired_classes_from_profile("Bedroom", profiles, (2, 2), random.Random(1)) == ["floor", "table"]
+    assert desired_classes_from_profile("Kitchen", profiles, (3, 3), random.Random(2)) == ["seat", "seat", "seat"]
 
 
 def write_height_filtered_fixture_obj(path: Path) -> None:
@@ -573,6 +587,35 @@ def test_invalid_procedural_layout_is_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="procedural.layout"):
         load_effective_config(config_path, root, parse_args([]))
+
+
+def test_procedural_room_profiles_accept_custom_names_and_reject_bad_classes(tmp_path: Path) -> None:
+    root = find_project_root()
+    config_path = tmp_path / "procedural_profiles.yaml"
+    config_path.write_text(
+        "procedural:\n"
+        "  room_profiles:\n"
+        "    default:\n"
+        "      classes: [seat]\n"
+        "    Kitchen:\n"
+        "      classes: [table, floor]\n",
+        encoding="utf-8",
+    )
+
+    effective, _overrides = load_effective_config(config_path, root, parse_args([]))
+
+    assert effective["procedural"]["room_profiles"]["Kitchen"]["classes"] == ["table", "floor"]
+
+    bad_path = tmp_path / "bad_procedural_profiles.yaml"
+    bad_path.write_text(
+        "procedural:\n"
+        "  room_profiles:\n"
+        "    default:\n"
+        "      classes: [lamp]\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="procedural.room_profiles.default.classes"):
+        load_effective_config(bad_path, root, parse_args([]))
 
 
 def test_prepare_run_dir_clean_only_replaces_named_run(tmp_path: Path) -> None:

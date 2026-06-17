@@ -412,6 +412,37 @@ def make_room_layout(
     raise ValueError(f"Unsupported procedural layout: {layout}")
 
 
+def select_room_profile(room_type: str, profiles: dict[str, dict[str, list[str]]]) -> tuple[str, list[str]]:
+    """Select the configured furnishing profile for a procedural room type."""
+
+    if room_type in profiles:
+        return room_type, list(profiles[room_type]["classes"])
+    lowered = room_type.lower()
+    for name, profile in profiles.items():
+        if name.lower() == lowered:
+            return name, list(profile["classes"])
+    for name, profile in profiles.items():
+        name_lowered = name.lower()
+        if name != "default" and (name_lowered in lowered or lowered in name_lowered):
+            return name, list(profile["classes"])
+    return "default", list(profiles["default"]["classes"])
+
+
+def desired_classes_from_profile(
+    room_type: str,
+    profiles: dict[str, dict[str, list[str]]],
+    object_count_range: tuple[int, int],
+    rng: random.Random,
+) -> list[str]:
+    """Expand a room furnishing profile to the sampled object count."""
+
+    _profile_name, classes = select_room_profile(room_type, profiles)
+    target_count = rng.randint(object_count_range[0], object_count_range[1])
+    if target_count <= len(classes):
+        return classes[:target_count]
+    return classes + [rng.choice(classes) for _ in range(target_count - len(classes))]
+
+
 def overlapping_interval(a0: float, a1: float, b0: float, b1: float) -> tuple[float, float] | None:
     start = max(a0, b0)
     end = min(a1, b1)
@@ -675,19 +706,16 @@ class ProceduralFront3DGenerator:
             return filtered or entries
         return entries
 
+    def room_profile_for_room(self, room_type: str) -> tuple[str, list[str]]:
+        return select_room_profile(room_type, self.args.procedural_room_profiles)
+
     def desired_classes_for_room(self, room_type: str, rng: random.Random) -> list[str]:
-        text = room_type.lower()
-        if "bed" in text:
-            base = ["floor", "table", "table", "seat"]
-        elif "dining" in text:
-            base = ["table", "seat", "seat", "seat", "seat"]
-        elif "study" in text:
-            base = ["table", "seat", "floor"]
-        else:
-            base = ["seat", "table", "floor", "seat", "table"]
-        extra_count = rng.randint(self.args.procedural_objects_per_room[0], self.args.procedural_objects_per_room[1])
-        extras = [rng.choice(["table", "seat", "floor"]) for _ in range(max(0, extra_count - len(base)))]
-        return base[:extra_count] + extras
+        return desired_classes_from_profile(
+            room_type,
+            self.args.procedural_room_profiles,
+            tuple(int(value) for value in self.args.procedural_objects_per_room),
+            rng,
+        )
 
     def place_assets(
         self,
@@ -836,6 +864,8 @@ class ProceduralFront3DGenerator:
                 {
                     "room_id": room.room_id,
                     "room_type": room.room_type,
+                    "profile": self.room_profile_for_room(room.room_type)[0],
+                    "profile_classes": self.room_profile_for_room(room.room_type)[1],
                     "bounds_xy": [room.x0, room.y0, room.x1, room.y1],
                     "area_m2": round(room.area, 3),
                 }

@@ -234,11 +234,11 @@ uv run scenegen-batch \
 
 1. 按 `procedural.layout` 采样多房间户型：默认 `split_tree` 会从完整 apartment footprint 递归切分房间，`grid` 可用于规整行列对照；随后生成 floor、ceiling、wall 和 door mesh。
 2. 写出 Front3D-like `procedural_source/scene.json` 与 `procedural_source/architecture.json`，供 label、class mask 和 floorplan 复用。
-3. 从 `data/3D-Front/scenegen_manifest.json` 的 3D-FUTURE 物体池中按 placement class 和简单房间语义筛选家具。
+3. 从 `data/3D-Front/scenegen_manifest.json` 的 3D-FUTURE 物体池中按 `procedural.room_profiles` 配置的房间家具类别序列筛选家具。
 4. 在每个 room 内进行 bbox 约束摆放，避免越界和家具间碰撞。
 5. 复用现有 `scene.obj`、`scene.xml`、`label/`、`floorplan/`、`class_mask`、quality 和 statistics 输出链路。
 
-第一版仍是规则 baseline：房间拓扑、家具组合和关系约束还比较轻量。后续可以逐步替换为更强的 room planner、语义资产组、约束求解器和可达性/连通性验证。
+第一版仍是规则 baseline：房间拓扑和关系约束还比较轻量；家具组合已经从硬编码迁移到 `procedural.room_profiles`，可以按房间类型配置 `table`、`seat`、`floor` 的组合序列。后续可以逐步替换为更强的 room planner、语义资产组、约束求解器和可达性/连通性验证。
 
 ## 生产运行与日志
 

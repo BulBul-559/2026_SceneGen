@@ -75,6 +75,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "wall_thickness_m": 0.16,
         "door_width_m": 1.0,
         "objects_per_room": [3, 7],
+        "room_profiles": {
+            "default": {"classes": ["seat", "table", "floor", "seat", "table"]},
+            "LivingRoom": {"classes": ["seat", "table", "floor", "seat", "table"]},
+            "Bedroom": {"classes": ["floor", "table", "table", "seat"]},
+            "DiningRoom": {"classes": ["table", "seat", "seat", "seat", "seat"]},
+            "StudyRoom": {"classes": ["table", "seat", "floor"]},
+        },
         "wall_margin_m": 0.25,
         "object_margin_m": 0.15,
         "max_attempts_per_object": 80,
@@ -219,6 +226,16 @@ def unknown_config_fields(config: dict[str, Any], schema: dict[str, Any] | None 
             unknown.append(".".join(path))
             continue
         schema_value = schema[key]
+        if path == ("procedural", "room_profiles"):
+            if isinstance(value, dict) and isinstance(schema_value, dict):
+                profile_schema = schema_value.get("default", {})
+                for profile_name, profile_value in value.items():
+                    if not isinstance(profile_value, dict):
+                        continue
+                    for child_key in profile_value:
+                        if child_key not in profile_schema:
+                            unknown.append(".".join((*path, str(profile_name), str(child_key))))
+            continue
         if isinstance(value, dict) and isinstance(schema_value, dict):
             unknown.extend(unknown_config_fields(value, schema_value, path))
     return unknown
@@ -349,6 +366,27 @@ def parse_float_pair(value: Any, key: str) -> list[float]:
     return [float(parts[0]), float(parts[1])]
 
 
+def normalize_room_profiles(value: Any, key: str = "procedural.room_profiles") -> dict[str, dict[str, list[str]]]:
+    if not isinstance(value, dict) or not value:
+        raise ValueError(f"{key} must be a non-empty mapping")
+    allowed_classes = {"table", "seat", "floor"}
+    profiles: dict[str, dict[str, list[str]]] = {}
+    for raw_name, raw_profile in value.items():
+        profile_name = str(raw_name).strip()
+        if not profile_name:
+            raise ValueError(f"{key} profile names must not be empty")
+        if not isinstance(raw_profile, dict):
+            raise ValueError(f"{key}.{profile_name} must be a mapping")
+        classes_key = f"{key}.{profile_name}.classes"
+        classes = [item.lower() for item in parse_string_sequence(raw_profile.get("classes"), classes_key)]
+        if any(item not in allowed_classes for item in classes):
+            raise ValueError(f"{classes_key} values must be table, seat, or floor")
+        profiles[profile_name] = {"classes": classes}
+    if "default" not in profiles:
+        raise ValueError(f"{key}.default is required")
+    return profiles
+
+
 def normalize_label_strategy(value: Any, key: str) -> str:
     text = str(value).strip()
     if text == "panel":
@@ -442,6 +480,7 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     procedural["wall_thickness_m"] = float(procedural["wall_thickness_m"])
     procedural["door_width_m"] = float(procedural["door_width_m"])
     procedural["objects_per_room"] = parse_int_pair(procedural["objects_per_room"], "procedural.objects_per_room")
+    procedural["room_profiles"] = normalize_room_profiles(procedural["room_profiles"])
     procedural["wall_margin_m"] = float(procedural["wall_margin_m"])
     procedural["object_margin_m"] = float(procedural["object_margin_m"])
     procedural["max_attempts_per_object"] = int(procedural["max_attempts_per_object"])
@@ -591,6 +630,9 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("procedural.door_width_m must be non-negative")
     if procedural["objects_per_room"][0] < 0 or procedural["objects_per_room"][1] < procedural["objects_per_room"][0]:
         raise ValueError("procedural.objects_per_room must be [min, max] with max >= min >= 0")
+    for profile_name, profile in procedural["room_profiles"].items():
+        if not profile["classes"]:
+            raise ValueError(f"procedural.room_profiles.{profile_name}.classes must not be empty")
     if procedural["wall_margin_m"] < 0:
         raise ValueError("procedural.wall_margin_m must be non-negative")
     if procedural["object_margin_m"] < 0:
@@ -850,6 +892,7 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         procedural_wall_thickness_m=procedural["wall_thickness_m"],
         procedural_door_width_m=procedural["door_width_m"],
         procedural_objects_per_room=procedural["objects_per_room"],
+        procedural_room_profiles=procedural["room_profiles"],
         procedural_wall_margin_m=procedural["wall_margin_m"],
         procedural_object_margin_m=procedural["object_margin_m"],
         procedural_max_attempts_per_object=procedural["max_attempts_per_object"],

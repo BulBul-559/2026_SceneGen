@@ -104,7 +104,7 @@ uv run scenegen \
 
 ## procedural
 
-只影响 `pipeline.mode: procedural_front3d`。这是自动生成类 Front3D 场景的第一版 baseline：随机采样多房间矩形户型，生成 Front3D-like 建筑 JSON/OBJ，再从 3D-FUTURE 物体池中按类别和简单房间语义摆放家具。
+只影响 `pipeline.mode: procedural_front3d`。这是自动生成类 Front3D 场景的第一版 baseline：随机采样多房间矩形户型，生成 Front3D-like 建筑 JSON/OBJ，再从 3D-FUTURE 物体池中按配置化 room profile 摆放家具。
 
 `procedural_front3d` 仍会读取 `front3d.manifest` 和 `front3d.object_variant` 来构建 3D-FUTURE 家具资产池；建筑结构不来自 3D-FRONT 原始场景，而是在每个输出 scene 目录下生成 `procedural_source/architecture.obj` 和 `procedural_source/scene.json`。模板中 `front3d.arch_variant: raw` 用来保持索引和 manifest 记录清晰。
 
@@ -119,10 +119,28 @@ uv run scenegen \
 | `wall_thickness_m` | float, `>0` | `0.16` | 生成墙体厚度。 |
 | `door_width_m` | float, `>=0` | `1.0` | 内墙门洞宽度；为 `0` 时基本不保留门洞。 |
 | `objects_per_room` | `[min, max]` | `[3, 7]` | 每个 room 尝试摆放的家具数量范围。 |
+| `room_profiles` | mapping | 见模板 | 房间类型到 furniture class 序列的映射。必须包含 `default`；可新增任意 room type 名。 |
 | `wall_margin_m` | float, `>=0` | `0.25` | 家具 bbox 与 room 边界的最小距离。 |
 | `object_margin_m` | float, `>=0` | `0.15` | 家具 bbox 之间的额外间距。 |
 | `max_attempts_per_object` | integer, `>=1` | `80` | 每个家具候选最多尝试多少次随机位置和朝向。 |
 | `asset_pool_limit` | integer, `>=1` | `500` | 每个 placement class 最多缓存多少个 3D-FUTURE 资产用于采样。 |
+
+### procedural.room_profiles
+
+每个 profile 目前只包含 `classes`，值必须是 `table`、`seat`、`floor` 的序列。生成时先按 room type 精确匹配 profile；找不到时做大小写/子串匹配；仍找不到就使用 `default`。`objects_per_room` 会决定本次实际取多少个 class：数量少于 profile 序列时从前往后截断，数量多于 profile 序列时从该 profile 内随机补齐。
+
+示例：
+
+```yaml
+procedural:
+  room_profiles:
+    default:
+      classes: [seat, table, floor]
+    Bedroom:
+      classes: [floor, table, table, seat]
+    DiningRoom:
+      classes: [table, seat, seat, seat, seat]
+```
 
 ## validation
 
