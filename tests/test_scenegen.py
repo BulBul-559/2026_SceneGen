@@ -1358,6 +1358,48 @@ def test_procedural_precheck_rejects_low_placement_ratio() -> None:
     }
 
 
+def test_procedural_precheck_rejects_low_room_placement_ratio() -> None:
+    args = Namespace(
+        mode="procedural_front3d",
+        procedural_precheck_enabled=True,
+        procedural_precheck_min_placements=1,
+        procedural_precheck_min_placement_ratio=0.5,
+        procedural_precheck_min_room_placement_ratio=0.34,
+        procedural_precheck_max_skipped_ratio=0.8,
+        procedural_precheck_require_connected_rooms=False,
+        procedural_precheck_min_room_area_m2=0.0,
+        procedural_precheck_max_room_aspect_ratio=None,
+        procedural_precheck_room_type_geometry=None,
+    )
+
+    result = evaluate_procedural_precheck(
+        args,
+        {"placement_count": 6},
+        {
+            "skipped_object_count": 0,
+            "procedural": {
+                "placement_stats": {
+                    "desired_object_counts": {"living": 4, "kitchen": 4},
+                    "placed_object_counts": {"living": 4, "kitchen": 1},
+                },
+                "rooms": [
+                    {"room_id": "living", "bounds_xy": [0, 0, 4, 4]},
+                    {"room_id": "kitchen", "bounds_xy": [4, 0, 8, 4]},
+                ],
+                "adjacency": [{"rooms": ["living", "kitchen"], "door_width_m": 1.0}],
+            },
+        },
+    )
+
+    assert result["ok"] is False
+    assert result["placed_object_counts"] == {"living": 4, "kitchen": 1}
+    room_error = next(error for error in result["errors"] if error["code"] == "room_placement_ratio_too_low")
+    assert room_error["threshold"] == pytest.approx(0.34)
+    assert room_error["rooms"] == [
+        {"room_id": "kitchen", "value": 0.25, "placement_count": 1, "desired_count": 4}
+    ]
+
+
 def test_procedural_precheck_rejects_disconnected_rooms() -> None:
     args = Namespace(
         mode="procedural_front3d",

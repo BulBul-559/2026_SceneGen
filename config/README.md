@@ -214,6 +214,7 @@ uv run scenegen \
 | `max_attempts_per_scene` | integer, `>=1` | `5` | 每个输出编号最多尝试多少个 procedural scene。 |
 | `min_placements` | integer, `>=0` | `1` | 至少需要实际摆放出的家具数量。 |
 | `min_placement_ratio` | float, `0-1` | `0.5` | 实际摆放数量 / 目标家具数量的最低比例。 |
+| `min_room_placement_ratio` | float, `0-1` | `0.34` | 单个 room 的实际摆放数量 / 目标家具数量最低比例；用于避免整体达标但局部房间几乎为空。旧记录缺少 per-room stats 时该检查会跳过。 |
 | `max_skipped_ratio` | float, `0-1` | `0.8` | 跳过或摆放失败数量 / 目标家具数量的最高比例。 |
 | `require_connected_rooms` | boolean | `true` | 是否要求所有 room 通过带正宽门洞的 adjacency 连成一个可达图；失败时换 seed 重试。 |
 | `min_room_area_m2` | float, `>=0` | `8.0` | 单个 room 的最小面积；过小 room 会触发预检失败。 |

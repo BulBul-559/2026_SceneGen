@@ -276,6 +276,7 @@ procedural:
     max_attempts_per_scene: 5
     min_placements: 1
     min_placement_ratio: 0.5
+    min_room_placement_ratio: 0.34
     max_skipped_ratio: 0.8
     require_connected_rooms: true
     min_room_area_m2: 8.0

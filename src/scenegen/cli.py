@@ -145,6 +145,7 @@ def evaluate_procedural_precheck(
     procedural = record.get("procedural") if isinstance(record.get("procedural"), dict) else {}
     placement_stats = procedural.get("placement_stats") if isinstance(procedural.get("placement_stats"), dict) else {}
     desired_counts = placement_stats.get("desired_object_counts") if isinstance(placement_stats.get("desired_object_counts"), dict) else {}
+    placed_counts = placement_stats.get("placed_object_counts") if isinstance(placement_stats.get("placed_object_counts"), dict) else {}
     desired_total = sum(int(value) for value in desired_counts.values()) if desired_counts else 0
     skipped_count = int(record.get("skipped_object_count") or (procedural.get("skipped_object_count", 0) if procedural else 0))
 
@@ -214,12 +215,39 @@ def evaluate_procedural_precheck(
                     "desired_count": desired_total,
                 }
             )
+        min_room_ratio = float(getattr(args, "procedural_precheck_min_room_placement_ratio", 0.0))
+        if min_room_ratio > 0.0 and placed_counts:
+            low_rooms: list[dict[str, object]] = []
+            for room_id, desired_count_value in sorted(desired_counts.items()):
+                desired_count = int(desired_count_value)
+                if desired_count <= 0:
+                    continue
+                room_placed_count = int(placed_counts.get(room_id, 0))
+                ratio = room_placed_count / desired_count
+                if ratio < min_room_ratio:
+                    low_rooms.append(
+                        {
+                            "room_id": room_id,
+                            "value": round(ratio, 6),
+                            "placement_count": room_placed_count,
+                            "desired_count": desired_count,
+                        }
+                    )
+            if low_rooms:
+                errors.append(
+                    {
+                        "code": "room_placement_ratio_too_low",
+                        "threshold": min_room_ratio,
+                        "rooms": low_rooms,
+                    }
+                )
 
     result["ok"] = not errors
     result["errors"] = errors
     result["desired_object_count"] = desired_total
     result["placement_count"] = placement_count
     result["skipped_object_count"] = skipped_count
+    result["placed_object_counts"] = dict(placed_counts) if placed_counts else {}
     result["room_connectivity"] = connectivity
     result["room_geometry"] = room_geometry
     result["room_type_geometry"] = room_type_geometry
@@ -449,6 +477,7 @@ def procedural_precheck_settings(args: argparse.Namespace) -> dict[str, object]:
         "max_attempts_per_scene": int(args.procedural_precheck_max_attempts_per_scene),
         "min_placements": int(args.procedural_precheck_min_placements),
         "min_placement_ratio": float(args.procedural_precheck_min_placement_ratio),
+        "min_room_placement_ratio": float(args.procedural_precheck_min_room_placement_ratio),
         "max_skipped_ratio": float(args.procedural_precheck_max_skipped_ratio),
         "require_connected_rooms": bool(args.procedural_precheck_require_connected_rooms),
         "min_room_area_m2": float(args.procedural_precheck_min_room_area_m2),

@@ -239,7 +239,7 @@ summary/
 
 `front3d` 的 `placements.json` 中 `sionna_assets.timings_s` 会记录 Sionna XML 资产导出的细分耗时，包括建筑拆分、家具资产拆分和 XML 写入，用于定位 `build_scene` 阶段瓶颈。
 
-`procedural_front3d` 的 scene record 中 `procedural.rooms[*].profile` / `profile_classes` 会记录每个房间使用的 furniture profile；`procedural.adjacency` 会记录相邻 room、共享墙方向、门洞 bbox 和门中心点；`procedural.timings_s` 和 `procedural.placement_stats` 会记录 layout、建筑 mesh/source 写出、家具摆放、关系组尝试/成功次数、候选尝试次数、精确 bbox 计算次数、粗略碰撞拒绝次数和 `door_keepout_reject_count`。run 根目录的 `procedural_report.json` 会汇总 room count/type/area/aspect、adjacency/window、家具完成率、关系组成功次数、precheck 通过率和 room type 几何问题统计，适合批量生产后快速质检。当前摆放阶段先用资产目录尺寸做近似 footprint 过滤，只有候选通过房间边界、门洞 keepout 和粗略避碰后才加载 OBJ 计算精确 bbox；这是程序化模式第一轮性能优化的关键。
+`procedural_front3d` 的 scene record 中 `procedural.rooms[*].profile` / `profile_classes` 会记录每个房间使用的 furniture profile；`procedural.adjacency` 会记录相邻 room、共享墙方向、门洞 bbox 和门中心点；`procedural.timings_s` 和 `procedural.placement_stats` 会记录 layout、建筑 mesh/source 写出、家具摆放、每房间 desired/placed/skipped 计数、关系组尝试/成功次数、候选尝试次数、精确 bbox 计算次数、粗略碰撞拒绝次数和 `door_keepout_reject_count`。run 根目录的 `procedural_report.json` 会汇总 room count/type/area/aspect、adjacency/window、家具完成率、关系组成功次数、precheck 通过率和 room type 几何问题统计，适合批量生产后快速质检。当前摆放阶段先用资产目录尺寸做近似 footprint 过滤，只有候选通过房间边界、门洞 keepout 和粗略避碰后才加载 OBJ 计算精确 bbox；这是程序化模式第一轮性能优化的关键。
 
 `label.overlays[*].timings_s` 会记录每张 label floorplan overlay 的读入、画布准备、点位绘制和缩放保存耗时。当前 overlay PNG 使用无损快速压缩级别 `png_compress_level: 1`；全配置下 overlay 通常瓶颈在 `resize_save`，不是 UE/BS 点绘制。
 

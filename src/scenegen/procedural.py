@@ -1821,6 +1821,9 @@ class ProceduralFront3DGenerator:
             scene_model_counts.update(attempt_scene_counts)
             room_model_counts.clear()
             room_model_counts.update(attempt_room_counts)
+            placed_counts = stats.get("placed_object_counts")
+            if isinstance(placed_counts, dict):
+                placed_counts[room.room_id] = int(placed_counts.get(room.room_id, 0)) + len(group_items)
             room_boxes.extend(group_boxes)
             stats["relation_group_success_count"] = group_index + 1
             stats["relation_group_placement_count"] = int(stats["relation_group_placement_count"]) + len(group_items)
@@ -1886,6 +1889,8 @@ class ProceduralFront3DGenerator:
         placements: list[PlacedAsset] = []
         skipped: list[dict[str, object]] = []
         desired_object_counts: dict[str, int] = {}
+        placed_object_counts: dict[str, int] = {}
+        skipped_object_counts: dict[str, int] = {}
         stats: dict[str, object] = {
             "attempt_count": 0,
             "exact_bbox_count": 0,
@@ -1899,6 +1904,8 @@ class ProceduralFront3DGenerator:
             "relation_group_placement_count": 0,
             "relation_group_name_counts": {},
             "desired_object_counts": desired_object_counts,
+            "placed_object_counts": placed_object_counts,
+            "skipped_object_counts": skipped_object_counts,
             "policy_zone_counts": {},
             "asset_reuse_relaxed_count": 0,
             "asset_reuse_limit_reject_count": 0,
@@ -1915,6 +1922,8 @@ class ProceduralFront3DGenerator:
         for room in rooms:
             desired_classes = self.desired_classes_for_room(room, rng)
             desired_object_counts[room.room_id] = len(desired_classes)
+            placed_object_counts[room.room_id] = 0
+            skipped_object_counts[room.room_id] = 0
             self._place_room_groups(
                 room,
                 desired_classes,
@@ -1932,6 +1941,7 @@ class ProceduralFront3DGenerator:
                 candidates = self._entries_for_room(room.room_type, class_name)
                 if not candidates:
                     skipped.append({"room_id": room.room_id, "class": class_name, "reason": "empty_asset_pool"})
+                    skipped_object_counts[room.room_id] = int(skipped_object_counts.get(room.room_id, 0)) + 1
                     continue
                 placed = False
                 for _attempt in range(int(self.args.procedural_max_attempts_per_object)):
@@ -1984,6 +1994,7 @@ class ProceduralFront3DGenerator:
                         yaw=yaw,
                     )
                     record_asset_reuse(entry, scene_model_counts, room_model_counts[room.room_id])
+                    placed_object_counts[room.room_id] = int(placed_object_counts.get(room.room_id, 0)) + 1
                     room_boxes[room.room_id].append(bbox)
                     zone_counts = stats["policy_zone_counts"]
                     if isinstance(zone_counts, dict):
@@ -1992,6 +2003,7 @@ class ProceduralFront3DGenerator:
                     break
                 if not placed:
                     skipped.append({"room_id": room.room_id, "class": class_name, "reason": "placement_failed"})
+                    skipped_object_counts[room.room_id] = int(skipped_object_counts.get(room.room_id, 0)) + 1
         return placements, skipped, stats
 
     def build_scene(self, scene_dir: Path, scene_index: int, rng: random.Random) -> ProceduralSceneBuild:
