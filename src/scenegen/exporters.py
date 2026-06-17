@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import html
 import json
 import math
 import re
@@ -8,6 +9,7 @@ import shutil
 import time
 from collections.abc import Iterable, Sequence
 from pathlib import Path
+from urllib.parse import quote
 from xml.dom import minidom
 from xml.etree import ElementTree as ET
 
@@ -865,3 +867,245 @@ def collect_label_floorplans(run_dir: Path, scene_records: list[dict[str, object
         encoding="utf-8",
     )
     return copy_manifest
+
+
+def _scene_record_dir(run_dir: Path, record: dict[str, object], scene_prefix: str) -> Path:
+    scene_dir_value = record.get("scene_dir")
+    if isinstance(scene_dir_value, str) and scene_dir_value:
+        scene_dir = Path(scene_dir_value)
+        return scene_dir if scene_dir.is_absolute() else run_dir / scene_dir
+    return run_dir / f"{scene_prefix}_{int(record.get('scene_index', 0)):04d}"
+
+
+def _resolve_visual_path(run_dir: Path, scene_dir: Path, value: object) -> str | None:
+    if not isinstance(value, str) or not value:
+        return None
+    candidate = Path(value)
+    if candidate.is_absolute():
+        source = candidate
+    elif (run_dir / candidate).is_file():
+        source = run_dir / candidate
+    else:
+        source = scene_dir / candidate
+    if not source.is_file():
+        return None
+    return portable_path(source, run_dir)
+
+
+def _html_attr(value: object) -> str:
+    return html.escape(str(value), quote=True)
+
+
+def _html_text(value: object) -> str:
+    return html.escape(str(value), quote=False)
+
+
+def _html_href(path: str) -> str:
+    return quote(path, safe="/._-")
+
+
+def _visual_metric_items(record: dict[str, object]) -> list[tuple[str, object]]:
+    metrics: list[tuple[str, object]] = []
+    metrics.append(("placements", record.get("placement_count", len(record.get("placements", [])) if isinstance(record.get("placements"), list) else "")))
+    quality = record.get("quality")
+    if isinstance(quality, dict):
+        metrics.append(("quality errors", quality.get("error_count", "")))
+    label = record.get("label")
+    if isinstance(label, dict):
+        metrics.append(("labels", f"BS {label.get('bs_count', 0)} / UE {label.get('ue_count', 0)}"))
+    procedural = record.get("procedural")
+    if isinstance(procedural, dict):
+        if procedural.get("layout"):
+            metrics.append(("layout", procedural.get("layout", "")))
+        rooms = procedural.get("rooms")
+        if isinstance(rooms, list):
+            metrics.append(("rooms", len(rooms)))
+    return [(key, value) for key, value in metrics if value not in (None, "")]
+
+
+def write_visual_index(run_dir: Path, scene_records: list[dict[str, object]], scene_prefix: str) -> str:
+    """Write a lightweight HTML gallery for generated visual QA artifacts."""
+
+    cards: list[str] = []
+    for record in sorted(scene_records, key=lambda item: int(item.get("scene_index", 0))):
+        scene_index = int(record.get("scene_index", 0))
+        scene_key = str(record.get("scene_key") or record.get("scene_dir") or f"{scene_prefix}_{scene_index:04d}")
+        scene_dir = _scene_record_dir(run_dir, record, scene_prefix)
+        floorplan = record.get("floorplan")
+        images: list[tuple[str, str]] = []
+        if isinstance(floorplan, dict):
+            geometry = floorplan.get("geometry")
+            if isinstance(geometry, dict):
+                raw_path = _resolve_visual_path(run_dir, scene_dir, geometry.get("raw"))
+                if raw_path:
+                    images.append(("floorplan", raw_path))
+            class_mask = floorplan.get("class_mask")
+            if isinstance(class_mask, dict):
+                class_preview = _resolve_visual_path(run_dir, scene_dir, class_mask.get("preview"))
+                if class_preview:
+                    images.append(("class mask", class_preview))
+            label_overlays = floorplan.get("label_overlays")
+            if isinstance(label_overlays, list):
+                for overlay in label_overlays:
+                    if not isinstance(overlay, dict):
+                        continue
+                    overlay_path = _resolve_visual_path(run_dir, scene_dir, overlay.get("image"))
+                    if overlay_path:
+                        images.append((str(overlay.get("name") or "label overlay"), overlay_path))
+        if not images:
+            label = record.get("label")
+            if isinstance(label, dict):
+                variants = label.get("variants")
+                if isinstance(variants, list):
+                    for variant in variants:
+                        if not isinstance(variant, dict):
+                            continue
+                        overlay = variant.get("overlay")
+                        if not isinstance(overlay, dict):
+                            continue
+                        overlay_path = _resolve_visual_path(run_dir, scene_dir, overlay.get("image"))
+                        if overlay_path:
+                            images.append((str(variant.get("name") or "label overlay"), overlay_path))
+
+        metrics_html = "".join(
+            f"<span><strong>{_html_text(key)}</strong> {_html_text(value)}</span>"
+            for key, value in _visual_metric_items(record)
+        )
+        image_html = "".join(
+            (
+                '<figure>'
+                f'<a href="{_html_attr(_html_href(path))}"><img src="{_html_attr(_html_href(path))}" alt="{_html_attr(label)}"></a>'
+                f"<figcaption>{_html_text(label)}</figcaption>"
+                "</figure>"
+            )
+            for label, path in images
+        )
+        if not image_html:
+            image_html = '<p class="empty">No visual artifacts were generated for this scene.</p>'
+        cards.append(
+            (
+                '<section class="scene-card">'
+                f"<h2>{_html_text(scene_key)}</h2>"
+                f'<div class="metrics">{metrics_html}</div>'
+                f'<div class="images">{image_html}</div>'
+                "</section>"
+            )
+        )
+
+    if not cards:
+        cards.append('<section class="scene-card"><h2>No scenes</h2><p class="empty">No scene records were available.</p></section>')
+
+    now = dt.datetime.now(dt.UTC).isoformat()
+    html_text = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SceneGen Visual Index</title>
+  <style>
+    :root {{
+      color-scheme: light;
+      --bg: #f5f6f7;
+      --panel: #ffffff;
+      --text: #1f2933;
+      --muted: #64707d;
+      --line: #d8dde3;
+    }}
+    body {{
+      margin: 0;
+      font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: var(--bg);
+    }}
+    header {{
+      padding: 24px 28px 16px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+    }}
+    h1 {{
+      margin: 0 0 6px;
+      font-size: 24px;
+      font-weight: 650;
+    }}
+    .subtle {{
+      color: var(--muted);
+    }}
+    main {{
+      padding: 20px;
+      display: grid;
+      gap: 16px;
+    }}
+    .scene-card {{
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: 0 1px 2px rgba(31, 41, 51, 0.04);
+    }}
+    .scene-card h2 {{
+      margin: 0 0 10px;
+      font-size: 17px;
+      font-weight: 650;
+    }}
+    .metrics {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }}
+    .metrics span {{
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 3px 8px;
+      color: var(--muted);
+      background: #fafbfc;
+    }}
+    .metrics strong {{
+      color: var(--text);
+      font-weight: 600;
+    }}
+    .images {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+      align-items: start;
+    }}
+    figure {{
+      margin: 0;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      overflow: hidden;
+      background: #fff;
+    }}
+    img {{
+      width: 100%;
+      display: block;
+      image-rendering: auto;
+      background: #f0f2f4;
+    }}
+    figcaption {{
+      padding: 7px 9px;
+      color: var(--muted);
+      border-top: 1px solid var(--line);
+      font-size: 12px;
+    }}
+    .empty {{
+      margin: 0;
+      color: var(--muted);
+    }}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>SceneGen Visual Index</h1>
+    <div class="subtle">Run: {_html_text(run_dir.name)} · Scenes: {len(scene_records)} · Generated: {_html_text(now)}</div>
+  </header>
+  <main>
+    {"".join(cards)}
+  </main>
+</body>
+</html>
+"""
+    index_path = run_dir / "visual_index.html"
+    index_path.write_text(html_text, encoding="utf-8")
+    return portable_path(index_path, run_dir)

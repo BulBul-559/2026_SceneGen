@@ -567,6 +567,8 @@ uv run scenegen-batch \
 
 `scenegen-batch` 不是新的 YAML 字段，而是生产管理入口。它会复用同一份配置和 `--set` 语法，目前支持 `front3d` 和 `procedural_front3d`，并在 run 目录写出 `batch/scene_plan.jsonl`、`batch/state.json`、worker 日志、失败队列、重试队列和 `manifest_batch.json`。`--scheduler hybrid` 是默认策略：先固定分片，worker 自己队列清空后才从剩余任务最多的队列偷取尾部任务；`--scheduler static` 会严格保持固定分片；`--scheduler dynamic` 使用共享任务队列。正式大批量前建议用 30-90 个 scene 试跑对比 worker 数和调度策略。batch child 会跳过自己的 `summary/` 汇总复制，最终由 batch 顶层统一生成 summary；成功 scene 会从 `batch/worker_runs` move 到 run 根目录，worker 子目录只保留日志、配置和失败场景调试材料。
 
+单进程和 batch 结束后都会在 run 根目录写出 `visual_index.html`，把每个 scene 的主 `floorplan_*.png`、`class_mask_preview.png` 和 `label_floorplan/*.png` 聚合成一个可打开的检查页。该文件由已有产物生成，不是新的配置项。
+
 在同一次 batch 后自动生成 maps 和 compact vision dataset：
 
 ```bash

@@ -204,6 +204,7 @@ effective_config.yaml
 manifest.json
 manifest_<mode>.json
 statistics.json
+visual_index.html
 logs/
   events.jsonl
   timings.jsonl
@@ -236,6 +237,8 @@ summary/
     stack.npz
     meta.json
 ```
+
+`visual_index.html` 是 run 级可视化索引页，会汇总每个 scene 的主 floorplan、class mask preview 和 label overlay，方便快速人工验图。
 
 `front3d` 的 `placements.json` 中 `sionna_assets.timings_s` 会记录 Sionna XML 资产导出的细分耗时，包括建筑拆分、家具资产拆分和 XML 写入，用于定位 `build_scene` 阶段瓶颈。
 

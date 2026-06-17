@@ -2,7 +2,7 @@
 
 SceneGen 是一个面向 Linux 环境的轻量级室内场景生成项目。它基于空场景和归一化资产，随机生成带家具、桌椅、小物件的 3D 场景，并同步导出 Sionna/Mitsuba 可加载的场景文件和平面图。
 
-当前项目版本：`3.37.0`。
+当前项目版本：`3.38.0`。
 
 当前主工作流包括 Bistro 场景生成、3D-FRONT 已组合场景合成，以及实验性的自动场景生成：Bistro 以 `data/scene/scene.obj` 作为空场景，以 `data/catalogs/bistro.v1.json` 管理资产契约；3D-FRONT 以第一阶段整理出的 `data/3D-Front/scenegen_manifest.json` 为索引，合并建筑结构和已有家具实例；`procedural_front3d` 会自动采样多房间户型，并从 3D-FUTURE/3D-FRONT 资产池中摆放家具。`data/assets/manifest.json` 仍保留为兼容位置，但内容已经与 catalog 使用同一份清洗后的契约。
 
@@ -331,6 +331,7 @@ results/<run_name>/
   statistics.json
   procedural_report.json        # 仅 procedural_front3d 模式
   procedural_asset_pool_coverage.json  # 仅 procedural_front3d 模式
+  visual_index.html             # run 级可视化索引页
   manifest.json
   manifest_bistro.json、manifest_generated.json、manifest_front3d.json 或 manifest_procedural_front3d.json
   summary/
@@ -400,6 +401,7 @@ results/<run_name>/
 - `summary/obj/`: 每个场景 `scene.obj` 的汇总副本。
 - `summary/floorplan/`: 每个场景主高度层 `floorplan/floorplan_*.png` 的汇总副本。
 - `summary/label_floorplan/<grid>/`: 每份 label overlay 的汇总副本，按 UE 采样间隔分组，例如 `0p1`、`0p2`、`0p5`。
+- `visual_index.html`: run 级可视化索引页，汇总每个 scene 的主 floorplan、class mask preview 和 label overlay，适合快速人工检查。
 - `floorplan/preview.png`: 指定高度或逐层投影总览。
 - `label_floorplan/*.png`: 每份 label 在主高度层 `floorplan_*.png` 上绘制 BS/UE 点位后的检查图。
 - `floorplan/side_view.png`: 侧视投影。

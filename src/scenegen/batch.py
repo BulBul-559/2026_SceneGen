@@ -19,7 +19,7 @@ from typing import Any
 
 from . import __version__
 from .config import load_effective_config, save_effective_config
-from .exporters import collect_label_floorplans, collect_raw_floorplans, collect_scene_objs, make_timestamp
+from .exporters import collect_label_floorplans, collect_raw_floorplans, collect_scene_objs, make_timestamp, write_visual_index
 from .front3d import Front3DConfig, Front3DIndex, choose_scene_ids
 from .paths import find_project_root, portable_path
 from .postprocess.pipeline import run_batch_postprocess
@@ -601,6 +601,7 @@ def build_final_manifest(
     copy_manifest = collect_scene_objs(paths.run_dir, records, scene_prefix)
     raw_floorplan_manifest = collect_raw_floorplans(paths.run_dir, records, scene_prefix)
     label_floorplan_manifest = collect_label_floorplans(paths.run_dir, records, scene_prefix)
+    visual_index_file = write_visual_index(paths.run_dir, records, scene_prefix)
     run_statistics = aggregate_run_statistics(records)
     statistics_file = write_json_report(paths.run_dir / "statistics.json", run_statistics, paths.run_dir)
     procedural_report: dict[str, object] | None = None
@@ -647,6 +648,7 @@ def build_final_manifest(
             "floorplan": raw_floorplan_manifest,
             "label_floorplan": label_floorplan_manifest,
         },
+        "visual_index": visual_index_file,
         "statistics": run_statistics,
         "statistics_file": statistics_file,
         "procedural_report": procedural_report,

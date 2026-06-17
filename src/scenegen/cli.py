@@ -11,11 +11,12 @@ from . import __version__
 from .assets import group_assets_by_class, load_assets, validate_asset_pool
 from .config import config_to_namespace, load_effective_config, save_effective_config
 from .exporters import (
-    collect_label_floorplans,
     base_scene_summary,
+    collect_label_floorplans,
     collect_raw_floorplans,
     collect_scene_objs,
     make_timestamp,
+    write_visual_index,
 )
 from .floorplan import FloorplanConfig, generate_floorplan_for_scene
 from .labels import LabelConfig, generate_label_batch_for_scene, label_variants, write_label_overlay
@@ -1043,6 +1044,7 @@ def main(argv: list[str] | None = None) -> int:
             copy_manifest = collect_scene_objs(run_dir, scene_records, scene_prefix)
             raw_floorplan_manifest = collect_raw_floorplans(run_dir, scene_records, scene_prefix)
             label_floorplan_manifest = collect_label_floorplans(run_dir, scene_records, scene_prefix)
+        visual_index_file = write_visual_index(run_dir, scene_records, scene_prefix)
         run_statistics = aggregate_run_statistics(scene_records)
         statistics_file = write_json_report(run_dir / "statistics.json", run_statistics, run_dir)
         procedural_report: dict[str, object] | None = None
@@ -1105,6 +1107,7 @@ def main(argv: list[str] | None = None) -> int:
             "label_floorplan": label_floorplan_manifest,
             "skipped": skip_summary,
         },
+        "visual_index": visual_index_file,
         "sionna_validation_requested": bool(args.validate_sionna),
         "sionna_validation_ok": not validation_failed if args.validate_sionna else None,
         "quality_requested": bool(quality_config.enabled),

@@ -3280,6 +3280,13 @@ def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
     assert (
         output_dir / "smoke_front3d" / "summary" / "label_floorplan" / "0p1" / "front3d_0000_label_walk_0p1.png"
     ).is_file()
+    assert manifest["visual_index"] == "visual_index.html"
+    visual_index = output_dir / "smoke_front3d" / "visual_index.html"
+    assert visual_index.is_file()
+    visual_index_text = visual_index.read_text(encoding="utf-8")
+    assert "front3d_0000" in visual_index_text
+    assert "floorplan/floorplan_1p60.png" in visual_index_text
+    assert "label_floorplan/label_walk_0p1.png" in visual_index_text
     assert manifest["logs"]["events"] == "logs/events.jsonl"
     assert "timing_summary_s" in manifest
     assert "floorplan" in manifest["timing_summary_s"]
@@ -3410,6 +3417,8 @@ def test_procedural_front3d_batch_runner_uses_procedural_scene_prefix(tmp_path: 
     assert manifest["succeeded_scenes"] == 2
     assert manifest["procedural_report_file"] == "procedural_report.json"
     assert manifest["procedural_asset_pool_coverage_file"] == "procedural_asset_pool_coverage.json"
+    assert manifest["visual_index"] == "visual_index.html"
+    assert (run_dir / "visual_index.html").is_file()
     assert manifest["procedural_report"]["scene_count"] == 2
     assert manifest["procedural_report"]["room_count"]["min"] >= 1
     report = json.loads((run_dir / "procedural_report.json").read_text(encoding="utf-8"))
@@ -3652,6 +3661,8 @@ def test_generated_scene_outputs_and_sionna_load(tmp_path: Path) -> None:
     assert (
         output_dir / "smoke_generated" / "summary" / "label_floorplan" / "0p1" / "scene_0000_label_walk_0p1.png"
     ).is_file()
+    assert manifest["visual_index"] == "visual_index.html"
+    assert (output_dir / "smoke_generated" / "visual_index.html").is_file()
     geometry_meta = json.loads((scene_dir / "floorplan" / "meta.json").read_text(encoding="utf-8"))
     assert geometry_meta["height_mode"] == "heights"
     assert geometry_meta["z_levels_m"] == [1.6]
