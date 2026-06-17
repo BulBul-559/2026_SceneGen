@@ -197,13 +197,19 @@ uv run scenegen --config config/front3d.yaml --set pipeline.scenes=1 --set pipel
 uv run scenegen --config config/procedural_front3d.yaml --set pipeline.scenes=1 --set pipeline.run_name=smoke_procedural_front3d
 ```
 
-正式 front3d 大规模生产建议使用任务模板：
+正式 3D-FRONT 大规模生产建议使用任务模板：
 
 ```bash
 uv run scenegen --config config/tasks/front3d_full_simulation.yaml --set pipeline.scenes=1 --set pipeline.run_name=front3d_full_sample
 ```
 
 该模板打开 label、geometry sampling floorplan、class mask 和 mesh furniture mask，`label.ue.sampling.strategies` 默认包含 `[panel, walk]`，`label.ue.sampling.grid_m` 默认包含 `[0.1, 0.2, 0.4, 0.5]`。label 可行域 mask 默认以 `label.ue.sampling.mask_resolution_m: 0.05` 构建，不同 UE 间隔只在这张高精度 mask 上抽样。
+
+自动场景生成的大规模生产模板：
+
+```bash
+uv run scenegen --config config/tasks/procedural_front3d_full_simulation.yaml --set pipeline.scenes=1 --set pipeline.run_name=procedural_front3d_full_sample
+```
 
 如果要在同一个 batch 中同步生成 derived maps 并整理 compact vision dataset，开启 `postprocess`：
 
@@ -249,7 +255,7 @@ logs/
 
 每个 scene record 和最终 `manifest.json` 会记录 `timings_s`、`timing_summary_s` 和日志路径。阶段计时包含 `build_scene`、`statistics`、`precheck`、`quality`、`label`、`floorplan`、`floorplan_geometry`、`class_mask`、`label_overlay` 和 `write_manifest`。
 
-大规模生产使用 `scenegen-batch`，它会先固化 `scene_plan.jsonl`，再按 worker 分片执行，支持 resume、失败队列、重试队列、worker 日志和统一 batch manifest：
+大规模生产使用 `scenegen-batch`，它会先固化 `scene_plan.jsonl`，再按 worker 分片执行，支持 resume、失败队列、重试队列、worker 日志和统一 batch manifest。目前 batch 支持 `front3d` 和 `procedural_front3d`：
 
 ```bash
 uv run scenegen-batch \
@@ -259,6 +265,18 @@ uv run scenegen-batch \
   --max-retries 1 \
   --set pipeline.scenes=2000 \
   --set pipeline.run_name=front3d_production_2000
+```
+
+程序化场景 batch：
+
+```bash
+uv run scenegen-batch \
+  --config config/tasks/procedural_front3d_full_simulation.yaml \
+  --workers 4 \
+  --scheduler hybrid \
+  --max-retries 1 \
+  --set pipeline.scenes=2000 \
+  --set pipeline.run_name=procedural_front3d_production_2000
 ```
 
 继续未完成的同名生产任务：
@@ -295,7 +313,7 @@ batch/
 
 开启 `postprocess.maps.enabled` 后，每个成功 scene 会额外得到 `maps/geometry.npz`、`maps/propagation.npz` 和 `maps/metadata.json`。开启 `postprocess.dataset.enabled` 后，默认会在 `datasets/<run_name>_vision/` 下构建 compact vision dataset，只保留训练需要的 floorplan、mask、derived maps、BS label 和 metadata。
 
-`manifest_batch.json`、`manifest_front3d.json` 和 `manifest.json` 会在 batch 完成后统一汇总最终发布到 run 根目录的 `front3d_0000/`、`front3d_0001/` 等标准场景目录。
+`manifest_batch.json`、`manifest.json` 和 `manifest_<mode>.json` 会在 batch 完成后统一汇总最终发布到 run 根目录的标准场景目录，例如 `front3d_0000/` 或 `procedural_front3d_0000/`。
 
 `--scheduler hybrid` 是默认调度策略：先按固定分片运行，只有当某个 worker 自己队列清空且其他队列仍有待处理任务时，才从剩余任务最多的队列偷取尾部任务。`--scheduler static` 会严格保持固定分片，资源占用更保守但容易出现尾部空等；`--scheduler dynamic` 使用共享任务队列，空闲 worker 会继续领取下一个 scene。正式大批量前建议用 30-90 个 scene 对比调度策略和 worker 数。batch 子进程会跳过自己的 `summary/` 汇总复制，最终只由 batch 顶层统一生成 summary；成功 scene 会从 `batch/worker_runs` 直接 move 到 run 根目录，`batch/worker_runs` 主要保留 worker 子 run 的日志、配置和失败场景调试信息，不再保存成功场景的完整重复副本。
 

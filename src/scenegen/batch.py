@@ -28,6 +28,7 @@ from .runlog import append_jsonl, atomic_write_json
 
 
 BATCH_SCHEMA_VERSION = "scenegen.batch.v1"
+SUPPORTED_BATCH_MODES = {"front3d", "procedural_front3d"}
 
 
 class TaskProcessError(RuntimeError):
@@ -45,7 +46,12 @@ def now_iso() -> str:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run SceneGen production batches with workers, resume, and logs.")
-    parser.add_argument("--config", type=Path, required=True, help="SceneGen YAML config. Batch v1 currently targets front3d.")
+    parser.add_argument(
+        "--config",
+        type=Path,
+        required=True,
+        help="SceneGen YAML config. Batch v1 supports front3d and procedural_front3d.",
+    )
     parser.add_argument("--workers", type=int, default=1, help="Number of worker subprocess lanes.")
     parser.add_argument(
         "--scheduler",
@@ -153,45 +159,55 @@ def load_plan(path: Path) -> list[dict[str, Any]]:
 
 
 def plan_tasks(effective_config: dict[str, Any], workers: int) -> list[dict[str, Any]]:
-    if effective_config["pipeline"]["mode"] != "front3d":
-        raise ValueError("scenegen-batch v1 currently supports only pipeline.mode=front3d")
-    front3d = effective_config["front3d"]
-    config = Front3DConfig(
-        manifest=Path(front3d["manifest"]),
-        source_scene_dir=Path(front3d["source_dir"]),
-        variant=str(front3d["arch_variant"]),
-        object_variant=str(front3d["object_variant"]),
-        scene_ids=tuple(front3d["scene_ids"]),
-        scene_selection=str(front3d["select"]),
-        start_index=int(front3d["start_index"]),
-        use_replace_jid=bool(front3d["use_replace_jid"]),
-        skip_missing_objects=bool(front3d["skip_missing_objects"]),
-        normalize_positive_xy=bool(front3d["positive_xy"]),
-        ground_objects=bool(front3d["ground"]),
-    )
-    index = Front3DIndex(config)
+    mode = str(effective_config["pipeline"]["mode"])
+    if mode not in SUPPORTED_BATCH_MODES:
+        raise ValueError("scenegen-batch v1 supports only pipeline.mode=front3d or procedural_front3d")
     count = int(effective_config["pipeline"]["scenes"])
     seed = int(effective_config["pipeline"]["seed"])
     output_index_start = int(effective_config["pipeline"]["index_start"])
-    scene_ids = choose_scene_ids(
-        index.scene_ids,
-        config.scene_ids,
-        config.scene_selection,
-        count,
-        random.Random(seed),
-        start_index=config.start_index,
-    )
     seed_rng = random.Random(seed)
     tasks: list[dict[str, Any]] = []
+
+    if mode == "front3d":
+        front3d = effective_config["front3d"]
+        config = Front3DConfig(
+            manifest=Path(front3d["manifest"]),
+            source_scene_dir=Path(front3d["source_dir"]),
+            variant=str(front3d["arch_variant"]),
+            object_variant=str(front3d["object_variant"]),
+            scene_ids=tuple(front3d["scene_ids"]),
+            scene_selection=str(front3d["select"]),
+            start_index=int(front3d["start_index"]),
+            use_replace_jid=bool(front3d["use_replace_jid"]),
+            skip_missing_objects=bool(front3d["skip_missing_objects"]),
+            normalize_positive_xy=bool(front3d["positive_xy"]),
+            ground_objects=bool(front3d["ground"]),
+        )
+        index = Front3DIndex(config)
+        scene_ids = choose_scene_ids(
+            index.scene_ids,
+            config.scene_ids,
+            config.scene_selection,
+            count,
+            random.Random(seed),
+            start_index=config.start_index,
+        )
+        scene_prefix = "front3d"
+    else:
+        scene_ids = [f"procedural_seed_{output_index_start + index:06d}" for index in range(count)]
+        scene_prefix = "procedural_front3d"
+
     for plan_index, scene_id in enumerate(scene_ids):
         target_index = output_index_start + plan_index
-        scene_key = f"front3d_{target_index:04d}"
+        scene_key = f"{scene_prefix}_{target_index:04d}"
         tasks.append(
             {
                 "task_id": scene_key,
+                "mode": mode,
                 "plan_index": plan_index,
                 "target_index": target_index,
                 "scene_key": scene_key,
+                "scene_prefix": scene_prefix,
                 "scene_id": scene_id,
                 "scene_seed": seed_rng.randrange(1, 2**31),
                 "shard_id": plan_index % workers,
@@ -230,23 +246,33 @@ def command_for_task(
         "runtime.batch_child=true",
         "runtime.skip_summary=true",
         f"pipeline.seed={int(task['scene_seed'])}",
-        f"front3d.scene_ids={json.dumps([task['scene_id']])}",
-        "front3d.select=sequential",
-        "front3d.start_index=0",
     ]
+    if task.get("mode") == "front3d":
+        set_values.extend(
+            [
+                f"front3d.scene_ids={json.dumps([task['scene_id']])}",
+                "front3d.select=sequential",
+                "front3d.start_index=0",
+            ]
+        )
     command = [sys.executable, "-m", "scenegen.cli", "--config", str(config_path)]
     for value in set_values:
         command.extend(["--set", value])
     return command
 
 
-def load_task_scene_record(worker_run_dir: Path, final_scene_key: str, target_index: int) -> dict[str, Any]:
+def load_task_scene_record(
+    worker_run_dir: Path,
+    source_scene_key: str,
+    final_scene_key: str,
+    target_index: int,
+) -> dict[str, Any]:
     manifest_path = worker_run_dir / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     records = manifest.get("scenes") or []
     if not records:
         raise RuntimeError(f"Worker manifest has no scene records: {manifest_path}")
-    record = recursive_replace(records[0], "front3d_0000", final_scene_key)
+    record = recursive_replace(records[0], source_scene_key, final_scene_key)
     record["scene_index"] = int(target_index)
     record["batch_task_id"] = final_scene_key
     record["batch_worker_run"] = str(worker_run_dir)
@@ -319,11 +345,17 @@ def run_task(
 
     publish_start = time.perf_counter()
     worker_run_dir = paths.worker_runs / worker_id / str(task["task_id"])
-    source_scene_dir = worker_run_dir / "front3d_0000"
+    source_scene_key = f"{task.get('scene_prefix', 'front3d')}_0000"
+    source_scene_dir = worker_run_dir / source_scene_key
     final_scene_dir = paths.run_dir / str(task["scene_key"])
     if not source_scene_dir.is_dir():
         raise FileNotFoundError(f"Expected worker scene directory not found: {source_scene_dir}")
-    record = load_task_scene_record(worker_run_dir, str(task["scene_key"]), int(task["target_index"]))
+    record = load_task_scene_record(
+        worker_run_dir,
+        source_scene_key,
+        str(task["scene_key"]),
+        int(task["target_index"]),
+    )
     if final_scene_dir.exists():
         shutil.rmtree(final_scene_dir)
     shutil.move(str(source_scene_dir), str(final_scene_dir))
@@ -385,7 +417,7 @@ def write_task_failure(paths: BatchPaths, worker_id: str, task: dict[str, Any], 
         "worker_id": worker_id,
         "task_id": task["task_id"],
         "scene_key": task["scene_key"],
-        "scene_id": task["scene_id"],
+        "scene_id": task.get("scene_id"),
         "attempt_no": attempt_no,
         "error_type": type(exc).__name__,
         "error": str(exc),
@@ -470,7 +502,14 @@ def worker_loop(
             attempt_no = 0
             while attempt_no <= max_retries:
                 attempt_no += 1
-                event(paths, "task_started", worker_id=worker_id, task_id=task_id, attempt_no=attempt_no, scene_id=task["scene_id"])
+                event(
+                    paths,
+                    "task_started",
+                    worker_id=worker_id,
+                    task_id=task_id,
+                    attempt_no=attempt_no,
+                    scene_id=task.get("scene_id"),
+                )
                 with state_lock:
                     state["tasks"][task_id] = {
                         **task,
@@ -554,10 +593,12 @@ def build_final_manifest(
     max_retries: int,
     scheduler: str,
 ) -> dict[str, Any]:
-    records = sorted(records, key=lambda item: int(item.get("batch_task_id", "front3d_999999").split("_")[-1]))
-    copy_manifest = collect_scene_objs(paths.run_dir, records, "front3d")
-    raw_floorplan_manifest = collect_raw_floorplans(paths.run_dir, records, "front3d")
-    label_floorplan_manifest = collect_label_floorplans(paths.run_dir, records, "front3d")
+    mode = str(effective_config["pipeline"]["mode"])
+    scene_prefix = "procedural_front3d" if mode == "procedural_front3d" else "front3d"
+    records = sorted(records, key=lambda item: int(str(item.get("batch_task_id", f"{scene_prefix}_999999")).split("_")[-1]))
+    copy_manifest = collect_scene_objs(paths.run_dir, records, scene_prefix)
+    raw_floorplan_manifest = collect_raw_floorplans(paths.run_dir, records, scene_prefix)
+    label_floorplan_manifest = collect_label_floorplans(paths.run_dir, records, scene_prefix)
     run_statistics = aggregate_run_statistics(records)
     statistics_file = write_json_report(paths.run_dir / "statistics.json", run_statistics, paths.run_dir)
     manifest: dict[str, Any] = {
@@ -565,7 +606,7 @@ def build_final_manifest(
         "batch": True,
         "schema_version": BATCH_SCHEMA_VERSION,
         "scenegen_version": __version__,
-        "mode": "front3d",
+        "mode": mode,
         "seed": effective_config["pipeline"]["seed"],
         "run_name": effective_config["pipeline"]["run_name"],
         "run_dir": ".",
@@ -605,7 +646,8 @@ def build_final_manifest(
 
 
 def write_manifest_files(paths: BatchPaths, manifest: dict[str, Any]) -> None:
-    for name in ("manifest.json", "manifest_front3d.json", "manifest_batch.json"):
+    mode_manifest = f"manifest_{manifest.get('mode', 'front3d')}.json"
+    for name in ("manifest.json", mode_manifest, "manifest_batch.json"):
         (paths.run_dir / name).write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
 

@@ -1,6 +1,6 @@
 pipeline:
   mode: procedural_front3d
-  scenes: 10
+  scenes: 1
   seed: 20260517
   output_dir: results
   run_name: null
@@ -12,6 +12,19 @@ front3d:
   source_dir: data/3D-Front/3D-FRONT
   arch_variant: raw
   object_variant: raw
+  scene_ids: []
+  select: random
+  start_index: 0
+  use_replace_jid: true
+  skip_missing_objects: true
+  positive_xy: true
+  ground: true
+  precheck:
+    enabled: true
+    max_attempts_per_scene: 20
+    min_placements: 1
+    max_z_m: 8.0
+    max_footprint_ratio: 5.0
   openings:
     mode: doors
     dilation_m: 0.0
@@ -51,11 +64,11 @@ label:
     height_m: 1.6
     sampling:
       domain: global_floor
-      grid_m: [0.1]
+      grid_m: [0.1, 0.2, 0.4, 0.5]
       mask_resolution_m: 0.05
       wall_clearance_m: 0.2
       min_component_area_m2: 0.25
-      strategies: [walk]
+      strategies: [panel, walk]
     walk:
       furniture_clearance_m: 0.1
       obstacle_strategy: below_ue_column
@@ -112,6 +125,21 @@ floorplan:
 
 postprocess:
   maps:
+    enabled: false
+    workers: null
     scene_glob: procedural_front3d_*
+    overwrite: false
+    r_max_m: 3.0
+    los_stride_px: 4
+    snap_radius_m: 0.25
+    bs_label:
+      mode: name
+      name: label_panel_0p1
+      glob: null
   dataset:
+    enabled: false
+    output_dir: datasets
+    name: null
     scene_glob: procedural_front3d_*
+    require_maps: true
+    overwrite: false

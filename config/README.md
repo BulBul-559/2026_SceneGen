@@ -4,7 +4,7 @@
 
 每次运行都会在 run 目录写出 `effective_config.yaml`，它记录最终真正生效的配置。
 
-`config/tasks/front3d_full_simulation.yaml` 是后续大规模 front3d 仿真的任务模板，默认打开 label、geometry sampling floorplan、class mask 和 mesh furniture mask；`label.ue.sampling.strategies` 使用 `[panel, walk]`，`label.ue.sampling.grid_m` 使用 `[0.1, 0.2, 0.4, 0.5]` 四档。label 可行域 mask 固定用 `label.ue.sampling.mask_resolution_m` 构建，默认 `0.05m`，再从这张高精度 mask 中抽取不同 `grid_m` 的 UE 点。它还包含 batch-only 的 `postprocess` 段，默认关闭，需要时可生成 derived maps 并构建 compact vision dataset。
+`config/tasks/front3d_full_simulation.yaml` 和 `config/tasks/procedural_front3d_full_simulation.yaml` 是后续大规模仿真的任务模板，默认打开 label、geometry sampling floorplan、class mask 和 mesh furniture mask；`label.ue.sampling.strategies` 使用 `[panel, walk]`，`label.ue.sampling.grid_m` 使用 `[0.1, 0.2, 0.4, 0.5]` 四档。label 可行域 mask 固定用 `label.ue.sampling.mask_resolution_m` 构建，默认 `0.05m`，再从这张高精度 mask 中抽取不同 `grid_m` 的 UE 点。任务模板还包含 batch-only 的 `postprocess` 段，默认关闭，需要时可生成 derived maps 并构建 compact vision dataset。
 
 ## 合并规则
 
@@ -363,7 +363,7 @@ uv run scenegen \
   --set floorplan.geometry.projection=ray_height_filtered
 ```
 
-使用正式生产模板跑 4 worker batch：
+使用 3D-FRONT 正式生产模板跑 4 worker batch：
 
 ```bash
 uv run scenegen-batch \
@@ -375,7 +375,19 @@ uv run scenegen-batch \
   --set pipeline.run_name=front3d_production_2000
 ```
 
-`scenegen-batch` 不是新的 YAML 字段，而是生产管理入口。它会复用同一份配置和 `--set` 语法，并在 run 目录写出 `batch/scene_plan.jsonl`、`batch/state.json`、worker 日志、失败队列、重试队列和 `manifest_batch.json`。`--scheduler hybrid` 是默认策略：先固定分片，worker 自己队列清空后才从剩余任务最多的队列偷取尾部任务；`--scheduler static` 会严格保持固定分片；`--scheduler dynamic` 使用共享任务队列。正式大批量前建议用 30-90 个 scene 试跑对比 worker 数和调度策略。batch child 会跳过自己的 `summary/` 汇总复制，最终由 batch 顶层统一生成 summary；成功 scene 会从 `batch/worker_runs` move 到 run 根目录，worker 子目录只保留日志、配置和失败场景调试材料。
+使用自动场景生成正式生产模板跑 4 worker batch：
+
+```bash
+uv run scenegen-batch \
+  --config config/tasks/procedural_front3d_full_simulation.yaml \
+  --workers 4 \
+  --scheduler hybrid \
+  --max-retries 1 \
+  --set pipeline.scenes=20 \
+  --set pipeline.run_name=procedural_front3d_batch_sample
+```
+
+`scenegen-batch` 不是新的 YAML 字段，而是生产管理入口。它会复用同一份配置和 `--set` 语法，目前支持 `front3d` 和 `procedural_front3d`，并在 run 目录写出 `batch/scene_plan.jsonl`、`batch/state.json`、worker 日志、失败队列、重试队列和 `manifest_batch.json`。`--scheduler hybrid` 是默认策略：先固定分片，worker 自己队列清空后才从剩余任务最多的队列偷取尾部任务；`--scheduler static` 会严格保持固定分片；`--scheduler dynamic` 使用共享任务队列。正式大批量前建议用 30-90 个 scene 试跑对比 worker 数和调度策略。batch child 会跳过自己的 `summary/` 汇总复制，最终由 batch 顶层统一生成 summary；成功 scene 会从 `batch/worker_runs` move 到 run 根目录，worker 子目录只保留日志、配置和失败场景调试材料。
 
 在同一次 batch 后自动生成 maps 和 compact vision dataset：
 

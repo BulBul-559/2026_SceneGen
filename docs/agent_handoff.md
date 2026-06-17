@@ -27,7 +27,7 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 - `src/scenegen/floorplan.py`: 几何 floorplan 和 3D-FRONT 四分类 class mask。
 - `src/scenegen/quality.py`: 质量检查和统计报告。
 - `src/scenegen/runlog.py`: 单 run JSONL 事件、阶段耗时、state 快照和 traceback 输出。
-- `src/scenegen/batch.py`: front3d 生产管理入口，负责 scene plan、worker、resume、失败/重试队列和 batch manifest。
+- `src/scenegen/batch.py`: 生产管理入口，支持 `front3d` 和 `procedural_front3d`，负责 scene plan、worker、resume、失败/重试队列和 batch manifest。
 - `src/scenegen/assets/`: Bistro 资产契约、loader、legacy converter、材质映射。
 - `tools/prepare_front3d_phase1.py`: 3D-FRONT 第一阶段离线整理脚本。
 - `config/bistro.yaml`: Bistro 专用模板，也是默认 YAML 入口。
@@ -141,7 +141,19 @@ uv run scenegen-batch \
   --set pipeline.run_name=front3d_production_2000
 ```
 
-`scenegen-batch --scheduler hybrid` 是默认调度策略：先固定分片，只有当 worker 自己队列清空且其他队列仍有待处理任务时，才从剩余任务最多的队列偷取尾部任务。`--scheduler static` 会严格保持固定分片；`--scheduler dynamic` 使用共享任务队列，空闲 worker 会继续领取后续 scene。正式大批量前建议用 30-90 scene 对比调度策略和 worker 数。batch child 会设置 `runtime.skip_summary=true`，跳过自己的 `summary/` 汇总复制，最终由 batch 顶层统一生成 summary。成功 scene 发布时会从 `batch/worker_runs` move 到 run 根目录，worker 子 run 不再保留成功场景的完整重复副本，只保留日志、配置、小 manifest 和失败场景调试材料。
+正式 procedural_front3d batch 生产：
+
+```bash
+uv run scenegen-batch \
+  --config config/tasks/procedural_front3d_full_simulation.yaml \
+  --workers 4 \
+  --scheduler hybrid \
+  --max-retries 1 \
+  --set pipeline.scenes=2000 \
+  --set pipeline.run_name=procedural_front3d_production_2000
+```
+
+`scenegen-batch --scheduler hybrid` 是默认调度策略：先固定分片，只有当 worker 自己队列清空且其他队列仍有待处理任务时，才从剩余任务最多的队列偷取尾部任务。`--scheduler static` 会严格保持固定分片；`--scheduler dynamic` 使用共享任务队列，空闲 worker 会继续领取后续 scene。正式大批量前建议用 30-90 scene 对比调度策略和 worker 数。batch child 会设置 `runtime.skip_summary=true`，跳过自己的 `summary/` 汇总复制，最终由 batch 顶层统一生成 summary。成功 scene 发布时会从 `batch/worker_runs` move 到 run 根目录，worker 子 run 不再保留成功场景的完整重复副本，只保留日志、配置、小 manifest 和失败场景调试材料。batch 完成后会写 `manifest.json`、`manifest_batch.json` 和 `manifest_<mode>.json`。
 
 正式生产时也可以在 batch 末尾自动生成 derived maps 和 compact vision dataset：
 

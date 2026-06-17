@@ -1219,6 +1219,80 @@ def make_front3d_runtime_fixture(tmp_path: Path) -> Path:
     return config_path
 
 
+def make_procedural_runtime_fixture(tmp_path: Path) -> Path:
+    root = tmp_path / "procedural"
+    source_scene_dir = root / "3D-FRONT"
+    source_scene_dir.mkdir(parents=True)
+    model_id = "procedural-seat-model"
+    object_dir = root / "scenegen_objects_raw" / model_id
+    object_obj = object_dir / f"{model_id}.obj"
+    object_json = object_dir / f"{model_id}.json"
+    write_front3d_fixture_obj(object_obj, material="wood", height_axis_y=True)
+    object_json.write_text(
+        json.dumps(
+            {
+                "id": model_id,
+                "name": "procedural test seat",
+                "files": {"obj": str(object_obj)},
+                "semantic": {"category": "chair", "super_category": "Chair", "material": "wood"},
+                "placement": {"class": "seat", "enabled": True, "support": ["floor"], "weight": 1.0},
+                "geometry": {"size": {"x": 0.4, "y": 0.8, "z": 0.4}},
+                "materials": {
+                    "sionna": ["itu-wood"],
+                    "source_to_sionna": [{"source": "wood", "sionna": "itu-wood"}],
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    manifest_path = root / "scenegen_manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "by_scene_id": {},
+                "by_model_id": {model_id: {"raw": {"json": str(object_json), "obj": str(object_obj), "preview": ""}}},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    config_path = tmp_path / "procedural_front3d.yaml"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "pipeline": {
+                    "mode": "procedural_front3d",
+                    "scenes": 1,
+                    "seed": 123,
+                    "output_dir": str(tmp_path / "out"),
+                    "run_name": "smoke_procedural_batch",
+                },
+                "front3d": {
+                    "manifest": str(manifest_path),
+                    "source_dir": str(source_scene_dir),
+                    "arch_variant": "raw",
+                    "object_variant": "raw",
+                },
+                "procedural": {
+                    "room_count": [1, 1],
+                    "room_width_m": [3.0, 3.0],
+                    "room_length_m": [3.0, 3.0],
+                    "room_height_m": [2.8, 2.8],
+                    "room_types": ["LivingRoom"],
+                    "objects_per_room": [1, 1],
+                    "asset_pool_limit": 5,
+                },
+                "label": {"enabled": False},
+                "floorplan": {"enabled": False},
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    return config_path
+
+
 def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
     pytest.importorskip("trimesh")
     config_path = make_front3d_runtime_fixture(tmp_path)
@@ -1413,6 +1487,46 @@ def test_front3d_batch_runner_writes_plan_state_and_worker_logs(tmp_path: Path, 
     assert all("batch_child_run_timings_s" in scene for scene in manifest["scenes"])
     assert all("batch_subprocess_overhead_s" in scene for scene in manifest["scenes"])
     assert any(json.loads(line)["stage"] == "publish_scene" for line in (run_dir / "batch" / "logs" / "timings.jsonl").read_text().splitlines())
+
+
+def test_procedural_front3d_batch_runner_uses_procedural_scene_prefix(tmp_path: Path) -> None:
+    config_path = make_procedural_runtime_fixture(tmp_path)
+    output_dir = tmp_path / "out"
+
+    exit_code = batch_main(
+        [
+            "--config",
+            str(config_path),
+            "--workers",
+            "2",
+            "--scheduler",
+            "hybrid",
+            "--max-retries",
+            "0",
+            "--set",
+            "pipeline.scenes=2",
+        ]
+    )
+
+    run_dir = output_dir / "smoke_procedural_batch"
+    assert exit_code == 0
+    assert (run_dir / "procedural_front3d_0000" / "scene.obj").is_file()
+    assert (run_dir / "procedural_front3d_0001" / "scene.obj").is_file()
+    assert (run_dir / "manifest_batch.json").is_file()
+    assert (run_dir / "manifest_procedural_front3d.json").is_file()
+    assert not (run_dir / "manifest_front3d.json").exists()
+    assert (run_dir / "summary" / "obj" / "procedural_front3d_0000.obj").is_file()
+    plan = [json.loads(line) for line in (run_dir / "batch" / "scene_plan.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [task["scene_key"] for task in plan] == ["procedural_front3d_0000", "procedural_front3d_0001"]
+    assert {task["mode"] for task in plan} == {"procedural_front3d"}
+    state = json.loads((run_dir / "batch" / "state.json").read_text(encoding="utf-8"))
+    assert state["status"] == "completed"
+    assert state["succeeded"] == 2
+    manifest = json.loads((run_dir / "manifest_batch.json").read_text(encoding="utf-8"))
+    assert manifest["mode"] == "procedural_front3d"
+    assert manifest["succeeded_scenes"] == 2
+    assert all("procedural" in scene for scene in manifest["scenes"])
+    assert all(scene["scene_dir"].startswith("procedural_front3d_") for scene in manifest["scenes"])
 
 
 def test_front3d_batch_label_outputs(tmp_path: Path) -> None:
