@@ -239,10 +239,10 @@ uv run scenegen-batch \
 5. 先按 `procedural.placement_groups` 尝试生成局部关系组，例如餐厅的餐桌椅组合、卧室的床 + 床头柜组合、书房的书桌椅组合；失败时不会丢弃目标 class，会回落到普通逐个摆放。
 6. 按 `procedural.placement_policy` 采样剩余家具位置：默认床/柜类 `floor` 物体更靠墙，`table` 更靠房间中心，`seat` 保持自由采样。
 7. 在每个 room 内进行 bbox 约束摆放，避免越界和家具间碰撞。
-8. 按 `procedural.precheck` 检查实际家具数、目标完成率和跳过比例；失败时自动换 seed 重试补齐同一输出编号。
+8. 按 `procedural.precheck` 检查实际家具数、目标完成率、跳过比例和房间连通性；失败时自动换 seed 重试补齐同一输出编号。
 9. 复用现有 `scene.obj`、`scene.xml`、`label/`、`floorplan/`、`class_mask`、quality 和 statistics 输出链路。
 
-第一版仍是规则 baseline：房间拓扑和关系约束还比较轻量；建筑结构已支持外墙窗户玻璃面，并会输出相邻房间的连通关系和门洞位置；家具数量已经支持 `procedural.object_count` 面积自适应，家具组合已经迁移到 `procedural.room_profiles`，可以按房间类型配置 `table`、`seat`、`floor` 的组合序列，并可用 `category`、`super_category`、`name`、`material` 关键词筛选更合适的资产；位置采样支持 `procedural.placement_policy` 的中心/靠墙偏置，局部组合支持 `procedural.placement_groups` 的 anchor + companion 关系。程序化预检会在 label/floorplan 前过滤摆放过少或失败比例过高的样本。后续可以逐步替换为更强的 room planner、语义资产组、约束求解器和可达性/连通性验证。
+第一版仍是规则 baseline：房间拓扑和关系约束还比较轻量；建筑结构已支持外墙窗户玻璃面，并会输出相邻房间的连通关系和门洞位置；家具数量已经支持 `procedural.object_count` 面积自适应，家具组合已经迁移到 `procedural.room_profiles`，可以按房间类型配置 `table`、`seat`、`floor` 的组合序列，并可用 `category`、`super_category`、`name`、`material` 关键词筛选更合适的资产；位置采样支持 `procedural.placement_policy` 的中心/靠墙偏置，局部组合支持 `procedural.placement_groups` 的 anchor + companion 关系。程序化预检会在 label/floorplan 前过滤摆放过少、失败比例过高或 room adjacency 不连通的样本。后续可以逐步替换为更强的 room planner、语义资产组、约束求解器和可达性验证。
 
 ## 生产运行与日志
 

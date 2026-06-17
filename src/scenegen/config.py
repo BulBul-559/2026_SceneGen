@@ -158,6 +158,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "min_placements": 1,
             "min_placement_ratio": 0.5,
             "max_skipped_ratio": 0.8,
+            "require_connected_rooms": True,
         },
     },
     "validation": {
@@ -669,6 +670,10 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     procedural_precheck["min_placements"] = int(procedural_precheck["min_placements"])
     procedural_precheck["min_placement_ratio"] = float(procedural_precheck["min_placement_ratio"])
     procedural_precheck["max_skipped_ratio"] = float(procedural_precheck["max_skipped_ratio"])
+    procedural_precheck["require_connected_rooms"] = as_bool(
+        procedural_precheck["require_connected_rooms"],
+        "procedural.precheck.require_connected_rooms",
+    )
 
     normalized["validation"]["sionna"] = as_bool(normalized["validation"]["sionna"], "validation.sionna")
 
@@ -1139,6 +1144,7 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         procedural_precheck_min_placements=procedural["precheck"]["min_placements"],
         procedural_precheck_min_placement_ratio=procedural["precheck"]["min_placement_ratio"],
         procedural_precheck_max_skipped_ratio=procedural["precheck"]["max_skipped_ratio"],
+        procedural_precheck_require_connected_rooms=procedural["precheck"]["require_connected_rooms"],
         validate_sionna=validation["sionna"],
         quality_enabled=quality["enabled"],
         quality_fail_on_error=quality["fail_on_error"],

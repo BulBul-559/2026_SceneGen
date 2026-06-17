@@ -147,6 +147,18 @@ def evaluate_procedural_precheck(
     desired_total = sum(int(value) for value in desired_counts.values()) if desired_counts else 0
     skipped_count = int(record.get("skipped_object_count") or (procedural.get("skipped_object_count", 0) if procedural else 0))
 
+    connectivity = evaluate_procedural_room_connectivity(procedural)
+    if bool(getattr(args, "procedural_precheck_require_connected_rooms", True)) and not bool(connectivity["ok"]):
+        errors.append(
+            {
+                "code": "rooms_not_connected",
+                "room_count": connectivity["room_count"],
+                "connected_room_count": connectivity["connected_room_count"],
+                "component_count": connectivity["component_count"],
+                "isolated_rooms": connectivity["isolated_rooms"],
+            }
+        )
+
     if desired_total > 0:
         placement_ratio = placement_count / desired_total
         skipped_ratio = skipped_count / desired_total
@@ -176,7 +188,87 @@ def evaluate_procedural_precheck(
     result["desired_object_count"] = desired_total
     result["placement_count"] = placement_count
     result["skipped_object_count"] = skipped_count
+    result["room_connectivity"] = connectivity
     return result
+
+
+def evaluate_procedural_room_connectivity(procedural: dict[str, object]) -> dict[str, object]:
+    rooms_payload = procedural.get("rooms") if isinstance(procedural.get("rooms"), list) else []
+    room_ids = [
+        str(room.get("room_id"))
+        for room in rooms_payload
+        if isinstance(room, dict) and str(room.get("room_id", "")).strip()
+    ]
+    room_count = int(procedural.get("room_count", len(room_ids)) or len(room_ids))
+    if room_count <= 1:
+        return {
+            "ok": True,
+            "room_count": room_count,
+            "connected_room_count": room_count,
+            "component_count": 1 if room_count == 1 else 0,
+            "edge_count": 0,
+            "isolated_rooms": [],
+            "reason": "single_or_empty_room_graph",
+        }
+    if not room_ids or len(room_ids) != room_count:
+        return {
+            "ok": False,
+            "room_count": room_count,
+            "connected_room_count": len(room_ids),
+            "component_count": 0,
+            "edge_count": 0,
+            "isolated_rooms": [],
+            "reason": "missing_room_ids",
+        }
+
+    parent = {room_id: room_id for room_id in room_ids}
+    degree = {room_id: 0 for room_id in room_ids}
+
+    def find(room_id: str) -> str:
+        while parent[room_id] != room_id:
+            parent[room_id] = parent[parent[room_id]]
+            room_id = parent[room_id]
+        return room_id
+
+    def union(left: str, right: str) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root != right_root:
+            parent[right_root] = left_root
+
+    edge_count = 0
+    adjacency = procedural.get("adjacency") if isinstance(procedural.get("adjacency"), list) else []
+    for edge in adjacency:
+        if not isinstance(edge, dict):
+            continue
+        pair = edge.get("rooms")
+        if not isinstance(pair, list) or len(pair) != 2:
+            continue
+        left, right = str(pair[0]), str(pair[1])
+        if left not in parent or right not in parent:
+            continue
+        door_width = float(edge.get("door_width_m", 0.0) or 0.0)
+        if door_width <= 1.0e-6:
+            continue
+        union(left, right)
+        degree[left] += 1
+        degree[right] += 1
+        edge_count += 1
+
+    components: dict[str, list[str]] = {}
+    for room_id in room_ids:
+        components.setdefault(find(room_id), []).append(room_id)
+    largest_component = max((len(members) for members in components.values()), default=0)
+    isolated_rooms = [room_id for room_id, count in degree.items() if count == 0]
+    return {
+        "ok": len(components) == 1,
+        "room_count": room_count,
+        "connected_room_count": largest_component,
+        "component_count": len(components),
+        "edge_count": edge_count,
+        "isolated_rooms": isolated_rooms,
+        "reason": "connected" if len(components) == 1 else "disconnected_room_graph",
+    }
 
 
 def evaluate_scene_precheck(args: argparse.Namespace, statistics: dict[str, object], record: dict[str, object]) -> dict[str, object]:
@@ -206,6 +298,7 @@ def procedural_precheck_settings(args: argparse.Namespace) -> dict[str, object]:
         "min_placements": int(args.procedural_precheck_min_placements),
         "min_placement_ratio": float(args.procedural_precheck_min_placement_ratio),
         "max_skipped_ratio": float(args.procedural_precheck_max_skipped_ratio),
+        "require_connected_rooms": bool(args.procedural_precheck_require_connected_rooms),
     }
 
 

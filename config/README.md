@@ -202,6 +202,7 @@ uv run scenegen \
 | `min_placements` | integer, `>=0` | `1` | 至少需要实际摆放出的家具数量。 |
 | `min_placement_ratio` | float, `0-1` | `0.5` | 实际摆放数量 / 目标家具数量的最低比例。 |
 | `max_skipped_ratio` | float, `0-1` | `0.8` | 跳过或摆放失败数量 / 目标家具数量的最高比例。 |
+| `require_connected_rooms` | boolean | `true` | 是否要求所有 room 通过带正宽门洞的 adjacency 连成一个可达图；失败时换 seed 重试。 |
 
 ### procedural.room_profiles
 

@@ -933,6 +933,66 @@ def test_procedural_precheck_rejects_low_placement_ratio() -> None:
     }
 
 
+def test_procedural_precheck_rejects_disconnected_rooms() -> None:
+    args = Namespace(
+        mode="procedural_front3d",
+        procedural_precheck_enabled=True,
+        procedural_precheck_min_placements=1,
+        procedural_precheck_min_placement_ratio=0.5,
+        procedural_precheck_max_skipped_ratio=0.8,
+        procedural_precheck_require_connected_rooms=True,
+    )
+    record = {
+        "skipped_object_count": 0,
+        "procedural": {
+            "room_count": 3,
+            "rooms": [{"room_id": "room_a"}, {"room_id": "room_b"}, {"room_id": "room_c"}],
+            "adjacency": [{"rooms": ["room_a", "room_b"], "door_width_m": 1.0}],
+            "placement_stats": {"desired_object_counts": {"room_a": 1, "room_b": 1, "room_c": 1}},
+        },
+    }
+
+    result = evaluate_procedural_precheck(args, {"placement_count": 3}, record)
+
+    assert result["ok"] is False
+    assert {error["code"] for error in result["errors"]} == {"rooms_not_connected"}
+    assert result["room_connectivity"]["component_count"] == 2
+    assert result["room_connectivity"]["connected_room_count"] == 2
+    assert result["room_connectivity"]["isolated_rooms"] == ["room_c"]
+
+
+def test_procedural_precheck_accepts_connected_rooms() -> None:
+    args = Namespace(
+        mode="procedural_front3d",
+        procedural_precheck_enabled=True,
+        procedural_precheck_min_placements=1,
+        procedural_precheck_min_placement_ratio=0.5,
+        procedural_precheck_max_skipped_ratio=0.8,
+        procedural_precheck_require_connected_rooms=True,
+    )
+
+    result = evaluate_procedural_precheck(
+        args,
+        {"placement_count": 3},
+        {
+            "skipped_object_count": 0,
+            "procedural": {
+                "room_count": 3,
+                "rooms": [{"room_id": "room_a"}, {"room_id": "room_b"}, {"room_id": "room_c"}],
+                "adjacency": [
+                    {"rooms": ["room_a", "room_b"], "door_width_m": 1.0},
+                    {"rooms": ["room_b", "room_c"], "door_width_m": 0.9},
+                ],
+                "placement_stats": {"desired_object_counts": {"room_a": 1, "room_b": 1, "room_c": 1}},
+            },
+        },
+    )
+
+    assert result["ok"] is True
+    assert result["room_connectivity"]["ok"] is True
+    assert result["room_connectivity"]["edge_count"] == 2
+
+
 def test_label_plane_grid_respects_floor_domain_and_ignores_obstacles() -> None:
     config = make_label_config(
         strategy="panel",
