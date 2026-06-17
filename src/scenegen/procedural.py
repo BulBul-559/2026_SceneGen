@@ -115,6 +115,83 @@ def numeric_summary(values: list[float]) -> dict[str, float]:
     }
 
 
+def _bump_counter(container: dict[str, object], key: str, amount: int = 1) -> None:
+    container[key] = int(container.get(key, 0) or 0) + amount
+
+
+def _bump_nested_counter(container: dict[str, object], outer_key: str, inner_key: str, amount: int = 1) -> None:
+    inner = container.get(outer_key)
+    if not isinstance(inner, dict):
+        inner = {}
+        container[outer_key] = inner
+    _bump_counter(inner, inner_key, amount)
+
+
+def _bump_stats_counter(stats: dict[str, object], name: str, key: str, amount: int = 1) -> None:
+    counter = stats.get(name)
+    if isinstance(counter, dict):
+        _bump_counter(counter, key, amount)
+
+
+def _bump_stats_nested_counter(
+    stats: dict[str, object],
+    name: str,
+    outer_key: str,
+    inner_key: str,
+    amount: int = 1,
+) -> None:
+    counter = stats.get(name)
+    if isinstance(counter, dict):
+        _bump_nested_counter(counter, outer_key, inner_key, amount)
+
+
+def _merge_counter(target: Counter[str], values: object) -> None:
+    if not isinstance(values, dict):
+        return
+    for key, count in values.items():
+        target[str(key)] += int(count)
+
+
+def _merge_nested_counter(target: dict[str, Counter[str]], values: object) -> None:
+    if not isinstance(values, dict):
+        return
+    for outer_key, inner in values.items():
+        if not isinstance(inner, dict):
+            continue
+        outer_counter = target.setdefault(str(outer_key), Counter())
+        for inner_key, count in inner.items():
+            outer_counter[str(inner_key)] += int(count)
+
+
+def _sorted_nested_counter(values: dict[str, Counter[str]]) -> dict[str, dict[str, int]]:
+    return {outer: dict(sorted(counter.items())) for outer, counter in sorted(values.items())}
+
+
+def _record_desired_class_stats(stats: dict[str, object], room: ProceduralRoom, class_name: str) -> None:
+    class_key = str(class_name)
+    _bump_stats_counter(stats, "desired_class_counts", class_key)
+    _bump_stats_nested_counter(stats, "desired_class_by_room_type", room.room_type, class_key)
+
+
+def _record_placed_asset_stats(stats: dict[str, object], room: ProceduralRoom, entry: ProceduralAssetEntry) -> None:
+    class_key = str(entry.asset.placement_class or "unknown")
+    _bump_stats_counter(stats, "placed_class_counts", class_key)
+    _bump_stats_counter(stats, "placed_room_type_counts", room.room_type)
+    _bump_stats_nested_counter(stats, "placed_class_by_room_type", room.room_type, class_key)
+
+
+def _record_skipped_class_stats(
+    stats: dict[str, object],
+    room: ProceduralRoom,
+    class_name: str,
+    reason: str,
+) -> None:
+    class_key = str(class_name)
+    _bump_stats_counter(stats, "skipped_class_counts", class_key)
+    _bump_stats_counter(stats, "skipped_reason_counts", reason)
+    _bump_stats_nested_counter(stats, "skipped_class_by_room_type", room.room_type, class_key)
+
+
 def aggregate_procedural_precheck_skip_summary(skipped_records: list[dict[str, object]] | None) -> dict[str, object]:
     skipped_records = skipped_records or []
     layout_totals: Counter[str] = Counter()
@@ -167,6 +244,14 @@ def aggregate_procedural_run_report(
     precheck_error_totals: Counter[str] = Counter()
     group_attempt_totals: Counter[str] = Counter()
     group_success_totals: Counter[str] = Counter()
+    desired_class_totals: Counter[str] = Counter()
+    placed_class_totals: Counter[str] = Counter()
+    skipped_class_totals: Counter[str] = Counter()
+    placed_room_type_totals: Counter[str] = Counter()
+    skipped_reason_totals: Counter[str] = Counter()
+    desired_class_by_room_type_totals: dict[str, Counter[str]] = {}
+    placed_class_by_room_type_totals: dict[str, Counter[str]] = {}
+    skipped_class_by_room_type_totals: dict[str, Counter[str]] = {}
     precheck_ok_count = 0
     precheck_failed_count = 0
     room_type_geometry_failed_count = 0
@@ -235,6 +320,40 @@ def aggregate_procedural_run_report(
         if desired_total > 0:
             placement_ratios.append(placement_count / desired_total)
 
+        desired_class_counts = (
+            placement_stats.get("desired_class_counts")
+            if isinstance(placement_stats.get("desired_class_counts"), dict)
+            else {}
+        )
+        placed_class_counts = (
+            placement_stats.get("placed_class_counts")
+            if isinstance(placement_stats.get("placed_class_counts"), dict)
+            else {}
+        )
+        skipped_class_counts = (
+            placement_stats.get("skipped_class_counts")
+            if isinstance(placement_stats.get("skipped_class_counts"), dict)
+            else {}
+        )
+        placed_room_type_counts = (
+            placement_stats.get("placed_room_type_counts")
+            if isinstance(placement_stats.get("placed_room_type_counts"), dict)
+            else {}
+        )
+        skipped_reason_counts = (
+            placement_stats.get("skipped_reason_counts")
+            if isinstance(placement_stats.get("skipped_reason_counts"), dict)
+            else {}
+        )
+        _merge_counter(desired_class_totals, desired_class_counts)
+        _merge_counter(placed_class_totals, placed_class_counts)
+        _merge_counter(skipped_class_totals, skipped_class_counts)
+        _merge_counter(placed_room_type_totals, placed_room_type_counts)
+        _merge_counter(skipped_reason_totals, skipped_reason_counts)
+        _merge_nested_counter(desired_class_by_room_type_totals, placement_stats.get("desired_class_by_room_type"))
+        _merge_nested_counter(placed_class_by_room_type_totals, placement_stats.get("placed_class_by_room_type"))
+        _merge_nested_counter(skipped_class_by_room_type_totals, placement_stats.get("skipped_class_by_room_type"))
+
         group_stats = placement_stats.get("group_stats") if isinstance(placement_stats.get("group_stats"), dict) else {}
         attempted = group_stats.get("attempted") if isinstance(group_stats.get("attempted"), dict) else {}
         succeeded = group_stats.get("succeeded") if isinstance(group_stats.get("succeeded"), dict) else {}
@@ -281,6 +400,9 @@ def aggregate_procedural_run_report(
                 "placement_count": placement_count,
                 "skipped_object_count": skipped_count,
                 "placement_ratio": rounded(placement_count / desired_total) if desired_total > 0 else None,
+                "desired_class_counts": dict(sorted((str(key), int(value)) for key, value in desired_class_counts.items())),
+                "placed_class_counts": dict(sorted((str(key), int(value)) for key, value in placed_class_counts.items())),
+                "skipped_class_counts": dict(sorted((str(key), int(value)) for key, value in skipped_class_counts.items())),
                 "precheck_ok": precheck.get("ok"),
                 "room_type_geometry_ok": room_type_geometry.get("ok") if room_type_geometry else None,
             }
@@ -318,6 +440,14 @@ def aggregate_procedural_run_report(
         "placement_count": numeric_summary(placement_counts),
         "skipped_object_count": numeric_summary(skipped_counts),
         "placement_ratio": numeric_summary(placement_ratios),
+        "desired_class_counts_total": dict(sorted(desired_class_totals.items())),
+        "placed_class_counts_total": dict(sorted(placed_class_totals.items())),
+        "skipped_class_counts_total": dict(sorted(skipped_class_totals.items())),
+        "placed_room_type_counts_total": dict(sorted(placed_room_type_totals.items())),
+        "skipped_reason_counts_total": dict(sorted(skipped_reason_totals.items())),
+        "desired_class_by_room_type_total": _sorted_nested_counter(desired_class_by_room_type_totals),
+        "placed_class_by_room_type_total": _sorted_nested_counter(placed_class_by_room_type_totals),
+        "skipped_class_by_room_type_total": _sorted_nested_counter(skipped_class_by_room_type_totals),
         "placement_group_attempts_total": dict(sorted(group_attempt_totals.items())),
         "placement_group_success_total": dict(sorted(group_success_totals.items())),
         "precheck_ok_count": precheck_ok_count,
@@ -2687,6 +2817,8 @@ class ProceduralFront3DGenerator:
             placed_counts = stats.get("placed_object_counts")
             if isinstance(placed_counts, dict):
                 placed_counts[room.room_id] = int(placed_counts.get(room.room_id, 0)) + len(group_items)
+            for item_entry, _item_matrix, _item_bbox, _item_yaw, _role in group_items:
+                _record_placed_asset_stats(stats, room, item_entry)
             room_boxes.extend(group_boxes)
             stats["relation_group_success_count"] = group_index + 1
             stats["relation_group_placement_count"] = int(stats["relation_group_placement_count"]) + len(group_items)
@@ -2769,6 +2901,14 @@ class ProceduralFront3DGenerator:
             "desired_object_counts": desired_object_counts,
             "placed_object_counts": placed_object_counts,
             "skipped_object_counts": skipped_object_counts,
+            "desired_class_counts": {},
+            "placed_class_counts": {},
+            "skipped_class_counts": {},
+            "placed_room_type_counts": {},
+            "skipped_reason_counts": {},
+            "desired_class_by_room_type": {},
+            "placed_class_by_room_type": {},
+            "skipped_class_by_room_type": {},
             "policy_zone_counts": {},
             "asset_reuse_relaxed_count": 0,
             "asset_reuse_limit_reject_count": 0,
@@ -2787,6 +2927,8 @@ class ProceduralFront3DGenerator:
             desired_object_counts[room.room_id] = len(desired_classes)
             placed_object_counts[room.room_id] = 0
             skipped_object_counts[room.room_id] = 0
+            for class_name in desired_classes:
+                _record_desired_class_stats(stats, room, class_name)
             self._place_room_groups(
                 room,
                 desired_classes,
@@ -2805,6 +2947,7 @@ class ProceduralFront3DGenerator:
                 if not candidates:
                     skipped.append({"room_id": room.room_id, "class": class_name, "reason": "empty_asset_pool"})
                     skipped_object_counts[room.room_id] = int(skipped_object_counts.get(room.room_id, 0)) + 1
+                    _record_skipped_class_stats(stats, room, class_name, "empty_asset_pool")
                     continue
                 placed = False
                 for _attempt in range(int(self.args.procedural_max_attempts_per_object)):
@@ -2858,6 +3001,7 @@ class ProceduralFront3DGenerator:
                     )
                     record_asset_reuse(entry, scene_model_counts, room_model_counts[room.room_id])
                     placed_object_counts[room.room_id] = int(placed_object_counts.get(room.room_id, 0)) + 1
+                    _record_placed_asset_stats(stats, room, entry)
                     room_boxes[room.room_id].append(bbox)
                     zone_counts = stats["policy_zone_counts"]
                     if isinstance(zone_counts, dict):
@@ -2867,6 +3011,7 @@ class ProceduralFront3DGenerator:
                 if not placed:
                     skipped.append({"room_id": room.room_id, "class": class_name, "reason": "placement_failed"})
                     skipped_object_counts[room.room_id] = int(skipped_object_counts.get(room.room_id, 0)) + 1
+                    _record_skipped_class_stats(stats, room, class_name, "placement_failed")
         return placements, skipped, stats
 
     def build_scene(self, scene_dir: Path, scene_index: int, rng: random.Random) -> ProceduralSceneBuild:

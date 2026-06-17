@@ -2097,6 +2097,20 @@ def test_aggregate_procedural_run_report_summarizes_structure() -> None:
                     ],
                     "placement_stats": {
                         "desired_object_counts": {"a": 2, "b": 2},
+                        "desired_class_counts": {"table": 2, "seat": 2},
+                        "placed_class_counts": {"table": 1, "seat": 2},
+                        "skipped_class_counts": {"table": 1},
+                        "placed_room_type_counts": {"LivingRoom": 2, "Bedroom": 1},
+                        "skipped_reason_counts": {"placement_failed": 1},
+                        "desired_class_by_room_type": {
+                            "LivingRoom": {"table": 1, "seat": 1},
+                            "Bedroom": {"table": 1, "seat": 1},
+                        },
+                        "placed_class_by_room_type": {
+                            "LivingRoom": {"table": 1, "seat": 1},
+                            "Bedroom": {"seat": 1},
+                        },
+                        "skipped_class_by_room_type": {"Bedroom": {"table": 1}},
                         "group_stats": {
                             "attempted": {"bed_side_tables": 1},
                             "succeeded": {"bed_side_tables": 1},
@@ -2139,7 +2153,14 @@ def test_aggregate_procedural_run_report_summarizes_structure() -> None:
                     "rooms": [
                         {"room_id": "c", "room_type": "LivingRoom", "area_m2": 16.0, "aspect_ratio": 1.0},
                     ],
-                    "placement_stats": {"desired_object_counts": {"c": 2}},
+                    "placement_stats": {
+                        "desired_object_counts": {"c": 2},
+                        "desired_class_counts": {"floor": 1, "seat": 1},
+                        "placed_class_counts": {"floor": 1, "seat": 1},
+                        "placed_room_type_counts": {"LivingRoom": 2},
+                        "desired_class_by_room_type": {"LivingRoom": {"floor": 1, "seat": 1}},
+                        "placed_class_by_room_type": {"LivingRoom": {"floor": 1, "seat": 1}},
+                    },
                 },
             },
         ],
@@ -2172,6 +2193,20 @@ def test_aggregate_procedural_run_report_summarizes_structure() -> None:
     assert report["topology"]["leaf_room_count"] == {"min": 0.0, "max": 2.0, "mean": 1.0}
     assert report["topology"]["graph_diameter"] == {"min": 0.0, "max": 1.0, "mean": 0.5}
     assert report["placement_ratio"] == {"min": 0.75, "max": 1.0, "mean": 0.875}
+    assert report["desired_class_counts_total"] == {"floor": 1, "seat": 3, "table": 2}
+    assert report["placed_class_counts_total"] == {"floor": 1, "seat": 3, "table": 1}
+    assert report["skipped_class_counts_total"] == {"table": 1}
+    assert report["placed_room_type_counts_total"] == {"Bedroom": 1, "LivingRoom": 4}
+    assert report["skipped_reason_counts_total"] == {"placement_failed": 1}
+    assert report["desired_class_by_room_type_total"] == {
+        "Bedroom": {"seat": 1, "table": 1},
+        "LivingRoom": {"floor": 1, "seat": 2, "table": 1},
+    }
+    assert report["placed_class_by_room_type_total"] == {
+        "Bedroom": {"seat": 1},
+        "LivingRoom": {"floor": 1, "seat": 2, "table": 1},
+    }
+    assert report["skipped_class_by_room_type_total"] == {"Bedroom": {"table": 1}}
     assert report["placement_group_success_total"] == {"bed_side_tables": 1}
     assert report["precheck_ok_count"] == 1
     assert report["precheck_failed_count"] == 1
@@ -2194,6 +2229,9 @@ def test_aggregate_procedural_run_report_summarizes_structure() -> None:
     assert report["scenes"][0]["configured_layout"] == "mixed"
     assert report["scenes"][0]["footprint"]["fill_ratio"] == 0.75
     assert report["scenes"][0]["topology"]["edge_count"] == 1
+    assert report["scenes"][0]["desired_class_counts"] == {"seat": 2, "table": 2}
+    assert report["scenes"][0]["placed_class_counts"] == {"seat": 2, "table": 1}
+    assert report["scenes"][0]["skipped_class_counts"] == {"table": 1}
     assert report["scenes"][0]["room_type_geometry_ok"] is True
     assert report["scenes"][1]["room_type_geometry_ok"] is False
 
