@@ -1239,6 +1239,43 @@ def room_adjacencies_for_rooms(
     return adjacencies
 
 
+def door_keepout_boxes_for_rooms(
+    rooms: list[ProceduralRoom],
+    adjacencies: list[dict[str, object]],
+    clearance_m: float,
+) -> dict[str, list[tuple[float, float, float, float, float, float]]]:
+    """Build per-room XY keepout boxes around procedural door openings."""
+
+    boxes: dict[str, list[tuple[float, float, float, float, float, float]]] = {room.room_id: [] for room in rooms}
+    if clearance_m <= 0.0:
+        return boxes
+    room_by_id = {room.room_id: room for room in rooms}
+    for adjacency in adjacencies:
+        door_width = float(adjacency.get("door_width_m", 0.0))
+        bounds = adjacency.get("door_bounds_xy")
+        room_ids = adjacency.get("rooms")
+        if door_width <= 0.0 or not isinstance(bounds, list | tuple) or len(bounds) != 4 or not isinstance(room_ids, list | tuple):
+            continue
+        x_min, y_min, x_max, y_max = (float(value) for value in bounds)
+        if x_max <= x_min or y_max <= y_min:
+            continue
+        for room_id in room_ids:
+            room = room_by_id.get(str(room_id))
+            if room is None:
+                continue
+            boxes[room.room_id].append(
+                (
+                    x_min - clearance_m,
+                    x_max + clearance_m,
+                    y_min - clearance_m,
+                    y_max + clearance_m,
+                    0.0,
+                    room.height,
+                )
+            )
+    return boxes
+
+
 def exterior_window_sides(
     room: ProceduralRoom,
     min_x: float,
@@ -1642,6 +1679,7 @@ class ProceduralFront3DGenerator:
         scene_index: int,
         rng: random.Random,
         room_boxes: list[tuple[float, float, float, float, float, float]],
+        door_keepout_boxes: list[tuple[float, float, float, float, float, float]],
         placements: list[PlacedAsset],
         mesh_cache: dict[Path, list[Vec3]],
         scene_model_counts: Counter[str],
@@ -1680,6 +1718,9 @@ class ProceduralFront3DGenerator:
                 stats["size_reject_count"] = int(stats["size_reject_count"]) + 1
                 continue
             approx_bbox = procedural_asset_approx_bbox(entry, yaw, center_x, center_y)
+            if any(boxes_overlap_xy(approx_bbox, keepout, 0.0) for keepout in door_keepout_boxes):
+                stats["door_keepout_reject_count"] = int(stats["door_keepout_reject_count"]) + 1
+                continue
             if any(boxes_overlap_xy(approx_bbox, other, object_margin) for other in room_boxes):
                 stats["approx_collision_reject_count"] = int(stats["approx_collision_reject_count"]) + 1
                 continue
@@ -1687,6 +1728,9 @@ class ProceduralFront3DGenerator:
             matrix, bbox = procedural_asset_transform_for_center(entry, yaw, center_x, center_y, mesh_cache)
             if not room_contains_bbox(room, bbox, margin=0.0):
                 stats["exact_room_reject_count"] = int(stats["exact_room_reject_count"]) + 1
+                continue
+            if any(boxes_overlap_xy(bbox, keepout, 0.0) for keepout in door_keepout_boxes):
+                stats["door_keepout_reject_count"] = int(stats["door_keepout_reject_count"]) + 1
                 continue
             if any(boxes_overlap_xy(bbox, other, object_margin) for other in room_boxes):
                 stats["exact_collision_reject_count"] = int(stats["exact_collision_reject_count"]) + 1
@@ -1727,6 +1771,10 @@ class ProceduralFront3DGenerator:
                 if not room_contains_bbox(room, companion_approx_bbox, margin=0.0):
                     group_failed = True
                     break
+                if any(boxes_overlap_xy(companion_approx_bbox, keepout, 0.0) for keepout in door_keepout_boxes):
+                    stats["door_keepout_reject_count"] = int(stats["door_keepout_reject_count"]) + 1
+                    group_failed = True
+                    break
                 if any(boxes_overlap_xy(companion_approx_bbox, other, object_margin) for other in [*room_boxes, *group_boxes]):
                     group_failed = True
                     break
@@ -1739,6 +1787,10 @@ class ProceduralFront3DGenerator:
                     mesh_cache,
                 )
                 if not room_contains_bbox(room, companion_bbox, margin=0.0):
+                    group_failed = True
+                    break
+                if any(boxes_overlap_xy(companion_bbox, keepout, 0.0) for keepout in door_keepout_boxes):
+                    stats["door_keepout_reject_count"] = int(stats["door_keepout_reject_count"]) + 1
                     group_failed = True
                     break
                 if any(boxes_overlap_xy(companion_bbox, other, object_margin) for other in [*room_boxes, *group_boxes]):
@@ -1785,6 +1837,7 @@ class ProceduralFront3DGenerator:
         scene_index: int,
         rng: random.Random,
         room_boxes: list[tuple[float, float, float, float, float, float]],
+        door_keepout_boxes: list[tuple[float, float, float, float, float, float]],
         placements: list[PlacedAsset],
         mesh_cache: dict[Path, list[Vec3]],
         scene_model_counts: Counter[str],
@@ -1810,6 +1863,7 @@ class ProceduralFront3DGenerator:
                 scene_index,
                 rng,
                 room_boxes,
+                door_keepout_boxes,
                 placements,
                 mesh_cache,
                 scene_model_counts,
@@ -1825,6 +1879,7 @@ class ProceduralFront3DGenerator:
     def place_assets(
         self,
         rooms: list[ProceduralRoom],
+        adjacencies: list[dict[str, object]],
         scene_index: int,
         rng: random.Random,
     ) -> tuple[list[PlacedAsset], list[dict[str, object]], dict[str, object]]:
@@ -1847,8 +1902,13 @@ class ProceduralFront3DGenerator:
             "policy_zone_counts": {},
             "asset_reuse_relaxed_count": 0,
             "asset_reuse_limit_reject_count": 0,
+            "door_keepout_clearance_m": float(self.args.procedural_door_clearance_m),
+            "door_keepout_box_count": 0,
+            "door_keepout_reject_count": 0,
         }
         room_boxes: dict[str, list[tuple[float, float, float, float, float, float]]] = {room.room_id: [] for room in rooms}
+        door_keepout_boxes = door_keepout_boxes_for_rooms(rooms, adjacencies, float(self.args.procedural_door_clearance_m))
+        stats["door_keepout_box_count"] = sum(len(boxes) for boxes in door_keepout_boxes.values())
         room_model_counts: dict[str, Counter[str]] = {room.room_id: Counter() for room in rooms}
         scene_model_counts: Counter[str] = Counter()
         mesh_cache: dict[Path, list[Vec3]] = {}
@@ -1861,6 +1921,7 @@ class ProceduralFront3DGenerator:
                 scene_index,
                 rng,
                 room_boxes[room.room_id],
+                door_keepout_boxes[room.room_id],
                 placements,
                 mesh_cache,
                 scene_model_counts,
@@ -1893,6 +1954,9 @@ class ProceduralFront3DGenerator:
                         stats["size_reject_count"] = int(stats["size_reject_count"]) + 1
                         continue
                     approx_bbox = procedural_asset_approx_bbox(entry, yaw, center_x, center_y)
+                    if any(boxes_overlap_xy(approx_bbox, keepout, 0.0) for keepout in door_keepout_boxes[room.room_id]):
+                        stats["door_keepout_reject_count"] = int(stats["door_keepout_reject_count"]) + 1
+                        continue
                     if any(
                         boxes_overlap_xy(approx_bbox, other, float(self.args.procedural_object_margin_m))
                         for other in room_boxes[room.room_id]
@@ -1903,6 +1967,9 @@ class ProceduralFront3DGenerator:
                     matrix, bbox = procedural_asset_transform_for_center(entry, yaw, center_x, center_y, mesh_cache)
                     if not room_contains_bbox(room, bbox, margin=0.0):
                         stats["exact_room_reject_count"] = int(stats["exact_room_reject_count"]) + 1
+                        continue
+                    if any(boxes_overlap_xy(bbox, keepout, 0.0) for keepout in door_keepout_boxes[room.room_id]):
+                        stats["door_keepout_reject_count"] = int(stats["door_keepout_reject_count"]) + 1
                         continue
                     if any(boxes_overlap_xy(bbox, other, float(self.args.procedural_object_margin_m)) for other in room_boxes[room.room_id]):
                         stats["exact_collision_reject_count"] = int(stats["exact_collision_reject_count"]) + 1
@@ -1986,7 +2053,7 @@ class ProceduralFront3DGenerator:
             sionna_material_names=("itu-concrete", "itu-glass"),
         )
         stage_start = time.perf_counter()
-        placements, skipped, placement_stats = self.place_assets(rooms, scene_index, rng)
+        placements, skipped, placement_stats = self.place_assets(rooms, adjacencies, scene_index, rng)
         timings["placement"] = time.perf_counter() - stage_start
         timings["total"] = time.perf_counter() - total_start
         report = {

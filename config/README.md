@@ -123,6 +123,7 @@ uv run scenegen \
 | `room_type_weights` | mapping / `null` | 见模板 | 程序化 room 类型采样权重。默认让客厅和卧室更常见，厨房、卫浴和走廊相对少见；设为 `null` 可关闭加权，回到循环/洗牌分配。 |
 | `wall_thickness_m` | float, `>0` | `0.16` | 生成墙体厚度。 |
 | `door_width_m` | float, `>=0` | `1.0` | 内墙门洞宽度；为 `0` 时基本不保留门洞。 |
+| `door_clearance_m` | float, `>=0` | `0.35` | 家具摆放时在门洞 bbox 周围保留的禁放距离，避免家具堵门；拒绝次数会写入 `procedural.placement_stats.door_keepout_reject_count`。 |
 | `windows` | mapping | 见模板 | 外墙窗户生成配置。当前窗户是贴在外墙上的玻璃面，不切掉整段墙体。 |
 | `object_count` | mapping | 见模板 | 每个 room 尝试摆放的家具数量策略。支持固定范围和按面积自适应。 |
 | `room_profiles` | mapping | 见模板 | 房间类型到 furniture class 序列和语义筛选规则的映射。必须包含 `default`；可新增任意 room type 名。 |

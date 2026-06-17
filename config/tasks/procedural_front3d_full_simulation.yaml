@@ -64,6 +64,7 @@ procedural:
     Hallway: 0.6
   wall_thickness_m: 0.16
   door_width_m: 1.0
+  door_clearance_m: 0.35
   windows:
     enabled: true
     room_probability: 0.65

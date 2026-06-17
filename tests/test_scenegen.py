@@ -56,6 +56,7 @@ from scenegen.procedural import (
     candidate_pose_for_policy,
     companion_directions,
     desired_classes_from_profile,
+    door_keepout_boxes_for_rooms,
     entries_matching_profile_filter,
     make_room_layout,
     object_count_config_for_room,
@@ -250,6 +251,22 @@ def test_procedural_architecture_source_contract(tmp_path: Path) -> None:
     assert metadata["procedural"]["adjacency"][0]["door_bounds_xy"] == pytest.approx([3.9, 1.0, 4.1, 2.0])
     assert "itu-glass" in metadata["materials"]["sionna"]
     assert any(mapping["source"] == "window" and mapping["sionna"] == "itu-glass" for mapping in metadata["materials"]["source_to_sionna"])
+
+
+def test_procedural_door_keepout_boxes_expand_adjacency_doors() -> None:
+    rooms = [
+        ProceduralRoom("proc_room_00", "LivingRoom", 0.0, 0.0, 4.0, 3.0, 3.0),
+        ProceduralRoom("proc_room_01", "Bedroom", 4.0, 0.0, 8.0, 3.0, 3.0),
+    ]
+    adjacencies = room_adjacencies_for_rooms(rooms, wall_thickness=0.2, door_width=1.0)
+
+    keepouts = door_keepout_boxes_for_rooms(rooms, adjacencies, clearance_m=0.35)
+
+    assert set(keepouts) == {"proc_room_00", "proc_room_01"}
+    assert len(keepouts["proc_room_00"]) == 1
+    assert keepouts["proc_room_00"][0] == pytest.approx((3.55, 4.45, 0.65, 2.35, 0.0, 3.0))
+    assert keepouts["proc_room_01"][0] == pytest.approx((3.55, 4.45, 0.65, 2.35, 0.0, 3.0))
+    assert door_keepout_boxes_for_rooms(rooms, adjacencies, clearance_m=0.0) == {"proc_room_00": [], "proc_room_01": []}
 
 
 def test_procedural_split_tree_layout_tiles_complete_positive_footprint() -> None:

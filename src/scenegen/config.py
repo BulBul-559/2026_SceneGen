@@ -95,6 +95,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         },
         "wall_thickness_m": 0.16,
         "door_width_m": 1.0,
+        "door_clearance_m": 0.35,
         "windows": {
             "enabled": True,
             "room_probability": 0.65,
@@ -992,6 +993,7 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     procedural["room_type_weights"] = normalize_room_type_weights(procedural.get("room_type_weights"))
     procedural["wall_thickness_m"] = float(procedural["wall_thickness_m"])
     procedural["door_width_m"] = float(procedural["door_width_m"])
+    procedural["door_clearance_m"] = float(procedural["door_clearance_m"])
     windows = procedural["windows"]
     windows["enabled"] = as_bool(windows["enabled"], "procedural.windows.enabled")
     windows["room_probability"] = float(windows["room_probability"])
@@ -1200,6 +1202,8 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("procedural.wall_thickness_m must be positive")
     if procedural["door_width_m"] < 0:
         raise ValueError("procedural.door_width_m must be non-negative")
+    if procedural["door_clearance_m"] < 0:
+        raise ValueError("procedural.door_clearance_m must be non-negative")
     windows = procedural["windows"]
     if not 0.0 <= windows["room_probability"] <= 1.0:
         raise ValueError("procedural.windows.room_probability must be between 0 and 1")
@@ -1528,6 +1532,7 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         procedural_room_type_weights=procedural["room_type_weights"],
         procedural_wall_thickness_m=procedural["wall_thickness_m"],
         procedural_door_width_m=procedural["door_width_m"],
+        procedural_door_clearance_m=procedural["door_clearance_m"],
         procedural_windows=procedural["windows"],
         procedural_object_count=procedural["object_count"],
         procedural_room_profiles=procedural["room_profiles"],
