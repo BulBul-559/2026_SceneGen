@@ -21,6 +21,7 @@ from . import __version__
 from .config import load_effective_config, save_effective_config
 from .exporters import collect_label_floorplans, collect_raw_floorplans, collect_scene_objs, make_timestamp, write_visual_index
 from .front3d import Front3DConfig, Front3DIndex, choose_scene_ids
+from .modes import FRONT3D_MODE, FRONT3D_LIKE_MODES, is_procedural_front3d_like, scene_prefix_for_mode
 from .paths import find_project_root, portable_path
 from .postprocess.pipeline import run_batch_postprocess
 from .procedural import aggregate_procedural_run_report
@@ -29,7 +30,7 @@ from .runlog import append_jsonl, atomic_write_json
 
 
 BATCH_SCHEMA_VERSION = "scenegen.batch.v1"
-SUPPORTED_BATCH_MODES = {"front3d", "procedural_front3d"}
+SUPPORTED_BATCH_MODES = FRONT3D_LIKE_MODES
 
 
 class TaskProcessError(RuntimeError):
@@ -120,7 +121,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--config",
         type=Path,
         required=True,
-        help="SceneGen YAML config. Batch v1 supports front3d and procedural_front3d.",
+        help="SceneGen YAML config. Batch v1 supports front3d, procedural_front3d, and procedural_front3d_vision.",
     )
     parser.add_argument(
         "--workers",
@@ -242,14 +243,16 @@ def load_plan(path: Path) -> list[dict[str, Any]]:
 def plan_tasks(effective_config: dict[str, Any], workers: int) -> list[dict[str, Any]]:
     mode = str(effective_config["pipeline"]["mode"])
     if mode not in SUPPORTED_BATCH_MODES:
-        raise ValueError("scenegen-batch v1 supports only pipeline.mode=front3d or procedural_front3d")
+        raise ValueError(
+            "scenegen-batch v1 supports only pipeline.mode=front3d, procedural_front3d, or procedural_front3d_vision"
+        )
     count = int(effective_config["pipeline"]["scenes"])
     seed = int(effective_config["pipeline"]["seed"])
     output_index_start = int(effective_config["pipeline"]["index_start"])
     seed_rng = random.Random(seed)
     tasks: list[dict[str, Any]] = []
 
-    if mode == "front3d":
+    if mode == FRONT3D_MODE:
         front3d = effective_config["front3d"]
         config = Front3DConfig(
             manifest=Path(front3d["manifest"]),
@@ -273,10 +276,10 @@ def plan_tasks(effective_config: dict[str, Any], workers: int) -> list[dict[str,
             random.Random(seed),
             start_index=config.start_index,
         )
-        scene_prefix = "front3d"
+        scene_prefix = scene_prefix_for_mode(mode)
     else:
         scene_ids = [f"procedural_seed_{output_index_start + index:06d}" for index in range(count)]
-        scene_prefix = "procedural_front3d"
+        scene_prefix = scene_prefix_for_mode(mode)
 
     for plan_index, scene_id in enumerate(scene_ids):
         target_index = output_index_start + plan_index
@@ -310,7 +313,7 @@ def recursive_replace(value: Any, old: str, new: str) -> Any:
 
 def task_seed_for_attempt(task: dict[str, Any], attempt_no: int) -> int:
     base_seed = int(task["scene_seed"])
-    if attempt_no <= 1 or task.get("mode") != "procedural_front3d":
+    if attempt_no <= 1 or not is_procedural_front3d_like(str(task.get("mode", ""))):
         return base_seed
     retry_rng = random.Random(f"{task['task_id']}:{base_seed}:{attempt_no}")
     return retry_rng.randrange(1, 2**31)
@@ -338,7 +341,7 @@ def command_for_task(
         "runtime.skip_summary=true",
         f"pipeline.seed={scene_seed}",
     ]
-    if task.get("mode") == "front3d":
+    if task.get("mode") == FRONT3D_MODE:
         set_values.extend(
             [
                 f"front3d.scene_ids={json.dumps([task['scene_id']])}",
@@ -725,9 +728,18 @@ def build_final_manifest(
     scheduler: str,
 ) -> dict[str, Any]:
     mode = str(effective_config["pipeline"]["mode"])
-    scene_prefix = "procedural_front3d" if mode == "procedural_front3d" else "front3d"
+    scene_prefix = scene_prefix_for_mode(mode)
     records = sorted(records, key=lambda item: int(str(item.get("batch_task_id", f"{scene_prefix}_999999")).split("_")[-1]))
-    copy_manifest = collect_scene_objs(paths.run_dir, records, scene_prefix)
+    if bool(effective_config.get("output", {}).get("write_obj_summary", True)):
+        copy_manifest = collect_scene_objs(paths.run_dir, records, scene_prefix)
+    else:
+        copy_manifest = {
+            "summary_dir": "summary/obj",
+            "count": 0,
+            "objects": [],
+            "skipped": True,
+            "reason": "output.write_obj_summary=false",
+        }
     raw_floorplan_manifest = collect_raw_floorplans(paths.run_dir, records, scene_prefix)
     label_floorplan_manifest = collect_label_floorplans(paths.run_dir, records, scene_prefix)
     visual_index_file = write_visual_index(paths.run_dir, records, scene_prefix)
@@ -737,12 +749,12 @@ def build_final_manifest(
     procedural_report_file: str | None = None
     procedural_asset_pool_coverage_file: str | None = None
     procedural_precheck_skipped_scenes: list[dict[str, object]] = []
-    if mode == "procedural_front3d":
+    if is_procedural_front3d_like(mode):
         for record in records:
             skipped = record.get("batch_child_procedural_precheck_skipped_scenes")
             if isinstance(skipped, list):
                 procedural_precheck_skipped_scenes.extend(item for item in skipped if isinstance(item, dict))
-    if mode == "procedural_front3d":
+    if is_procedural_front3d_like(mode):
         procedural_report = aggregate_procedural_run_report(records, procedural_precheck_skipped_scenes)
         procedural_report_file = write_json_report(paths.run_dir / "procedural_report.json", procedural_report, paths.run_dir)
         asset_pool_coverage = procedural_report.get("asset_pool_coverage")
@@ -758,6 +770,7 @@ def build_final_manifest(
         "schema_version": BATCH_SCHEMA_VERSION,
         "scenegen_version": __version__,
         "mode": mode,
+        "output": effective_config.get("output", {}),
         "seed": effective_config["pipeline"]["seed"],
         "run_name": effective_config["pipeline"]["run_name"],
         "run_dir": ".",
@@ -784,8 +797,12 @@ def build_final_manifest(
         "procedural_report": procedural_report,
         "procedural_report_file": procedural_report_file,
         "procedural_asset_pool_coverage_file": procedural_asset_pool_coverage_file,
-        "procedural_precheck_skipped_count": len(procedural_precheck_skipped_scenes) if mode == "procedural_front3d" else 0,
-        "procedural_precheck_skipped_scenes": procedural_precheck_skipped_scenes if mode == "procedural_front3d" else [],
+        "procedural_precheck_skipped_count": len(procedural_precheck_skipped_scenes)
+        if is_procedural_front3d_like(mode)
+        else 0,
+        "procedural_precheck_skipped_scenes": procedural_precheck_skipped_scenes
+        if is_procedural_front3d_like(mode)
+        else [],
         "effective_config": "effective_config.yaml",
         "batch_logs": {
             "events": portable_path(paths.events, paths.run_dir),

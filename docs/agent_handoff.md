@@ -12,6 +12,7 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 - `generated`: 简单矩形房间 smoke/test 模式，保留用于快速验证生成链路。
 - `front3d`: 复现并合成 3D-FRONT 原始已有组合场景。读取 `data/3D-Front/scenegen_manifest.json`，使用整理后的建筑结构和家具实例输出与 Bistro 一致的目录结构。
 - `procedural_front3d`: 实验性自动生成模式。按 `procedural.layout` 采样多房间户型，默认 `mixed` 会按 `procedural.layout_weights` 在 `grid` / `split_tree` / `rect_union` / `room_graph` / `polygon_shell` / `corridor_spine` 中加权选择实际 layout，并在 scene record 里同时记录 `layout` 和 `configured_layout`；其中 `split_tree` 从完整 apartment footprint 递归切分房间，`rect_union` 可由连通房间矩形集合拼出 L/T/凹口式不规则外轮廓，外墙按 room union 的真实边界生成，不再用整体 bbox 补成矩形；`room_graph` 会先生成树状房间邻接关系，再把新房间挂到已有房间边上，形成更自由的错位和凹凸外轮廓；`polygon_shell` 会先采样带凹口的外部 shell，再在 shell 内切分矩形房间；`corridor_spine` 会生成走廊 spine + 两侧房间的公寓式拓扑，并在配置阶段检查 `Hallway`、`room_count` 和 Hallway 上限是否足够容纳必选房间。默认 room type 覆盖客厅、卧室、餐厅、书房、厨房、卫浴和走廊/玄关，并可通过 `procedural.required_room_types` 保证必选组成、通过 `procedural.room_type_weights` 控制剩余分布权重、通过 `procedural.room_type_max_counts` 限制厨房/餐厅/卫浴等类型的最大出现次数、通过 `procedural.room_type_assignment: geometry_fit` 复用 room type 几何规则把类型分配给更合适的房间。随后写出 Front3D-like 建筑 `procedural_source/scene.json` / `architecture.obj`，包括 floor、ceiling、wall、door、外墙 window mesh、room adjacency 和门洞 bbox；再按 `procedural.object_count` 计算每房家具数量，`object_count.by_room_type` 可按房型覆盖家具密度，并从 3D-FUTURE 资产池中按 `procedural.room_profiles` 的类别序列、`required_classes` 和 semantic filter 摆放家具。`procedural.asset_reuse` 默认限制同一 model 在 room/scene 内过度复用，候选池不足时可自动放宽并在 placement stats 里记录。位置采样由 `procedural.placement_policy` 控制，默认 `floor` 靠墙、`table` 靠中心、`seat` 自由采样，且 `placement_policy.by_room_type` 可按房型覆盖，例如厨房/卫浴更偏靠墙、客厅/餐厅桌椅更偏中心；客厅、餐厅、卧室、书房、厨房等可通过 `procedural.placement_groups` 先生成 anchor + companion 关系组，例如茶几/沙发、餐桌椅、床 + 床头柜、书桌椅或台面/椅凳。生成后会按 `procedural.precheck` 检查摆放数量完成率、room 必需类别是否到位、room adjacency 连通性、footprint fill ratio/凹口面积、通用 room 面积/长宽比和按 room type 的几何规则，失败时换 seed 重试同一编号；通过后复用 front3d 的 OBJ/XML、label、floorplan、class mask、quality 和 statistics 输出链路。
+- `procedural_front3d_vision`: 复用 `procedural_front3d` 的户型、家具摆放、precheck、quality、label、floorplan 和 postprocess maps，但通过 `output.profile: vision_only` 跳过合成 `scene.obj`、`scene.xml`、`assets/` 和 OBJ summary。它面向 VisionEncoder 预训练数据，scene 目录前缀为 `procedural_front3d_vision_`，仍保留 `procedural_source/` 和 `placements.json` 作为小体积可追溯源记录。
 
 `front3d` v1 只合成已有 3D-FRONT 场景，不做基于 3D-FRONT 资产池的随机重排。`procedural_front3d` 是正在开发的无限场景生成 baseline，当前仍是规则系统，不是完整 ProcTHOR/Infinigen 级别的语义约束生成器。
 
@@ -19,7 +20,7 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 
 - `src/scenegen/cli.py`: CLI 入口和主生成流程。
 - `src/scenegen/config.py`: 配置默认值、YAML 读取、CLI 覆盖、类型归一化、字段和值校验。
-- `src/scenegen/sources.py`: `generated`、`bistro`、`front3d`、`procedural_front3d` 四种 source adapter。
+- `src/scenegen/sources.py`: `generated`、`bistro`、`front3d`、`procedural_front3d`、`procedural_front3d_vision` 五种 source adapter。
 - `src/scenegen/front3d.py`: 3D-FRONT manifest、scene JSON、实例矩阵、坐标转换和 asset 解析。
 - `src/scenegen/procedural.py`: 自动生成类 Front3D 场景的第一版 baseline，包括 room layout、建筑 OBJ/JSON 写出、资产池筛选和家具摆放。
 - `src/scenegen/exporters.py`: OBJ、XML、placements、manifest 和 summary 输出。
@@ -27,12 +28,13 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 - `src/scenegen/floorplan.py`: 几何 floorplan 和 3D-FRONT 四分类 class mask。
 - `src/scenegen/quality.py`: 质量检查和统计报告。
 - `src/scenegen/runlog.py`: 单 run JSONL 事件、阶段耗时、state 快照和 traceback 输出。
-- `src/scenegen/batch.py`: 生产管理入口，支持 `front3d` 和 `procedural_front3d`，负责 scene plan、worker、resume、失败/重试队列和 batch manifest。
+- `src/scenegen/batch.py`: 生产管理入口，支持 `front3d`、`procedural_front3d` 和 `procedural_front3d_vision`，负责 scene plan、worker、resume、失败/重试队列和 batch manifest。
 - `src/scenegen/assets/`: Bistro 资产契约、loader、legacy converter、材质映射。
 - `tools/prepare_front3d_phase1.py`: 3D-FRONT 第一阶段离线整理脚本。
 - `config/bistro.yaml`: Bistro 模式一级基础模板，也是默认 YAML 入口。
 - `config/front3d.yaml`: 3D-FRONT 合成模式一级基础模板。
 - `config/procedural_front3d.yaml`: 自动生成类 3D-FRONT 场景的一级基础模板。
+- `config/procedural_front3d_vision.yaml`: 程序化视觉训练数据一级基础模板。
 - `data/3D-Front/`: 本地 3D-FRONT 原始数据和整理结果，默认 git ignored。
 
 ## 配置链路
@@ -50,7 +52,7 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 
 维护规则：
 
-- `config/bistro.yaml`、`config/front3d.yaml` 和 `config/procedural_front3d.yaml` 按工作流拆分，只保留各自任务相关字段；未写字段由 `DEFAULT_CONFIG` 补齐。
+- `config/bistro.yaml`、`config/front3d.yaml`、`config/procedural_front3d.yaml` 和 `config/procedural_front3d_vision.yaml` 按工作流拆分，只保留各自任务相关字段；未写字段由 `DEFAULT_CONFIG` 补齐。
 - `DEFAULT_CONFIG` 是完整 schema 和兜底默认值来源；新增字段时需要同步判断它属于哪个一级模板或具体 `config/tasks/*.yaml`，并更新 `config/README.md`。
 - 需要实验配置时复制对应模板到其他位置，或通过 CLI 覆盖。
 - 配置 v2 不兼容旧 YAML 字段和旧显式 CLI 参数。
@@ -153,6 +155,17 @@ uv run scenegen-batch \
 
 `config/tasks/procedural_front3d_full_simulation.yaml` 是随机生成数据的任务级模板，只保留 3D-FUTURE 家具池来源、`procedural` 户型/摆放规则、label、floorplan、postprocess 和 batch 等相关字段；不包含 Bistro 配置，也不包含复现已有 Front3D 场景时才需要的 scene selection / precheck 字段。它默认 `batch.workers: 24`、`batch.task_timeout_s: 600`、`postprocess.maps.enabled: true`，BS 数量使用和 Front3D 全量模板一致的 `area_adaptive` 面积自适应策略。
 
+正式 procedural_front3d_vision batch 生产：
+
+```bash
+uv run scenegen-batch \
+  --config config/tasks/procedural_front3d_vision_full_simulation.yaml \
+  --set pipeline.scenes=2000 \
+  --set pipeline.run_name=procedural_front3d_vision_production_2000
+```
+
+`config/tasks/procedural_front3d_vision_full_simulation.yaml` 是随机生成视觉训练数据的任务级模板，默认 `output.profile: vision_only`、`batch.workers: 48`，不写合成 `scene.obj`、`scene.xml`、`assets/` 或 OBJ summary，但仍生成 `procedural_source/`、`placements.json`、label、floorplan/class mask 和 batch 后处理 maps。
+
 `scenegen-batch` 默认读取 YAML 的 `batch.workers`、`batch.scheduler` 和 `batch.max_retries`；命令行 `--workers`、`--scheduler`、`--max-retries` 可临时覆盖。`hybrid` 调度会先固定分片，只有当 worker 自己队列清空且其他队列仍有待处理任务时，才从剩余任务最多的队列偷取尾部任务；`static` 严格保持固定分片；`dynamic` 使用共享任务队列。batch child 会设置 `runtime.skip_summary=true`，跳过自己的 `summary/` 汇总复制，最终由 batch 顶层统一生成 summary。成功 scene 发布时会从 `batch/worker_runs` move 到 run 根目录，worker 子 run 不再保留成功场景的完整重复副本，只保留日志、配置、小 manifest 和失败场景调试材料。batch 完成后会写 `manifest.json`、`manifest_batch.json` 和 `manifest_<mode>.json`。
 
 正式生产模板会在 batch 末尾自动生成 derived maps；如果还要整理 compact vision dataset：
@@ -166,7 +179,7 @@ uv run scenegen-batch \
   --set postprocess.maps.bs_label.name=label_panel_0p1
 ```
 
-`postprocess` 是 batch-only 配置；基础配置默认关闭，两个 full 生产模板默认开启 maps。`maps.bs_label.name=label_panel_0p1` 是当前正式视觉数据集推荐的 BS 来源，避免把不同 UE 采样密度和策略的 label variant 中的 BS 重复合并。
+`postprocess` 是 batch-only 配置；基础配置默认关闭，full 生产模板默认开启 maps。`maps.bs_label.name=label_panel_0p1` 是当前正式视觉数据集推荐的 BS 来源，避免把不同 UE 采样密度和策略的 label variant 中的 BS 重复合并。
 
 同名任务恢复：
 

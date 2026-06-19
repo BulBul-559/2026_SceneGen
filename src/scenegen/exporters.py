@@ -521,6 +521,49 @@ def write_front3d_obj(
     return SceneMeshArrays(vertices=vertices, faces=faces, source="write_front3d_obj")
 
 
+def collect_front3d_scene_mesh_arrays(
+    base_scene: Front3DBaseScene,
+    placements: list[PlacedAsset],
+    *,
+    source: str = "collect_front3d_scene_mesh_arrays",
+) -> SceneMeshArrays:
+    base_mesh = load_obj_mesh(base_scene.scene_obj)
+    mesh_cache: dict[Path, ObjMesh] = {}
+    vertex_chunks: list[np.ndarray] = []
+    triangle_chunks: list[list[tuple[int, int, int]]] = []
+    vertex_offset = 0
+
+    offset_x, offset_y, offset_z = base_scene.world_offset
+    base_vertices = np.asarray(base_mesh.vertices, dtype=np.float64)
+    if base_vertices.size:
+        base_vertices = base_vertices.copy()
+        base_vertices[:, 0] += offset_x
+        base_vertices[:, 1] += offset_y
+        base_vertices[:, 2] += offset_z
+    vertex_chunks.append(base_vertices)
+    triangle_chunks.append(triangulated_face_indices(base_mesh.faces, vertex_offset))
+    vertex_offset += len(base_mesh.vertices)
+
+    for placed in placements:
+        mesh = mesh_cache.setdefault(placed.asset.obj_file, load_obj_mesh(placed.asset.obj_file))
+        transformed_vertices = transform_vertices_array(mesh, placed)
+        vertex_chunks.append(transformed_vertices)
+        triangle_chunks.append(triangulated_face_indices(mesh.faces, vertex_offset))
+        vertex_offset += len(mesh.vertices)
+
+    vertices = (
+        np.concatenate([np.asarray(chunk, dtype=np.float32) for chunk in vertex_chunks], axis=0)
+        if vertex_chunks
+        else np.zeros((0, 3), dtype=np.float32)
+    )
+    faces = (
+        np.concatenate([np.asarray(chunk, dtype=np.int32) for chunk in triangle_chunks], axis=0)
+        if triangle_chunks
+        else np.zeros((0, 3), dtype=np.int32)
+    )
+    return SceneMeshArrays(vertices=vertices, faces=faces, source=source)
+
+
 def placement_to_json(placed: PlacedAsset, path_root: Path) -> dict[str, object]:
     payload: dict[str, object] = {
         "instance_name": placed.instance_name,
@@ -617,20 +660,36 @@ def write_front3d_scene_files(
     rng: object,
     collect_floorplan_mesh_arrays: bool = True,
     mode: str = "front3d",
+    write_scene_obj: bool = True,
+    write_sionna_assets: bool = True,
 ) -> tuple[dict[str, object], SceneMeshArrays | None]:
     timings_s: dict[str, float] = {}
     output_dir.mkdir(parents=True, exist_ok=True)
     started = time.perf_counter()
-    floorplan_mesh_arrays = write_front3d_obj(
-        output_dir / "scene.obj",
-        base_scene,
-        placements,
-        collect_mesh_arrays=collect_floorplan_mesh_arrays,
-        mode=mode,
-    )
+    if write_scene_obj:
+        floorplan_mesh_arrays = write_front3d_obj(
+            output_dir / "scene.obj",
+            base_scene,
+            placements,
+            collect_mesh_arrays=collect_floorplan_mesh_arrays,
+            mode=mode,
+        )
+    elif collect_floorplan_mesh_arrays:
+        floorplan_mesh_arrays = collect_front3d_scene_mesh_arrays(base_scene, placements)
+    else:
+        floorplan_mesh_arrays = None
     timings_s["write_scene_obj"] = round(time.perf_counter() - started, 6)
     started = time.perf_counter()
-    sionna_assets = write_front3d_sionna_scene_assets(output_dir, base_scene, placements)
+    if write_sionna_assets:
+        sionna_assets = write_front3d_sionna_scene_assets(output_dir, base_scene, placements)
+    else:
+        sionna_assets = {
+            "shape_count": 0,
+            "materials": [],
+            "asset_parts": [],
+            "skipped": True,
+            "reason": "output.write_sionna_assets=false",
+        }
     timings_s["write_sionna_assets"] = round(time.perf_counter() - started, 6)
     started = time.perf_counter()
     placement_payload = {
@@ -655,6 +714,12 @@ def write_front3d_scene_files(
     record["source_scene"] = portable_path(base_scene.source_scene_json, output_dir.parent)
     record["skipped_object_count"] = len(skipped_objects)
     record["skipped_objects"] = skipped_objects
+    if not write_scene_obj:
+        record["scene_obj"] = None
+    if not write_sionna_assets:
+        record["scene_xml"] = None
+        record["assets_dir"] = None
+        record["sionna_assets_skipped"] = True
     record["build_timings_s"] = timings_s
     return record, floorplan_mesh_arrays
 
@@ -724,9 +789,14 @@ def collect_scene_objs(run_dir: Path, scene_records: list[dict[str, object]], sc
     copied: list[dict[str, str]] = []
     for record in scene_records:
         scene_index = int(record["scene_index"])
-        source = Path(str(record["scene_obj"]))
+        scene_obj = record.get("scene_obj")
+        if not isinstance(scene_obj, str) or not scene_obj:
+            continue
+        source = Path(scene_obj)
         if not source.is_absolute():
             source = run_dir / source
+        if not source.is_file():
+            continue
         destination = summary_dir / f"{scene_prefix}_{scene_index:04d}.obj"
         shutil.copy2(source, destination)
         copied.append(

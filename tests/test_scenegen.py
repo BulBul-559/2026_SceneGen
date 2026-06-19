@@ -21,7 +21,7 @@ from scenegen.batch import main as batch_main
 from scenegen.batch import parse_args as parse_batch_args
 from scenegen.cli import evaluate_front3d_precheck, evaluate_procedural_precheck, main, parse_args, prepare_run_dir
 from scenegen.config import DEFAULT_CONFIG, load_effective_config
-from scenegen.exporters import write_clean_obj_full_from_source, write_front3d_obj
+from scenegen.exporters import write_clean_obj_full_from_source, write_front3d_obj, write_front3d_scene_files
 from scenegen.floorplan import floorplan_layer_filename, generate_front3d_class_mask, process_scene
 from scenegen.front3d import choose_scene_ids, scenegen_transform_for_child
 from scenegen.geometry import load_bistro_base_scene, load_obj_mesh
@@ -503,6 +503,66 @@ def test_procedural_source_rewrite_invalidates_architecture_obj_cache(tmp_path: 
     scene_vertices = np.asarray(load_obj_mesh(scene_dir / "scene.obj").vertices)
     assert scene_vertices.max(axis=0)[0] == pytest.approx(5.0)
     assert scene_vertices.max(axis=0)[1] == pytest.approx(7.0)
+
+
+def test_front3d_vision_only_export_collects_mesh_without_scene_files(tmp_path: Path) -> None:
+    scene_dir = tmp_path / "procedural_front3d_vision_0000"
+    rooms = [ProceduralRoom("proc_room_00", "Room", 0.0, 0.0, 4.0, 4.0, 2.8)]
+    meshes, children = architecture_meshes_for_rooms(
+        rooms,
+        wall_thickness=0.16,
+        door_width=1.0,
+        window_config={"enabled": False},
+        rng=random.Random(4),
+    )
+    architecture_obj, source_json, metadata_json, bbox_min, bbox_max = write_procedural_source_files(
+        scene_dir,
+        "vision",
+        rooms,
+        meshes,
+        children,
+        [],
+    )
+    base_scene = Front3DBaseScene(
+        scene_id="vision",
+        scene_obj=architecture_obj,
+        source_scene_json=source_json,
+        metadata_json=metadata_json,
+        bbox_min=bbox_min,
+        bbox_max=bbox_max,
+        source_bbox_min=bbox_min,
+        source_bbox_max=bbox_max,
+        world_offset=(0.0, 0.0, 0.0),
+        source_to_sionna_material={"floor": "itu-concrete", "wall": "itu-concrete"},
+        sionna_material_names=("itu-concrete",),
+    )
+
+    record, mesh_arrays = write_front3d_scene_files(
+        scene_dir,
+        base_scene,
+        [],
+        [],
+        scene_index=0,
+        seed=123,
+        rng=random.Random(123),
+        collect_floorplan_mesh_arrays=True,
+        mode="procedural_front3d_vision",
+        write_scene_obj=False,
+        write_sionna_assets=False,
+    )
+
+    assert mesh_arrays is not None
+    assert mesh_arrays.vertices.shape[1] == 3
+    assert mesh_arrays.faces.shape[1] == 3
+    assert record["mode"] == "procedural_front3d_vision"
+    assert record["scene_obj"] is None
+    assert record["scene_xml"] is None
+    assert record["assets_dir"] is None
+    assert record["sionna_assets_skipped"] is True
+    assert (scene_dir / "placements.json").is_file()
+    assert not (scene_dir / "scene.obj").exists()
+    assert not (scene_dir / "scene.xml").exists()
+    assert not (scene_dir / "assets").exists()
 
 
 def test_procedural_mixed_layout_uses_configured_weights() -> None:
@@ -1351,6 +1411,21 @@ def test_cli_version_matches_package_version(capsys: pytest.CaptureFixture[str])
             },
             {"assets", "bistro", "placement", "runtime"},
         ),
+        (
+            "config/procedural_front3d_vision.yaml",
+            "procedural_front3d_vision",
+            {
+                "pipeline",
+                "output",
+                "front3d",
+                "validation",
+                "label",
+                "floorplan",
+                "postprocess",
+                "batch",
+            },
+            {"assets", "bistro", "placement", "procedural", "runtime"},
+        ),
     ],
 )
 def test_config_templates_are_workflow_focused(
@@ -1414,14 +1489,40 @@ def test_procedural_front3d_config_keeps_procedural_overrides() -> None:
     assert "assets" not in payload
 
 
+def test_procedural_front3d_vision_config_enables_vision_only_outputs() -> None:
+    root = find_project_root()
+    payload = yaml.safe_load((root / "config" / "procedural_front3d_vision.yaml").read_text(encoding="utf-8"))
+    effective, _ = load_effective_config(root / "config" / "procedural_front3d_vision.yaml", root, Namespace(set_values=[]))
+
+    assert payload["pipeline"]["mode"] == "procedural_front3d_vision"
+    assert payload["output"] == {
+        "profile": "vision_only",
+        "write_scene_obj": False,
+        "write_sionna_assets": False,
+        "write_obj_summary": False,
+    }
+    assert payload["postprocess"]["maps"]["scene_glob"] == "procedural_front3d_vision_*"
+    assert payload["postprocess"]["dataset"]["scene_glob"] == "procedural_front3d_vision_*"
+    assert payload["floorplan"]["class_mask"]["enabled"] is True
+    assert payload["label"]["bs"]["count"]["strategy"] == "area_adaptive"
+    assert effective["output"] == payload["output"]
+    assert effective["validation"]["sionna"] is False
+    assert "procedural" not in payload
+    assert "assets" not in payload
+    assert "bistro" not in payload
+
+
 def test_full_simulation_task_templates_enable_production_outputs() -> None:
     root = find_project_root()
     front3d = yaml.safe_load((root / "config" / "tasks" / "front3d_full_simulation.yaml").read_text(encoding="utf-8"))
     procedural = yaml.safe_load(
         (root / "config" / "tasks" / "procedural_front3d_full_simulation.yaml").read_text(encoding="utf-8")
     )
+    vision = yaml.safe_load(
+        (root / "config" / "tasks" / "procedural_front3d_vision_full_simulation.yaml").read_text(encoding="utf-8")
+    )
 
-    for payload in (front3d, procedural):
+    for payload in (front3d, procedural, vision):
         assert payload["label"]["ue"]["sampling"]["strategies"] == ["panel", "walk"]
         assert payload["floorplan"]["class_mask"]["enabled"] is True
         assert payload["floorplan"]["class_mask"]["furniture_mode"] == "mesh"
@@ -1434,11 +1535,12 @@ def test_full_simulation_task_templates_enable_production_outputs() -> None:
         assert payload["postprocess"]["maps"]["bs_label"]["name"] == "label_panel_0p1"
         assert payload["label"]["bs"]["count"]["strategy"] == "area_adaptive"
         assert "per_room" not in payload["label"]["bs"]["count"]
-        assert payload["batch"]["workers"] == 24
         assert payload["batch"]["scheduler"] == "hybrid"
         assert payload["batch"]["max_retries"] == 1
         assert payload["batch"]["task_timeout_s"] == 600
 
+    assert front3d["batch"]["workers"] == 24
+    assert procedural["batch"]["workers"] == 24
     assert front3d["pipeline"]["scenes"] == 6813
     assert front3d["front3d"]["select"] == "sequential"
     assert front3d["label"]["ue"]["sampling"]["grid_m"] == [0.1, 0.2, 0.5]
@@ -1447,6 +1549,18 @@ def test_full_simulation_task_templates_enable_production_outputs() -> None:
     assert procedural["label"]["ue"]["sampling"]["grid_m"] == [0.1, 0.2, 0.4, 0.5]
     assert procedural["postprocess"]["maps"]["scene_glob"] == "procedural_front3d_*"
     assert procedural["postprocess"]["dataset"]["scene_glob"] == "procedural_front3d_*"
+    assert vision["pipeline"]["mode"] == "procedural_front3d_vision"
+    assert vision["pipeline"]["scenes"] == 1
+    assert vision["batch"]["workers"] == 48
+    assert vision["label"]["ue"]["sampling"]["grid_m"] == [0.1, 0.2, 0.4, 0.5]
+    assert vision["postprocess"]["maps"]["scene_glob"] == "procedural_front3d_vision_*"
+    assert vision["postprocess"]["dataset"]["scene_glob"] == "procedural_front3d_vision_*"
+    assert vision["output"] == {
+        "profile": "vision_only",
+        "write_scene_obj": False,
+        "write_sionna_assets": False,
+        "write_obj_summary": False,
+    }
     assert set(procedural) == {
         "pipeline",
         "front3d",
@@ -1463,6 +1577,21 @@ def test_full_simulation_task_templates_enable_production_outputs() -> None:
     assert "bistro" not in procedural
     assert "placement" not in procedural
     assert "runtime" not in procedural
+    assert set(vision) == {
+        "pipeline",
+        "output",
+        "front3d",
+        "validation",
+        "quality",
+        "label",
+        "floorplan",
+        "postprocess",
+        "batch",
+    }
+    assert "assets" not in vision
+    assert "bistro" not in vision
+    assert "placement" not in vision
+    assert "runtime" not in vision
     assert_keys_subset_of_default(procedural, DEFAULT_CONFIG)
 
 
@@ -3807,6 +3936,57 @@ def test_procedural_front3d_batch_runner_uses_procedural_scene_prefix(tmp_path: 
     assert all(scene["procedural"]["window_count"] >= 1 for scene in manifest["scenes"])
     assert all("itu-glass" in scene["sionna_materials"] for scene in manifest["scenes"])
     assert all(scene["scene_dir"].startswith("procedural_front3d_") for scene in manifest["scenes"])
+
+
+def test_procedural_front3d_vision_batch_runner_skips_scene_files(tmp_path: Path) -> None:
+    config_path = make_procedural_runtime_fixture(tmp_path)
+    output_dir = tmp_path / "out"
+
+    exit_code = batch_main(
+        [
+            "--config",
+            str(config_path),
+            "--workers",
+            "1",
+            "--scheduler",
+            "hybrid",
+            "--max-retries",
+            "0",
+            "--set",
+            "pipeline.mode=procedural_front3d_vision",
+            "--set",
+            "pipeline.run_name=smoke_procedural_vision_batch",
+            "--set",
+            "pipeline.scenes=1",
+        ]
+    )
+
+    run_dir = output_dir / "smoke_procedural_vision_batch"
+    scene_dir = run_dir / "procedural_front3d_vision_0000"
+    assert exit_code == 0
+    assert scene_dir.is_dir()
+    assert not (scene_dir / "scene.obj").exists()
+    assert not (scene_dir / "scene.xml").exists()
+    assert not (scene_dir / "assets").exists()
+    assert (scene_dir / "placements.json").is_file()
+    assert (scene_dir / "procedural_source" / "architecture.obj").is_file()
+    assert (run_dir / "manifest_procedural_front3d_vision.json").is_file()
+    assert not (run_dir / "manifest_procedural_front3d.json").exists()
+    assert not (run_dir / "summary" / "obj" / "procedural_front3d_vision_0000.obj").exists()
+
+    plan = [json.loads(line) for line in (run_dir / "batch" / "scene_plan.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [task["scene_key"] for task in plan] == ["procedural_front3d_vision_0000"]
+    assert {task["mode"] for task in plan} == {"procedural_front3d_vision"}
+    manifest = json.loads((run_dir / "manifest_batch.json").read_text(encoding="utf-8"))
+    assert manifest["mode"] == "procedural_front3d_vision"
+    assert manifest["output"]["profile"] == "vision_only"
+    assert manifest["summary_obj"]["skipped"] is True
+    assert manifest["summary_obj"]["reason"] == "output.write_obj_summary=false"
+    assert manifest["scenes"][0]["scene_obj"] is None
+    assert manifest["scenes"][0]["scene_xml"] is None
+    assert manifest["scenes"][0]["assets_dir"] is None
+    assert manifest["scenes"][0]["scene_dir"].startswith("procedural_front3d_vision_")
+    assert manifest["procedural_report"]["scene_count"] == 1
 
 
 def test_front3d_batch_label_outputs(tmp_path: Path) -> None:

@@ -1,0 +1,77 @@
+pipeline:
+  mode: procedural_front3d_vision
+  scenes: 10
+  seed: 20260517
+  output_dir: results
+  run_name: null
+  clean: false
+  index_start: 0
+output:
+  profile: vision_only
+  write_scene_obj: false
+  write_sionna_assets: false
+  write_obj_summary: false
+front3d:
+  manifest: data/3D-Front/scenegen_manifest.json
+  source_dir: data/3D-Front/3D-FRONT
+  arch_variant: raw
+  object_variant: raw
+  openings:
+    mode: doors
+    dilation_m: 0.0
+    floor_tolerance_m: 0.25
+    min_height_m: 1.6
+    include_doors_as_wall: true
+    include_windows_as_wall: true
+validation:
+  sionna: false
+label:
+  enabled: true
+  fail_on_error: true
+  ue:
+    sampling:
+      domain: global_floor
+      grid_m: [0.1]
+      strategies: [walk]
+  bs:
+    count:
+      strategy: area_adaptive
+      min_per_room: 1
+      max_per_room: 8
+      min_room_area_m2: 4.0
+      area_per_point_m2: 12.0
+floorplan:
+  enabled: true
+  fail_on_error: true
+  resolution_m: 0.05
+  geometry:
+    enabled: true
+  class_mask:
+    enabled: true
+    furniture_mode: mesh
+    furniture_height_m: 1.6
+postprocess:
+  maps:
+    enabled: true
+    workers: null
+    scene_glob: procedural_front3d_vision_*
+    overwrite: false
+    write_propagation: false
+    bs_label:
+      mode: name
+      name: label_walk_0p1
+      glob: null
+    pair_cache:
+      enabled: true
+      target_pairs_per_scene: 4096
+      ue_candidates_per_bs: null
+      seed: 0
+  dataset:
+    enabled: false
+    scene_glob: procedural_front3d_vision_*
+    require_maps: true
+batch:
+  workers: 24
+  scheduler: hybrid
+  max_retries: 1
+  task_timeout_s: 600

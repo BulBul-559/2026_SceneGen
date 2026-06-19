@@ -8,6 +8,8 @@ from typing import Any
 
 import yaml
 
+from .modes import FRONT3D_LIKE_MODES, PROCEDURAL_FRONT3D_VISION_MODE, SUPPORTED_PIPELINE_MODES
+
 
 LABEL_VERSION = "1.1"
 
@@ -20,6 +22,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "run_name": None,
         "clean": False,
         "index_start": 0,
+    },
+    "output": {
+        "profile": "full",
+        "write_scene_obj": True,
+        "write_sionna_assets": True,
+        "write_obj_summary": True,
     },
     "assets": {
         "catalog": "data/catalogs/bistro.v1.json",
@@ -1021,6 +1029,17 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     pipeline["clean"] = as_bool(pipeline["clean"], "pipeline.clean")
     pipeline["index_start"] = int(pipeline["index_start"])
 
+    output = normalized["output"]
+    output["profile"] = str(output["profile"])
+    output["write_scene_obj"] = as_bool(output["write_scene_obj"], "output.write_scene_obj")
+    output["write_sionna_assets"] = as_bool(output["write_sionna_assets"], "output.write_sionna_assets")
+    output["write_obj_summary"] = as_bool(output["write_obj_summary"], "output.write_obj_summary")
+    if pipeline["mode"] == PROCEDURAL_FRONT3D_VISION_MODE or output["profile"] == "vision_only":
+        output["profile"] = "vision_only"
+        output["write_scene_obj"] = False
+        output["write_sionna_assets"] = False
+        output["write_obj_summary"] = False
+
     assets = normalized["assets"]
     assets["catalog"] = str(resolve_path(repo_root, assets["catalog"]))
 
@@ -1185,6 +1204,8 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     )
 
     normalized["validation"]["sionna"] = as_bool(normalized["validation"]["sionna"], "validation.sionna")
+    if output["profile"] == "vision_only":
+        normalized["validation"]["sionna"] = False
 
     quality = normalized["quality"]
     quality["enabled"] = as_bool(quality["enabled"], "quality.enabled")
@@ -1300,8 +1321,9 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
 def validate_effective_config(config: dict[str, Any]) -> None:
     pipeline = config["pipeline"]
     mode = pipeline["mode"]
-    if mode not in {"generated", "bistro", "front3d", "procedural_front3d"}:
-        raise ValueError("pipeline.mode must be 'generated', 'bistro', 'front3d', or 'procedural_front3d'")
+    if mode not in SUPPORTED_PIPELINE_MODES:
+        allowed = "', '".join(sorted(SUPPORTED_PIPELINE_MODES))
+        raise ValueError(f"pipeline.mode must be one of '{allowed}'")
     if pipeline["scenes"] < 1:
         raise ValueError("pipeline.scenes must be at least 1")
     if pipeline["index_start"] < 0:
@@ -1313,6 +1335,18 @@ def validate_effective_config(config: dict[str, Any]) -> None:
             raise ValueError("pipeline.run_name must not be empty")
         if "/" in run_name or "\\" in run_name:
             raise ValueError("pipeline.run_name must be a directory name, not a path")
+
+    output = config["output"]
+    if output["profile"] not in {"full", "vision_only"}:
+        raise ValueError("output.profile must be 'full' or 'vision_only'")
+    if output["profile"] == "vision_only" and mode != PROCEDURAL_FRONT3D_VISION_MODE:
+        raise ValueError("output.profile=vision_only is currently supported only with pipeline.mode=procedural_front3d_vision")
+    if output["profile"] == "vision_only" and output["write_sionna_assets"]:
+        raise ValueError("output.write_sionna_assets must be false when output.profile is vision_only")
+    if output["profile"] == "vision_only" and output["write_scene_obj"]:
+        raise ValueError("output.write_scene_obj must be false when output.profile is vision_only")
+    if output["profile"] == "vision_only" and output["write_obj_summary"]:
+        raise ValueError("output.write_obj_summary must be false when output.profile is vision_only")
 
     placement = config["placement"]
     if placement["tables"][0] < 0 or placement["tables"][1] < placement["tables"][0]:
@@ -1634,8 +1668,10 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("At least one of floorplan.geometry.enabled or floorplan.class_mask.enabled must be true")
     if geometry["projection"] not in {"sampling", "ray_height_filtered"}:
         raise ValueError("floorplan.geometry.projection must be 'sampling' or 'ray_height_filtered'")
-    if class_mask["enabled"] and mode not in {"front3d", "procedural_front3d"}:
-        raise ValueError("floorplan.class_mask.enabled currently supports only front3d/procedural_front3d mode")
+    if class_mask["enabled"] and mode not in FRONT3D_LIKE_MODES:
+        raise ValueError(
+            "floorplan.class_mask.enabled currently supports only front3d/procedural_front3d/procedural_front3d_vision mode"
+        )
     if class_mask["wall_dilation_m"] < 0:
         raise ValueError("floorplan.class_mask.wall_dilation_m must be non-negative")
     if class_mask["furniture_dilation_m"] < 0:
@@ -1725,6 +1761,7 @@ def internal_label_strategy(value: str) -> str:
 
 def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
     pipeline = config["pipeline"]
+    output = config["output"]
     assets = config["assets"]
     bistro = config["bistro"]
     front3d = config["front3d"]
@@ -1754,6 +1791,10 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         run_name=pipeline["run_name"],
         clean=pipeline["clean"],
         scene_index_start=pipeline["index_start"],
+        output_profile=output["profile"],
+        output_write_scene_obj=output["write_scene_obj"],
+        output_write_sionna_assets=output["write_sionna_assets"],
+        output_write_obj_summary=output["write_obj_summary"],
         asset_catalog=Path(assets["catalog"]),
         bistro_base_dir=Path(bistro["base_dir"]),
         forbidden_xy_rects=parse_forbidden_rects(bistro.get("forbidden_xy")),

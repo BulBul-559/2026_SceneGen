@@ -21,6 +21,7 @@ from .floorplan import (
 )
 from .front3d import apply_world_offset, read_json, scenegen_transform_for_child
 from .geometry import point_in_triangle_2d, transform_point_with_matrix, triangle_area_and_up_normal
+from .modes import is_front3d_like
 from .models import (
     BistroBaseScene,
     Front3DBaseScene,
@@ -2076,7 +2077,7 @@ def generate_label_for_scene(
         if base_scene is None:
             raise ValueError("Bistro label requires a base scene")
         return generate_bistro_label(scene_dir, base_scene, config, rng, path_root)
-    if mode in {"front3d", "procedural_front3d"}:
+    if is_front3d_like(mode):
         if front3d_base_scene is None:
             raise ValueError("3D-FRONT label requires a base scene")
         return generate_front3d_label(scene_dir, front3d_base_scene, placements or [], config, path_root, cache)

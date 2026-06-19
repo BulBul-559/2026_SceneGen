@@ -8,6 +8,7 @@ from pathlib import Path
 from .exporters import write_bistro_scene_files, write_front3d_scene_files, write_scene_files
 from .front3d import Front3DConfig, Front3DIndex, build_scene_from_front3d
 from .geometry import load_bistro_base_scene
+from .modes import FRONT3D_MODE, is_procedural_front3d_like, scene_prefix_for_mode
 from .models import Asset, BistroBaseScene, Front3DBaseScene, PlacedAsset, Rect2D, Room, SceneMeshArrays
 from .placement import build_bistro_scene_placements, build_scene_placements
 from .procedural import ProceduralFront3DGenerator
@@ -109,7 +110,7 @@ class BistroSceneSource:
 
 
 class Front3DSceneSource:
-    mode = "front3d"
+    mode = FRONT3D_MODE
     scene_prefix = "front3d"
     base_scene: BistroBaseScene | None = None
     forbidden_xy_rects: tuple[Rect2D, ...] = ()
@@ -220,6 +221,10 @@ class ProceduralFront3DSceneSource:
         self.index = Front3DIndex(config)
         self.generator = ProceduralFront3DGenerator(self.index, args)
         self.collect_floorplan_mesh_arrays = bool(args.floorplan_enabled and args.floorplan_geometry_enabled)
+        self.mode = str(args.mode)
+        self.scene_prefix = scene_prefix_for_mode(self.mode)
+        self.write_scene_obj = bool(getattr(args, "output_write_scene_obj", True))
+        self.write_sionna_assets = bool(getattr(args, "output_write_sionna_assets", True))
 
     def build_scene(
         self,
@@ -238,7 +243,9 @@ class ProceduralFront3DSceneSource:
             scene_seed,
             rng,
             collect_floorplan_mesh_arrays=self.collect_floorplan_mesh_arrays,
-            mode="procedural_front3d",
+            mode=self.mode,
+            write_scene_obj=self.write_scene_obj,
+            write_sionna_assets=self.write_sionna_assets,
         )
         record["procedural"] = build.generation_report
         return SceneBuildResult(
@@ -268,6 +275,6 @@ def create_scene_source(
         return BistroSceneSource(assets_by_class, args, bistro_base_dir)
     if args.mode == "front3d":
         return Front3DSceneSource(args)
-    if args.mode == "procedural_front3d":
+    if is_procedural_front3d_like(str(args.mode)):
         return ProceduralFront3DSceneSource(args)
     raise ValueError(f"Unsupported scene generation mode: {args.mode}")

@@ -21,6 +21,7 @@ from .exporters import (
 )
 from .floorplan import FloorplanConfig, generate_floorplan_for_scene
 from .labels import LabelConfig, generate_label_batch_for_scene, label_variants, write_label_overlay
+from .modes import FRONT3D_LIKE_MODES, FRONT3D_MODE, is_procedural_front3d_like
 from .paths import default_config_path, find_project_root, portable_path, require_dir, require_file
 from .procedural import aggregate_procedural_run_report
 from .quality import (
@@ -198,7 +199,7 @@ def evaluate_procedural_precheck(
     statistics: dict[str, object],
     record: dict[str, object],
 ) -> dict[str, object]:
-    enabled = args.mode == "procedural_front3d" and bool(args.procedural_precheck_enabled)
+    enabled = is_procedural_front3d_like(str(args.mode)) and bool(args.procedural_precheck_enabled)
     result: dict[str, object] = {"enabled": enabled, "ok": True, "errors": []}
     if not enabled:
         return result
@@ -717,13 +718,13 @@ def evaluate_procedural_room_connectivity(procedural: dict[str, object]) -> dict
 
 
 def evaluate_scene_precheck(args: argparse.Namespace, statistics: dict[str, object], record: dict[str, object]) -> dict[str, object]:
-    if args.mode == "procedural_front3d":
+    if is_procedural_front3d_like(str(args.mode)):
         return evaluate_procedural_precheck(args, statistics, record)
     return evaluate_front3d_precheck(args, statistics)
 
 
 def front3d_precheck_settings(args: argparse.Namespace) -> dict[str, object]:
-    if args.mode != "front3d":
+    if args.mode != FRONT3D_MODE:
         return {}
     return {
         "enabled": bool(args.front3d_precheck_enabled),
@@ -741,7 +742,7 @@ def front3d_precheck_settings(args: argparse.Namespace) -> dict[str, object]:
 
 
 def procedural_precheck_settings(args: argparse.Namespace) -> dict[str, object]:
-    if args.mode != "procedural_front3d":
+    if not is_procedural_front3d_like(str(args.mode)):
         return {}
     return {
         "enabled": bool(args.procedural_precheck_enabled),
@@ -773,9 +774,9 @@ def procedural_precheck_settings(args: argparse.Namespace) -> dict[str, object]:
 
 
 def max_precheck_attempts(args: argparse.Namespace) -> int:
-    if args.mode == "front3d" and bool(args.front3d_precheck_enabled):
+    if args.mode == FRONT3D_MODE and bool(args.front3d_precheck_enabled):
         return int(args.front3d_precheck_max_attempts_per_scene)
-    if args.mode == "procedural_front3d" and bool(args.procedural_precheck_enabled):
+    if is_procedural_front3d_like(str(args.mode)) and bool(args.procedural_precheck_enabled):
         return int(args.procedural_precheck_max_attempts_per_scene)
     return 1
 
@@ -788,7 +789,7 @@ def main(argv: list[str] | None = None) -> int:
     effective_config, _overrides = load_effective_config(config_path.resolve(), repo_root, cli_args)
     args = config_to_namespace(effective_config)
 
-    front3d_like_modes = {"front3d", "procedural_front3d"}
+    front3d_like_modes = FRONT3D_LIKE_MODES
     asset_catalog_path = require_file(args.asset_catalog, "asset catalog") if args.mode not in front3d_like_modes else args.asset_catalog
     if args.mode == "bistro":
         bistro_base_dir = require_dir(args.bistro_base_dir, "Bistro base scene directory")
@@ -907,11 +908,13 @@ def main(argv: list[str] | None = None) -> int:
                         "target_index": scene_index,
                         "attempt": attempt_index + 1,
                         "scene_seed": scene_seed,
-                        "front3d_scene_id": scene_id if args.mode == "front3d" else "",
+                        "front3d_scene_id": scene_id if args.mode == FRONT3D_MODE else "",
                         "source_scene_id": scene_id,
-                        "layout": procedural_record.get("layout") if args.mode == "procedural_front3d" else None,
-                        "configured_layout": procedural_record.get("configured_layout") if args.mode == "procedural_front3d" else None,
-                        "topology": procedural_record.get("topology") if args.mode == "procedural_front3d" else None,
+                        "layout": procedural_record.get("layout") if is_procedural_front3d_like(str(args.mode)) else None,
+                        "configured_layout": procedural_record.get("configured_layout")
+                        if is_procedural_front3d_like(str(args.mode))
+                        else None,
+                        "topology": procedural_record.get("topology") if is_procedural_front3d_like(str(args.mode)) else None,
                         "errors": precheck["errors"],
                         "statistics": statistics,
                         "skipped_object_count": int(record.get("skipped_object_count", 0)),
@@ -1174,7 +1177,13 @@ def main(argv: list[str] | None = None) -> int:
                 "groups": {},
             }
         else:
-            copy_manifest = collect_scene_objs(run_dir, scene_records, scene_prefix)
+            if bool(getattr(args, "output_write_obj_summary", True)):
+                copy_manifest = collect_scene_objs(run_dir, scene_records, scene_prefix)
+            else:
+                copy_manifest = {
+                    **skipped_summary_manifest("obj", "objects"),
+                    "reason": "output.write_obj_summary=false",
+                }
             raw_floorplan_manifest = collect_raw_floorplans(run_dir, scene_records, scene_prefix)
             label_floorplan_manifest = collect_label_floorplans(run_dir, scene_records, scene_prefix)
         visual_index_file = write_visual_index(run_dir, scene_records, scene_prefix)
@@ -1183,7 +1192,7 @@ def main(argv: list[str] | None = None) -> int:
         procedural_report: dict[str, object] | None = None
         procedural_report_file: str | None = None
         procedural_asset_pool_coverage_file: str | None = None
-        if args.mode == "procedural_front3d":
+        if is_procedural_front3d_like(str(args.mode)):
             procedural_report = aggregate_procedural_run_report(scene_records, precheck_skipped_scenes)
             procedural_report_file = write_json_report(run_dir / "procedural_report.json", procedural_report, run_dir)
             asset_pool_coverage = procedural_report.get("asset_pool_coverage")
@@ -1196,12 +1205,13 @@ def main(argv: list[str] | None = None) -> int:
     class_counts = {name: len(items) for name, items in sorted(assets_by_class.items())}
     procedural_skipped_object_count = (
         sum(int(record.get("skipped_object_count", 0)) for record in scene_records)
-        if args.mode == "procedural_front3d"
+        if is_procedural_front3d_like(str(args.mode))
         else 0
     )
     manifest: dict[str, object] = {
         "generator": "SceneGen",
         "mode": args.mode,
+        "output": effective_config["output"],
         "seed": args.seed,
         "run_name": run_name,
         "run_dir": ".",
@@ -1210,20 +1220,24 @@ def main(argv: list[str] | None = None) -> int:
         "front3d_manifest": portable_path(front3d_manifest_path, run_dir) if front3d_manifest_path is not None else None,
         "front3d_variant": args.front3d_variant if args.mode in front3d_like_modes else None,
         "front3d_object_variant": args.front3d_object_variant if args.mode in front3d_like_modes else None,
-        "front3d_scene_selection": args.front3d_scene_selection if args.mode == "front3d" else None,
-        "front3d_scene_ids": args.front3d_scene_ids if args.mode == "front3d" else [],
+        "front3d_scene_selection": args.front3d_scene_selection if args.mode == FRONT3D_MODE else None,
+        "front3d_scene_ids": args.front3d_scene_ids if args.mode == FRONT3D_MODE else [],
         "front3d_skipped_object_count": (
-            sum(int(record.get("skipped_object_count", 0)) for record in scene_records) if args.mode == "front3d" else 0
+            sum(int(record.get("skipped_object_count", 0)) for record in scene_records) if args.mode == FRONT3D_MODE else 0
         ),
         "procedural_skipped_object_count": procedural_skipped_object_count,
         "front3d_precheck": front3d_precheck_settings(args),
-        "front3d_precheck_ok": (not precheck_failed) if args.mode == "front3d" else None,
-        "front3d_precheck_skipped_count": len(precheck_skipped_scenes) if args.mode == "front3d" else 0,
-        "front3d_precheck_skipped_scenes": precheck_skipped_scenes if args.mode == "front3d" else [],
+        "front3d_precheck_ok": (not precheck_failed) if args.mode == FRONT3D_MODE else None,
+        "front3d_precheck_skipped_count": len(precheck_skipped_scenes) if args.mode == FRONT3D_MODE else 0,
+        "front3d_precheck_skipped_scenes": precheck_skipped_scenes if args.mode == FRONT3D_MODE else [],
         "procedural_precheck": procedural_precheck_settings(args),
-        "procedural_precheck_ok": (not precheck_failed) if args.mode == "procedural_front3d" else None,
-        "procedural_precheck_skipped_count": len(precheck_skipped_scenes) if args.mode == "procedural_front3d" else 0,
-        "procedural_precheck_skipped_scenes": precheck_skipped_scenes if args.mode == "procedural_front3d" else [],
+        "procedural_precheck_ok": (not precheck_failed) if is_procedural_front3d_like(str(args.mode)) else None,
+        "procedural_precheck_skipped_count": len(precheck_skipped_scenes)
+        if is_procedural_front3d_like(str(args.mode))
+        else 0,
+        "procedural_precheck_skipped_scenes": precheck_skipped_scenes
+        if is_procedural_front3d_like(str(args.mode))
+        else [],
         "forbidden_xy_rects": (
             [{"x_min": rect[0], "y_min": rect[1], "x_max": rect[2], "y_max": rect[3]} for rect in args.forbidden_xy_rects]
             if args.mode == "bistro"
@@ -1256,10 +1270,10 @@ def main(argv: list[str] | None = None) -> int:
         "label_variant_count": len(label_variants(label_config)) if label_config.enabled else 0,
         "statistics": run_statistics,
         "statistics_file": statistics_file,
-        "procedural_report": procedural_report if args.mode == "procedural_front3d" else None,
-        "procedural_report_file": procedural_report_file if args.mode == "procedural_front3d" else None,
+        "procedural_report": procedural_report if is_procedural_front3d_like(str(args.mode)) else None,
+        "procedural_report_file": procedural_report_file if is_procedural_front3d_like(str(args.mode)) else None,
         "procedural_asset_pool_coverage_file": (
-            procedural_asset_pool_coverage_file if args.mode == "procedural_front3d" else None
+            procedural_asset_pool_coverage_file if is_procedural_front3d_like(str(args.mode)) else None
         ),
         "timing_summary_s": timing_summary(scene_records),
         "run_timings_s": {

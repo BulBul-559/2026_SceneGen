@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .geometry import collides_with_bistro_static, inside_bistro_scene, inside_room, is_supported_on_floor, overlaps
+from .modes import FRONT3D_MODE, is_front3d_like
 from .models import BistroBaseScene, Box3D, Front3DBaseScene, PlacedAsset, Rect2D, Room
 from .paths import portable_path
 from .placement import overlaps_forbidden_xy
@@ -82,7 +83,7 @@ def floor_area_for_scene(
         return room.width * room.length
     if mode == "bistro" and base_scene is not None:
         return sum(triangle.area for triangle in base_scene.floor_triangles)
-    if mode in {"front3d", "procedural_front3d"} and front3d_base_scene is not None:
+    if is_front3d_like(mode) and front3d_base_scene is not None:
         return box_xy_area(
             (
                 front3d_base_scene.bbox_min[0],
@@ -113,7 +114,7 @@ def scene_statistics(
     max_placement_xy_extent = 0.0
     max_placement_z_extent = 0.0
     scene_box: Box3D | None = None
-    if mode in {"front3d", "procedural_front3d"} and front3d_base_scene is not None:
+    if is_front3d_like(mode) and front3d_base_scene is not None:
         scene_box = (
             front3d_base_scene.bbox_min[0],
             front3d_base_scene.bbox_max[0],
@@ -245,7 +246,7 @@ def check_scene_quality(
                 issues.append(
                     issue("error", "bistro_static_collision", "Floor placement overlaps Bistro static geometry.", placement.instance_name)
                 )
-        elif mode in {"front3d", "procedural_front3d"} and front3d_base_scene is not None:
+        elif is_front3d_like(mode) and front3d_base_scene is not None:
             scene_box = (
                 front3d_base_scene.bbox_min[0],
                 front3d_base_scene.bbox_max[0],
@@ -325,7 +326,7 @@ def check_scene_quality(
                     )
                 )
 
-    if mode != "front3d":
+    if mode != FRONT3D_MODE:
         for left_index, left in enumerate(placements):
             left_box = placed_box(left)
             for right in placements[left_index + 1 :]:

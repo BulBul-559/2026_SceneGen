@@ -1,12 +1,13 @@
 # SceneGen Config v2 Reference
 
-`config/` 下提供三份一级基础模板：`bistro.yaml`、`front3d.yaml` 和 `procedural_front3d.yaml`。CLI 默认读取 `config/bistro.yaml`；需要合成 3D-FRONT 时使用 `--config config/front3d.yaml`；需要自动生成类 3D-FRONT 场景时使用 `--config config/procedural_front3d.yaml`。
+`config/` 下提供四份一级基础模板：`bistro.yaml`、`front3d.yaml`、`procedural_front3d.yaml` 和 `procedural_front3d_vision.yaml`。CLI 默认读取 `config/bistro.yaml`；需要合成 3D-FRONT 时使用 `--config config/front3d.yaml`；需要自动生成类 3D-FRONT 场景时使用 `--config config/procedural_front3d.yaml`；只需要 floorplan、label 和 maps 视觉监督数据时使用 `--config config/procedural_front3d_vision.yaml`。
 
-这三份一级模板按工作流拆分，只保留该任务真正相关的配置段：
+这些一级模板按工作流拆分，只保留该任务真正相关的配置段：
 
 - `bistro.yaml`: Bistro 空场景 + Bistro asset catalog + Bistro 随机摆放。
 - `front3d.yaml`: 合成已有 3D-FRONT 场景。
 - `procedural_front3d.yaml`: 自动生成类 3D-FRONT 户型，并使用 3D-FUTURE 家具池摆放物体。
+- `procedural_front3d_vision.yaml`: 复用程序化户型和家具摆放，但只输出视觉训练需要的 floorplan、label、maps 和小体积源记录。
 
 没有写在模板里的字段仍会从代码内置 `DEFAULT_CONFIG` 补齐，并最终写入 run 目录的 `effective_config.yaml`。因此一级模板负责“可读的基础入口”，`config/tasks/*.yaml` 负责具体生产任务参数。
 
@@ -17,6 +18,8 @@
 `config/tasks/front3d_full_simulation.yaml` 是专门合成全量 3D-FRONT 场景的生产任务模板，只保留 Front3D 生产真正用到的配置段，不包含 Bistro、generated 或 `procedural_front3d` 的配置。它默认按 `front3d.select: sequential` 顺序合成本地 phase1 manifest 中的 `6813` 个场景，`batch.workers: 24`、`batch.task_timeout_s: 600`，开启 `postprocess.maps.enabled`，label 使用 `[panel, walk]` 两种策略和 `[0.1, 0.2, 0.5]` 三档 UE 间隔。
 
 `config/tasks/procedural_front3d_full_simulation.yaml` 是自动随机生成数据的任务模板，只保留程序化生成真正用到的配置段：3D-FUTURE 家具池来源、`procedural` 户型/摆放规则、label、floorplan、postprocess 和 batch。它不包含 Bistro 配置，也不包含复现已有 Front3D 场景时才需要的 scene selection / precheck 字段。该生产模板默认同样使用 `batch.workers: 24`、`batch.task_timeout_s: 600`，开启 `postprocess.maps.enabled`，BS 数量使用 `area_adaptive` 面积自适应策略。任务模板同样会通过 `DEFAULT_CONFIG` 补齐未写字段，并在 run 目录的 `effective_config.yaml` 里记录最终生效配置。
+
+`config/tasks/procedural_front3d_vision_full_simulation.yaml` 是随机生成视觉训练数据的任务模板。它默认使用 `pipeline.mode: procedural_front3d_vision`、`output.profile: vision_only` 和 `batch.workers: 48`，因此不会写合成 `scene.obj`、`scene.xml`、`assets/` 或 OBJ summary；仍会生成 `procedural_source/`、`placements.json`、label、floorplan/class mask，并在 batch 后处理阶段生成 `maps/geometry.npz` 和 `maps/pair_cache.npz`。
 
 ## 合并规则
 
@@ -42,13 +45,22 @@ uv run scenegen \
 
 | 字段 | 可选值 / 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `mode` | `bistro` / `generated` / `front3d` / `procedural_front3d` | `bistro` | 生成模式。 |
+| `mode` | `bistro` / `generated` / `front3d` / `procedural_front3d` / `procedural_front3d_vision` | `bistro` | 生成模式。 |
 | `scenes` | integer, `>=1` | `10` | 本次生成场景数量。 |
 | `seed` | integer | `20260517` | 主随机种子。 |
 | `output_dir` | path | `results` | run 输出根目录。 |
 | `run_name` | string / `null` | `null` | run 目录名；为 `null` 时使用时间戳。 |
 | `clean` | boolean | `false` | 同名 run 已存在时，是否只清理 `output_dir/run_name` 后重新生成；不会清理整个 `output_dir`。 |
 | `index_start` | integer, `>=0` | `0` | 输出场景编号起点；例如设为 `3000` 时生成 `front3d_3000` 起的目录。 |
+
+## output
+
+| 字段 | 可选值 / 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `profile` | `full` / `vision_only` | `full` | 输出配置档。`procedural_front3d_vision` 会强制归一化为 `vision_only`。 |
+| `write_scene_obj` | boolean | `true` | 是否写合成后的 `scene.obj`。vision-only 会强制为 `false`。 |
+| `write_sionna_assets` | boolean | `true` | 是否写 `scene.xml` 和 `assets/` Sionna 部件。vision-only 会强制为 `false`。 |
+| `write_obj_summary` | boolean | `true` | batch/单进程最终 summary 是否复制 OBJ。vision-only 会强制为 `false`。 |
 
 ## assets
 
@@ -373,7 +385,7 @@ procedural:
 
 ## batch
 
-`batch` 只由 `scenegen-batch` 使用；普通 `scenegen` 单进程入口不会读取这部分。`scenegen-batch` 会优先使用 YAML 中的 `batch.*`，如果命令行显式传入 `--workers`、`--scheduler` 或 `--max-retries`，则命令行覆盖 YAML。`task_timeout_s` 默认 `null`，表示不限制单个子任务时长；设置为正数后，超时任务会先收到 SIGTERM，宽限期后仍未退出才 SIGKILL，并在 batch traceback JSON 中记录 `timeout_s`。`config/tasks/front3d_full_simulation.yaml` 和 `config/tasks/procedural_front3d_full_simulation.yaml` 生产模板默认设置为 `workers: 24`、`task_timeout_s: 600`。
+`batch` 只由 `scenegen-batch` 使用；普通 `scenegen` 单进程入口不会读取这部分。`scenegen-batch` 会优先使用 YAML 中的 `batch.*`，如果命令行显式传入 `--workers`、`--scheduler` 或 `--max-retries`，则命令行覆盖 YAML。`task_timeout_s` 默认 `null`，表示不限制单个子任务时长；设置为正数后，超时任务会先收到 SIGTERM，宽限期后仍未退出才 SIGKILL，并在 batch traceback JSON 中记录 `timeout_s`。`config/tasks/front3d_full_simulation.yaml` 和 `config/tasks/procedural_front3d_full_simulation.yaml` 默认 `workers: 24`；`config/tasks/procedural_front3d_vision_full_simulation.yaml` 默认 `workers: 48`；三者默认 `task_timeout_s: 600`。
 
 | 字段 | 可选值 / 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
@@ -507,7 +519,7 @@ procedural:
 
 ### floorplan.class_mask
 
-仅 `front3d` / `procedural_front3d` 支持。开口判定使用共享的 `front3d.openings`。
+仅 `front3d` / `procedural_front3d` / `procedural_front3d_vision` 支持。开口判定使用共享的 `front3d.openings`。
 
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
@@ -610,7 +622,16 @@ uv run scenegen-batch \
   --set pipeline.run_name=procedural_front3d_batch_sample
 ```
 
-`scenegen-batch` 是生产管理入口。它会复用同一份配置和 `--set` 语法，目前支持 `front3d` 和 `procedural_front3d`，并在 run 目录写出 `batch/scene_plan.jsonl`、`batch/state.json`、worker 日志、失败队列、重试队列和 `manifest_batch.json`。默认 worker、调度策略和重试次数来自 YAML 的 `batch.*`；命令行 `--workers` / `--scheduler` / `--max-retries` 仍可临时覆盖。batch child 会跳过自己的 `summary/` 汇总复制，最终由 batch 顶层统一生成 summary；成功 scene 会从 `batch/worker_runs` move 到 run 根目录，worker 子目录只保留日志、配置和失败场景调试材料。
+使用 vision-only 程序化任务模板跑 60 个场景：
+
+```bash
+uv run scenegen-batch \
+  --config config/tasks/procedural_front3d_vision_full_simulation.yaml \
+  --set pipeline.scenes=60 \
+  --set pipeline.run_name=procedural_front3d_vision_test_60
+```
+
+`scenegen-batch` 是生产管理入口。它会复用同一份配置和 `--set` 语法，目前支持 `front3d`、`procedural_front3d` 和 `procedural_front3d_vision`，并在 run 目录写出 `batch/scene_plan.jsonl`、`batch/state.json`、worker 日志、失败队列、重试队列和 `manifest_batch.json`。默认 worker、调度策略和重试次数来自 YAML 的 `batch.*`；命令行 `--workers` / `--scheduler` / `--max-retries` 仍可临时覆盖。batch child 会跳过自己的 `summary/` 汇总复制，最终由 batch 顶层统一生成 summary；成功 scene 会从 `batch/worker_runs` move 到 run 根目录，worker 子目录只保留日志、配置和失败场景调试材料。
 
 单进程和 batch 结束后都会在 run 根目录写出 `visual_index.html`，把每个 scene 的主 `floorplan_*.png`、`class_mask_preview.png` 和 `label_floorplan/*.png` 聚合成一个可打开的检查页。该文件由已有产物生成，不是新的配置项。
 
