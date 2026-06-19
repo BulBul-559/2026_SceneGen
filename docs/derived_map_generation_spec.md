@@ -468,7 +468,7 @@ uv run python scripts/generate_derived_maps.py <run_dir> \
 
 如果某些历史数据命名不同，也可以依赖默认的“第一个 label JSON”行为，或用 `--bs-label-glob` 指定其他匹配规则。最终 `maps/metadata.json` 会记录 `parameters.bs_label_filter`，用于追溯 BS 来源。
 
-现在也可以通过 `scenegen-batch` 的 `postprocess` 配置在主生产流程末尾自动执行：
+现在也可以通过顶层 `maps` 配置在主 scene 生成流程中自动执行；`scenegen-batch` 收尾阶段会用同一配置做补漏/跳过检查：
 
 ```bash
 uv run scenegen-batch \
@@ -476,10 +476,10 @@ uv run scenegen-batch \
   --workers 8 \
   --set pipeline.scenes=2000 \
   --set pipeline.run_name=front3d_production_2000 \
-  --set postprocess.maps.enabled=true \
+  --set maps.enabled=true \
   --set postprocess.dataset.enabled=true \
-  --set postprocess.maps.bs_label.mode=name \
-  --set postprocess.maps.bs_label.name=label_panel_0p1
+  --set maps.bs_label.mode=name \
+  --set maps.bs_label.name=label_panel_0p1
 ```
 
 这个入口会在 run 目录写出 `batch/postprocess_state.json`、`batch/postprocess_events.jsonl`、`batch/postprocess_failures.jsonl` 和 `batch/postprocess_report.json`；独立脚本仍保留，适合离线修复和调试。
@@ -758,11 +758,11 @@ bs_snap_distance_m:  float32, [N]
 bs_snapped:          uint8, [N]
 ```
 
-`pair_cache.npz` 默认按 scene 生成至少 `postprocess.maps.pair_cache.target_pairs_per_scene` 个 BS-UE pair。采样先按 BS 分配目标数量，再从 label UE 或 free-like mask UE 候选中 ray-test，并按 wall-count bucket `0/1/2/3+` 均衡抽样。BS 点如果轻微落到墙边，会在 `snap_radius_m` 范围内吸附到最近 free-like 像素，并在 pair 级记录 snap 信息。
+`pair_cache.npz` 默认按 scene 生成至少 `maps.pair_cache.target_pairs_per_scene` 个 BS-UE pair。采样先按 BS 分配目标数量，再从 label UE 或 free-like mask UE 候选中 ray-test，并按 wall-count bucket `0/1/2/3+` 均衡抽样。BS 点如果轻微落到墙边，会在 `snap_radius_m` 范围内吸附到最近 free-like 像素，并在 pair 级记录 snap 信息。
 
 ### 9.3 Propagation NPZ
 
-VisionEncoder 预训练默认使用 `pair_cache.npz`，不再要求离线存储 dense `propagation.npz`。旧版 `propagation.npz` 仍可通过 `postprocess.maps.write_propagation=true` 额外生成，schema 如下。
+VisionEncoder 预训练默认使用 `pair_cache.npz`，不再要求离线存储 dense `propagation.npz`。旧版 `propagation.npz` 仍可通过 `maps.write_propagation=true` 额外生成，schema 如下。
 
 ```text
 bs_coords_px:       float32, [K, 2]

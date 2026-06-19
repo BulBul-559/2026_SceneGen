@@ -78,7 +78,7 @@ uv run scenegen-batch \
 - 共享机器或后台负载高时：`--workers 16 --scheduler hybrid`。
 - 快速试跑和 QA：`--workers 8 --scheduler hybrid`，配合 30-90 scenes 检查 visual index、失败率和 report。
 
-如果后续打开 `postprocess.maps` / dataset 构建，或切换到 `floorplan.geometry.projection: ray_height_filtered`，需要重新做 sweep；这些阶段会改变 CPU/I/O 比例。
+如果后续打开 `maps` / dataset 构建，或切换到 `floorplan.geometry.projection: ray_height_filtered`，需要重新做 sweep；这些阶段会改变 CPU/I/O 比例。
 
 按 90-scene 32-worker 结果估算，在当前模板和机器状态下：
 

@@ -32,15 +32,19 @@ procedural:
     polygon_shell: 0.8
     corridor_spine: 0.8
     grid: 0.2
-  room_count: [3, 6]
+  room_count: [1, 20]
+  room_count_ranges:
+    - range: [1, 2]
+      weight: 0.15
+    - range: [3, 7]
+      weight: 0.70
+    - range: [10, 20]
+      weight: 0.15
   room_width_m: [3.2, 5.8]
   room_length_m: [3.2, 6.4]
   room_height_m: [2.8, 3.4]
   room_types: [LivingRoom, Bedroom, DiningRoom, StudyRoom, Kitchen, Bathroom, Hallway]
-  required_room_types:
-    LivingRoom: 1
-    Bedroom: 1
-    Kitchen: 1
+  required_room_types: null
   room_type_assignment: geometry_fit
   room_type_area_priority: [LivingRoom, DiningRoom, Bedroom, Kitchen, StudyRoom, Bathroom, Hallway]
   room_type_max_counts:
@@ -50,7 +54,7 @@ procedural:
     StudyRoom: 2
     Kitchen: 1
     Bathroom: 2
-    Hallway: 2
+    Hallway: null
   room_type_weights:
     LivingRoom: 2.0
     Bedroom: 2.0
@@ -435,25 +439,25 @@ floorplan:
     max_points: 4000000
   preview:
     tile_size_px: 360
-postprocess:
-  maps:
+maps:
+  enabled: true
+  workers: null
+  scene_glob: procedural_front3d_vision_*
+  overwrite: false
+  r_max_m: 3.0
+  los_stride_px: 4
+  snap_radius_m: 0.25
+  write_propagation: false
+  bs_label:
+    mode: name
+    name: label_panel_0p5
+    glob: null
+  pair_cache:
     enabled: true
-    workers: null
-    scene_glob: procedural_front3d_vision_*
-    overwrite: false
-    r_max_m: 3.0
-    los_stride_px: 4
-    snap_radius_m: 0.25
-    write_propagation: false
-    bs_label:
-      mode: name
-      name: label_panel_0p5
-      glob: null
-    pair_cache:
-      enabled: true
-      target_pairs_per_scene: 4096
-      ue_candidates_per_bs: null
-      seed: 0
+    target_pairs_per_scene: 4096
+    ue_candidates_per_bs: null
+    seed: 0
+postprocess:
   dataset:
     enabled: false
     output_dir: datasets

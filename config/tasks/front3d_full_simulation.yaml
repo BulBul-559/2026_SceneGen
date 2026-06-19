@@ -108,25 +108,25 @@ floorplan:
     max_points: 4000000
   preview:
     tile_size_px: 360
-postprocess:
-  maps:
+maps:
+  enabled: true
+  workers: null
+  scene_glob: front3d_*
+  overwrite: false
+  r_max_m: 3.0
+  los_stride_px: 4
+  snap_radius_m: 0.25
+  write_propagation: false
+  bs_label:
+    mode: name
+    name: label_panel_0p1
+    glob: null
+  pair_cache:
     enabled: true
-    workers: null
-    scene_glob: front3d_*
-    overwrite: false
-    r_max_m: 3.0
-    los_stride_px: 4
-    snap_radius_m: 0.25
-    write_propagation: false
-    bs_label:
-      mode: name
-      name: label_panel_0p1
-      glob: null
-    pair_cache:
-      enabled: true
-      target_pairs_per_scene: 4096
-      ue_candidates_per_bs: null
-      seed: 0
+    target_pairs_per_scene: 4096
+    ue_candidates_per_bs: null
+    seed: 0
+postprocess:
   dataset:
     enabled: false
     output_dir: datasets

@@ -213,7 +213,7 @@ uv run scenegen-batch --config config/tasks/procedural_front3d_vision_full_simul
 uv run scenegen --config config/tasks/front3d_full_simulation.yaml --set pipeline.scenes=1 --set pipeline.run_name=front3d_full_sample
 ```
 
-该模板是专门合成 Front3D 全量场景的生产模板，只保留 Front3D 生产相关配置段，不包含 Bistro 和程序化随机生成配置。它默认按 `front3d.select: sequential` 顺序合成 `6813` 个场景，`batch.workers: 24`，`batch.task_timeout_s: 600`，并打开 label、geometry sampling floorplan、class mask、mesh furniture mask 和 postprocess maps。`label.ue.sampling.strategies` 默认包含 `[panel, walk]`，`label.ue.sampling.grid_m` 默认包含 `[0.1, 0.2, 0.5]`。label 可行域 mask 默认以 `label.ue.sampling.mask_resolution_m: 0.05` 构建，不同 UE 间隔只在这张高精度 mask 上抽样。
+该模板是专门合成 Front3D 全量场景的生产模板，只保留 Front3D 生产相关配置段，不包含 Bistro 和程序化随机生成配置。它默认按 `front3d.select: sequential` 顺序合成 `6813` 个场景，`batch.workers: 24`，`batch.task_timeout_s: 600`，并打开 label、geometry sampling floorplan、class mask、mesh furniture mask 和 maps。`label.ue.sampling.strategies` 默认包含 `[panel, walk]`，`label.ue.sampling.grid_m` 默认包含 `[0.1, 0.2, 0.5]`。label 可行域 mask 默认以 `label.ue.sampling.mask_resolution_m: 0.05` 构建，不同 UE 间隔只在这张高精度 mask 上抽样。
 
 自动场景生成的大规模生产模板：
 
@@ -221,22 +221,22 @@ uv run scenegen --config config/tasks/front3d_full_simulation.yaml --set pipelin
 uv run scenegen --config config/tasks/procedural_front3d_full_simulation.yaml --set pipeline.scenes=1 --set pipeline.run_name=procedural_front3d_full_sample
 ```
 
-该模板定位为随机生成数据的任务级配置，只保留 3D-FUTURE 家具池来源、`procedural` 户型/摆放规则、label、floorplan、postprocess 和 batch 等生成链路相关字段；Bistro 字段和复现已有 Front3D 场景的 scene selection/precheck 字段不会出现在这个模板中。它默认使用 `batch.workers: 24`、`batch.task_timeout_s: 600`，默认开启 postprocess maps，BS 数量策略和 Front3D 全量模板一致，使用 `label.bs.count.strategy: area_adaptive` 按房间面积自适应生成。
+该模板定位为随机生成数据的任务级配置，只保留 3D-FUTURE 家具池来源、`procedural` 户型/摆放规则、label、floorplan、maps 和 batch 等生成链路相关字段；Bistro 字段和复现已有 Front3D 场景的 scene selection/precheck 字段不会出现在这个模板中。它默认使用 `batch.workers: 24`、`batch.task_timeout_s: 600`，默认开启 `maps.enabled`，BS 数量策略和 Front3D 全量模板一致，使用 `label.bs.count.strategy: area_adaptive` 按房间面积自适应生成。
 
-只需要视觉监督数据时使用 `config/tasks/procedural_front3d_vision_full_simulation.yaml`。它复用程序化户型、家具摆放、precheck、quality、label、floorplan 和 postprocess maps，并在模板中显式固定当前生产用 `procedural` 户型与摆放参数；`output.profile: vision_only` 会强制关闭 `scene.obj`、`scene.xml`、`assets/` 和 OBJ summary；默认 `batch.workers: 48`；每个 scene 只生成 `label_panel_0p5`，maps 默认也以它作为 BS 来源；仍保留小体积的 `procedural_source/` 与 `placements.json` 作为可追溯源记录。
+只需要视觉监督数据时使用 `config/tasks/procedural_front3d_vision_full_simulation.yaml`。它复用程序化户型、家具摆放、precheck、quality、label、floorplan 和 maps，并在模板中显式固定当前生产用 `procedural` 户型与摆放参数；`output.profile: vision_only` 会强制关闭 `scene.obj`、`scene.xml`、`assets/` 和 OBJ summary；默认 `batch.workers: 48`；每个 scene 只生成 `label_panel_0p5`，maps 默认也以它作为 BS 来源；仍保留小体积的 `procedural_source/` 与 `placements.json` 作为可追溯源记录。该模板默认使用 `procedural.room_count_ranges` 按 15% / 70% / 15% 采样 1-2、3-7、10-20 间房，并将 `required_room_types` 置空以允许小房间样本。
 
-三个 full 生产模板默认会在 batch 末尾同步生成 `geometry.npz` 和 BS-UE `pair_cache.npz`。如果还要整理 compact vision dataset，只需额外开启 dataset：
+三个 full 生产模板默认会在每个 scene 的标准生成流程内同步生成 `geometry.npz` 和 BS-UE `pair_cache.npz`；batch 收尾阶段会按顶层 `maps` 配置做补漏/跳过检查。如果还要整理 compact vision dataset，只需额外开启 dataset：
 
 ```bash
 uv run scenegen-batch \
   --config config/tasks/front3d_full_simulation.yaml \
   --set pipeline.run_name=front3d_full_6813_maps \
   --set postprocess.dataset.enabled=true \
-  --set postprocess.maps.bs_label.mode=name \
-  --set postprocess.maps.bs_label.name=label_panel_0p1
+  --set maps.bs_label.mode=name \
+  --set maps.bs_label.name=label_panel_0p1
 ```
 
-`postprocess` 只在 `scenegen-batch` 中执行；普通 `scenegen` 单场景入口不会触发。基础配置默认关闭，full 生产任务模板会覆盖为 `postprocess.maps.enabled: true`。
+`maps` 是标准 scene 生成阶段，普通 `scenegen` 单场景入口和 `scenegen-batch` worker 都会执行；基础配置默认关闭，full 生产任务模板会覆盖为 `maps.enabled: true`。`postprocess` 现在只保留 batch 收尾的 dataset 构建和 maps 补漏/跳过检查。
 
 ## 自动场景生成
 
@@ -319,11 +319,11 @@ batch/
   worker_runs/
 ```
 
-开启 `postprocess.maps.enabled` 后，每个成功 scene 会额外得到 `maps/geometry.npz`、`maps/pair_cache.npz` 和 `maps/metadata.json`。`pair_cache.npz` 按 scene 缓存 bucket-balanced BS-UE pair 标签，包含像素/米制坐标、LoS、截断/原始穿墙段数、距离和 BS snap 信息；旧版 dense `maps/propagation.npz` 默认不再写出，可用 `postprocess.maps.write_propagation=true` 显式保留。开启 `postprocess.dataset.enabled` 后，默认会在 `datasets/<run_name>_vision/` 下构建 compact vision dataset，只保留训练需要的 floorplan、mask、geometry、pair cache、BS label 和 metadata。
+开启 `maps.enabled` 后，每个成功 scene 会额外得到 `maps/geometry.npz`、`maps/pair_cache.npz` 和 `maps/metadata.json`。`pair_cache.npz` 按 scene 缓存 bucket-balanced BS-UE pair 标签，包含像素/米制坐标、LoS、截断/原始穿墙段数、距离和 BS snap 信息；旧版 dense `maps/propagation.npz` 默认不再写出，可用 `maps.write_propagation=true` 显式保留。开启 `postprocess.dataset.enabled` 后，默认会在 `datasets/<run_name>_vision/` 下构建 compact vision dataset，只保留训练需要的 floorplan、mask、geometry、pair cache、BS label 和 metadata。
 
 `manifest_batch.json`、`manifest.json` 和 `manifest_<mode>.json` 会在 batch 完成后统一汇总最终发布到 run 根目录的标准场景目录，例如 `front3d_0000/`、`procedural_front3d_0000/` 或 `procedural_front3d_vision_0000/`。
 
-`scenegen-batch` 默认读取 YAML 的 `batch.workers`、`batch.scheduler` 和 `batch.max_retries`；命令行 `--workers`、`--scheduler`、`--max-retries` 仍可临时覆盖。Front3D 和 procedural full 任务模板默认使用 24 worker；procedural vision full 模板默认使用 48 worker；三者都使用 hybrid 调度并开启 postprocess maps。`hybrid` 会先按固定分片运行，只有当某个 worker 自己队列清空且其他队列仍有待处理任务时，才从剩余任务最多的队列偷取尾部任务；`static` 严格保持固定分片；`dynamic` 使用共享任务队列。batch 子进程会跳过自己的 `summary/` 汇总复制，最终只由 batch 顶层统一生成 summary；成功 scene 会从 `batch/worker_runs` 直接 move 到 run 根目录，`batch/worker_runs` 主要保留 worker 子 run 的日志、配置和失败场景调试信息，不再保存成功场景的完整重复副本。
+`scenegen-batch` 默认读取 YAML 的 `batch.workers`、`batch.scheduler` 和 `batch.max_retries`；命令行 `--workers`、`--scheduler`、`--max-retries` 仍可临时覆盖。Front3D 和 procedural full 任务模板默认使用 24 worker；procedural vision full 模板默认使用 48 worker；三者都使用 hybrid 调度并开启 maps。`hybrid` 会先按固定分片运行，只有当某个 worker 自己队列清空且其他队列仍有待处理任务时，才从剩余任务最多的队列偷取尾部任务；`static` 严格保持固定分片；`dynamic` 使用共享任务队列。batch 子进程会跳过自己的 `summary/` 汇总复制，最终只由 batch 顶层统一生成 summary；成功 scene 会从 `batch/worker_runs` 直接 move 到 run 根目录，`batch/worker_runs` 主要保留 worker 子 run 的日志、配置和失败场景调试信息，不再保存成功场景的完整重复副本。
 
 ## 输出结构
 

@@ -13,6 +13,29 @@ from .modes import FRONT3D_LIKE_MODES, PROCEDURAL_FRONT3D_VISION_MODE, SUPPORTED
 
 LABEL_VERSION = "1.1"
 
+DEFAULT_MAPS_CONFIG: dict[str, Any] = {
+    "enabled": False,
+    "fail_on_error": True,
+    "workers": None,
+    "scene_glob": "front3d_*",
+    "overwrite": False,
+    "r_max_m": 3.0,
+    "los_stride_px": 4,
+    "snap_radius_m": 0.25,
+    "write_propagation": False,
+    "bs_label": {
+        "mode": "first",
+        "name": None,
+        "glob": None,
+    },
+    "pair_cache": {
+        "enabled": True,
+        "target_pairs_per_scene": 4096,
+        "ue_candidates_per_bs": None,
+        "seed": 0,
+    },
+}
+
 DEFAULT_CONFIG: dict[str, Any] = {
     "pipeline": {
         "mode": "bistro",
@@ -91,6 +114,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "grid": 0.2,
         },
         "room_count": [3, 6],
+        "room_count_ranges": [],
         "room_width_m": [3.2, 5.8],
         "room_length_m": [3.2, 6.4],
         "room_height_m": [2.8, 3.4],
@@ -424,28 +448,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "tile_size_px": 360,
         },
     },
+    "maps": deepcopy(DEFAULT_MAPS_CONFIG),
     "postprocess": {
-        "maps": {
-            "enabled": False,
-            "workers": None,
-            "scene_glob": "front3d_*",
-            "overwrite": False,
-            "r_max_m": 3.0,
-            "los_stride_px": 4,
-            "snap_radius_m": 0.25,
-            "write_propagation": False,
-            "bs_label": {
-                "mode": "first",
-                "name": None,
-                "glob": None,
-            },
-            "pair_cache": {
-                "enabled": True,
-                "target_pairs_per_scene": 4096,
-                "ue_candidates_per_bs": None,
-                "seed": 0,
-            },
-        },
+        "maps": deepcopy(DEFAULT_MAPS_CONFIG),
         "dataset": {
             "enabled": False,
             "output_dir": "datasets",
@@ -659,6 +664,65 @@ def parse_float_pair(value: Any, key: str) -> list[float]:
     if len(parts) != 2:
         raise ValueError(f"{key} must contain exactly two values")
     return [float(parts[0]), float(parts[1])]
+
+
+def normalize_room_count_ranges(value: Any, key: str = "procedural.room_count_ranges") -> list[dict[str, Any]]:
+    if value is None:
+        return []
+    if not isinstance(value, list | tuple):
+        raise ValueError(f"{key} must be a list of weighted ranges")
+    ranges: list[dict[str, Any]] = []
+    for index, item in enumerate(value):
+        item_key = f"{key}[{index}]"
+        if isinstance(item, dict):
+            raw_range = item.get("range", item.get("room_count"))
+            raw_weight = item.get("weight", 1.0)
+        elif isinstance(item, list | tuple):
+            if len(item) not in {2, 3}:
+                raise ValueError(f"{item_key} must be [min, max] or [min, max, weight]")
+            raw_range = [item[0], item[1]]
+            raw_weight = item[2] if len(item) == 3 else 1.0
+        else:
+            raise ValueError(f"{item_key} must be a mapping or sequence")
+        room_range = parse_int_pair(raw_range, f"{item_key}.range")
+        weight = float(raw_weight)
+        ranges.append({"range": room_range, "weight": weight})
+    return ranges
+
+
+def procedural_room_count_bounds(procedural: dict[str, Any]) -> tuple[int, int]:
+    ranges = procedural.get("room_count_ranges") or []
+    if not ranges:
+        room_count = procedural["room_count"]
+        return int(room_count[0]), int(room_count[1])
+    min_count = min(int(item["range"][0]) for item in ranges)
+    max_count = max(int(item["range"][1]) for item in ranges)
+    return min_count, max_count
+
+
+def normalize_maps_config(maps: dict[str, Any], key: str = "maps") -> dict[str, Any]:
+    maps["enabled"] = as_bool(maps["enabled"], f"{key}.enabled")
+    maps["fail_on_error"] = as_bool(maps["fail_on_error"], f"{key}.fail_on_error")
+    maps["workers"] = normalize_optional_int(maps["workers"], f"{key}.workers")
+    maps["scene_glob"] = str(maps["scene_glob"])
+    maps["overwrite"] = as_bool(maps["overwrite"], f"{key}.overwrite")
+    maps["r_max_m"] = float(maps["r_max_m"])
+    maps["los_stride_px"] = int(maps["los_stride_px"])
+    maps["snap_radius_m"] = float(maps["snap_radius_m"])
+    maps["write_propagation"] = as_bool(maps["write_propagation"], f"{key}.write_propagation")
+    bs_label = maps["bs_label"]
+    bs_label["mode"] = str(bs_label["mode"])
+    bs_label["name"] = normalize_optional_string(bs_label["name"], f"{key}.bs_label.name")
+    bs_label["glob"] = normalize_optional_string(bs_label["glob"], f"{key}.bs_label.glob")
+    pair_cache = maps["pair_cache"]
+    pair_cache["enabled"] = as_bool(pair_cache["enabled"], f"{key}.pair_cache.enabled")
+    pair_cache["target_pairs_per_scene"] = int(pair_cache["target_pairs_per_scene"])
+    pair_cache["ue_candidates_per_bs"] = normalize_optional_int(
+        pair_cache["ue_candidates_per_bs"],
+        f"{key}.pair_cache.ue_candidates_per_bs",
+    )
+    pair_cache["seed"] = int(pair_cache["seed"])
+    return maps
 
 
 def normalize_room_profiles(value: Any, key: str = "procedural.room_profiles") -> dict[str, dict[str, Any]]:
@@ -1094,6 +1158,7 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     procedural["layout"] = str(procedural["layout"])
     procedural["layout_weights"] = normalize_layout_weights(procedural.get("layout_weights"))
     procedural["room_count"] = parse_int_pair(procedural["room_count"], "procedural.room_count")
+    procedural["room_count_ranges"] = normalize_room_count_ranges(procedural.get("room_count_ranges"))
     procedural["room_width_m"] = parse_float_pair(procedural["room_width_m"], "procedural.room_width_m")
     procedural["room_length_m"] = parse_float_pair(procedural["room_length_m"], "procedural.room_length_m")
     procedural["room_height_m"] = parse_float_pair(procedural["room_height_m"], "procedural.room_height_m")
@@ -1279,28 +1344,14 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     sampling["max_points"] = int(sampling["max_points"])
     floorplan["preview"]["tile_size_px"] = int(floorplan["preview"]["tile_size_px"])
 
+    maps = normalized["maps"]
     postprocess = normalized["postprocess"]
-    maps = postprocess["maps"]
-    maps["enabled"] = as_bool(maps["enabled"], "postprocess.maps.enabled")
-    maps["workers"] = normalize_optional_int(maps["workers"], "postprocess.maps.workers")
-    maps["scene_glob"] = str(maps["scene_glob"])
-    maps["overwrite"] = as_bool(maps["overwrite"], "postprocess.maps.overwrite")
-    maps["r_max_m"] = float(maps["r_max_m"])
-    maps["los_stride_px"] = int(maps["los_stride_px"])
-    maps["snap_radius_m"] = float(maps["snap_radius_m"])
-    maps["write_propagation"] = as_bool(maps["write_propagation"], "postprocess.maps.write_propagation")
-    bs_label = maps["bs_label"]
-    bs_label["mode"] = str(bs_label["mode"])
-    bs_label["name"] = normalize_optional_string(bs_label["name"], "postprocess.maps.bs_label.name")
-    bs_label["glob"] = normalize_optional_string(bs_label["glob"], "postprocess.maps.bs_label.glob")
-    pair_cache = maps["pair_cache"]
-    pair_cache["enabled"] = as_bool(pair_cache["enabled"], "postprocess.maps.pair_cache.enabled")
-    pair_cache["target_pairs_per_scene"] = int(pair_cache["target_pairs_per_scene"])
-    pair_cache["ue_candidates_per_bs"] = normalize_optional_int(
-        pair_cache["ue_candidates_per_bs"],
-        "postprocess.maps.pair_cache.ue_candidates_per_bs",
-    )
-    pair_cache["seed"] = int(pair_cache["seed"])
+    legacy_maps = postprocess["maps"]
+    if bool(legacy_maps.get("enabled")) and not bool(maps.get("enabled")):
+        maps = deep_merge(deepcopy(DEFAULT_MAPS_CONFIG), legacy_maps)
+        normalized["maps"] = maps
+    normalize_maps_config(maps, "maps")
+    normalize_maps_config(legacy_maps, "postprocess.maps")
 
     dataset = postprocess["dataset"]
     dataset["enabled"] = as_bool(dataset["enabled"], "postprocess.dataset.enabled")
@@ -1376,6 +1427,13 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("procedural.layout_weights must assign a positive weight when procedural.layout is 'mixed'")
     if procedural["room_count"][0] < 1 or procedural["room_count"][1] < procedural["room_count"][0]:
         raise ValueError("procedural.room_count must be [min, max] with max >= min >= 1")
+    for index, weighted_range in enumerate(procedural["room_count_ranges"]):
+        range_min, range_max = weighted_range["range"]
+        if range_min < 1 or range_max < range_min:
+            raise ValueError(f"procedural.room_count_ranges[{index}].range must be [min, max] with max >= min >= 1")
+        if float(weighted_range["weight"]) <= 0.0:
+            raise ValueError(f"procedural.room_count_ranges[{index}].weight must be positive")
+    _room_count_min, room_count_max = procedural_room_count_bounds(procedural)
     for key in ("room_width_m", "room_length_m", "room_height_m"):
         values = procedural[key]
         if values[0] <= 0 or values[1] < values[0]:
@@ -1401,11 +1459,16 @@ def validate_effective_config(config: dict[str, Any]) -> None:
             has_unlimited_capacity = True
             break
         finite_capacity += int(max_count)
-    if not has_unlimited_capacity and finite_capacity < int(procedural["room_count"][1]):
+    if not has_unlimited_capacity and finite_capacity < room_count_max:
         raise ValueError("procedural.room_type_max_counts capacity must cover procedural.room_count max")
     required_total = sum(int(count) for count in procedural["required_room_types"].values())
-    if required_total > int(procedural["room_count"][1]):
+    if required_total > room_count_max:
         raise ValueError("procedural.required_room_types count must not exceed procedural.room_count max")
+    for index, weighted_range in enumerate(procedural["room_count_ranges"]):
+        if required_total > int(weighted_range["range"][1]):
+            raise ValueError(
+                "procedural.required_room_types count must not exceed every procedural.room_count_ranges max"
+            )
     corridor_spine_enabled = procedural["layout"] == "corridor_spine" or (
         procedural["layout"] == "mixed" and float(procedural["layout_weights"].get("corridor_spine", 0.0)) > 0.0
     )
@@ -1418,10 +1481,15 @@ def validate_effective_config(config: dict[str, Any]) -> None:
             raise ValueError(
                 "procedural.room_type_max_counts.Hallway is too small for corridor_spine required room types"
             )
-        if int(procedural["room_count"][1]) < min_corridor_rooms:
+        if room_count_max < min_corridor_rooms:
             raise ValueError(
                 "procedural.room_count max is too small for corridor_spine required room types and hallway spine"
             )
+        for index, weighted_range in enumerate(procedural["room_count_ranges"]):
+            if int(weighted_range["range"][1]) < min_corridor_rooms:
+                raise ValueError(
+                    "procedural.room_count_ranges max is too small for corridor_spine required room types and hallway spine"
+                )
     if procedural["room_type_weights"] and not any(
         float(procedural["room_type_weights"].get(room_type, 0.0)) > 0.0 for room_type in procedural["room_types"]
     ):
@@ -1702,31 +1770,38 @@ def validate_effective_config(config: dict[str, Any]) -> None:
     if floorplan["preview"]["tile_size_px"] < 1:
         raise ValueError("floorplan.preview.tile_size_px must be positive")
 
-    postprocess = config["postprocess"]
-    maps = postprocess["maps"]
+    maps = config["maps"]
     if maps["workers"] is not None and maps["workers"] < 1:
-        raise ValueError("postprocess.maps.workers must be null or at least 1")
+        raise ValueError("maps.workers must be null or at least 1")
     if not maps["scene_glob"].strip():
-        raise ValueError("postprocess.maps.scene_glob must not be empty")
+        raise ValueError("maps.scene_glob must not be empty")
     if maps["r_max_m"] <= 0:
-        raise ValueError("postprocess.maps.r_max_m must be positive")
+        raise ValueError("maps.r_max_m must be positive")
     if maps["los_stride_px"] < 1:
-        raise ValueError("postprocess.maps.los_stride_px must be at least 1")
+        raise ValueError("maps.los_stride_px must be at least 1")
     if maps["snap_radius_m"] < 0:
-        raise ValueError("postprocess.maps.snap_radius_m must be non-negative")
+        raise ValueError("maps.snap_radius_m must be non-negative")
     pair_cache = maps["pair_cache"]
     if pair_cache["target_pairs_per_scene"] < 1:
-        raise ValueError("postprocess.maps.pair_cache.target_pairs_per_scene must be at least 1")
+        raise ValueError("maps.pair_cache.target_pairs_per_scene must be at least 1")
     if pair_cache["ue_candidates_per_bs"] is not None and pair_cache["ue_candidates_per_bs"] < 1:
-        raise ValueError("postprocess.maps.pair_cache.ue_candidates_per_bs must be null or at least 1")
+        raise ValueError("maps.pair_cache.ue_candidates_per_bs must be null or at least 1")
     bs_label = maps["bs_label"]
     if bs_label["mode"] not in {"first", "name", "glob"}:
-        raise ValueError("postprocess.maps.bs_label.mode must be 'first', 'name', or 'glob'")
+        raise ValueError("maps.bs_label.mode must be 'first', 'name', or 'glob'")
     if bs_label["mode"] == "name" and not bs_label["name"]:
-        raise ValueError("postprocess.maps.bs_label.name must be set when mode is 'name'")
+        raise ValueError("maps.bs_label.name must be set when mode is 'name'")
     if bs_label["mode"] == "glob" and not bs_label["glob"]:
-        raise ValueError("postprocess.maps.bs_label.glob must be set when mode is 'glob'")
+        raise ValueError("maps.bs_label.glob must be set when mode is 'glob'")
+    if maps["enabled"]:
+        if mode not in FRONT3D_LIKE_MODES:
+            raise ValueError("maps.enabled currently supports only front3d/procedural_front3d/procedural_front3d_vision mode")
+        if not label["enabled"]:
+            raise ValueError("maps.enabled requires label.enabled=true")
+        if not floorplan["enabled"] or not class_mask["enabled"]:
+            raise ValueError("maps.enabled requires floorplan.enabled=true and floorplan.class_mask.enabled=true")
 
+    postprocess = config["postprocess"]
     dataset = postprocess["dataset"]
     if not dataset["scene_glob"].strip():
         raise ValueError("postprocess.dataset.scene_glob must not be empty")
@@ -1830,6 +1905,7 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         procedural_layout=procedural["layout"],
         procedural_layout_weights=procedural["layout_weights"],
         procedural_room_count=procedural["room_count"],
+        procedural_room_count_ranges=procedural["room_count_ranges"],
         procedural_room_width_m=procedural["room_width_m"],
         procedural_room_length_m=procedural["room_length_m"],
         procedural_room_height_m=procedural["room_height_m"],

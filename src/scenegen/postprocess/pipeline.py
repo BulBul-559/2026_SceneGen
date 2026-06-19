@@ -127,7 +127,10 @@ def run_batch_postprocess(
     batch_workers: int,
 ) -> dict[str, Any]:
     config = effective_config.get("postprocess") or {}
-    maps_config = config.get("maps") or {}
+    maps_config = effective_config.get("maps") or {}
+    legacy_maps_config = config.get("maps") or {}
+    if bool(legacy_maps_config.get("enabled")) and not bool(maps_config.get("enabled")):
+        maps_config = legacy_maps_config
     dataset_config = config.get("dataset") or {}
     maps_enabled = bool(maps_config.get("enabled"))
     dataset_enabled = bool(dataset_config.get("enabled"))

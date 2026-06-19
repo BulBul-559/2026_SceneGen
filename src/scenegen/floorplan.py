@@ -130,6 +130,7 @@ def generate_floorplan_for_scene(
     forbidden_xy_rects: tuple[Rect2D, ...] = (),
     front3d_base_scene: Front3DBaseScene | None = None,
     scene_mesh_arrays: SceneMeshArrays | None = None,
+    runtime_artifacts: dict[str, Any] | None = None,
 ) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
     path_root = scene_obj.parent
@@ -210,6 +211,7 @@ def generate_floorplan_for_scene(
             include_doors_as_wall=config.openings.include_doors_as_wall,
             include_windows_as_wall=config.openings.include_windows_as_wall,
             path_root=path_root,
+            runtime_artifacts=runtime_artifacts,
         )
         timings_s["class_mask"] = round(time.perf_counter() - start, 6)
         record["class_mask"] = class_mask
@@ -235,6 +237,7 @@ def generate_front3d_class_mask(
     include_doors_as_wall: bool,
     include_windows_as_wall: bool,
     path_root: Path | None = None,
+    runtime_artifacts: dict[str, Any] | None = None,
 ) -> dict[str, object]:
     timings_s: dict[str, float] = {}
     stage_start = time.perf_counter()
@@ -425,6 +428,8 @@ def generate_front3d_class_mask(
         "timings_s": timings_s,
     }
     meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    if runtime_artifacts is not None:
+        runtime_artifacts["class_mask_artifacts"] = (class_mask, meta, dict(CLASS_MASK_LABELS))
     return {
         "ok": True,
         "mask": portable_path(mask_path, root),

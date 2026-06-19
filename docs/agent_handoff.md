@@ -12,7 +12,7 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 - `generated`: 简单矩形房间 smoke/test 模式，保留用于快速验证生成链路。
 - `front3d`: 复现并合成 3D-FRONT 原始已有组合场景。读取 `data/3D-Front/scenegen_manifest.json`，使用整理后的建筑结构和家具实例输出与 Bistro 一致的目录结构。
 - `procedural_front3d`: 实验性自动生成模式。按 `procedural.layout` 采样多房间户型，默认 `mixed` 会按 `procedural.layout_weights` 在 `grid` / `split_tree` / `rect_union` / `room_graph` / `polygon_shell` / `corridor_spine` 中加权选择实际 layout，并在 scene record 里同时记录 `layout` 和 `configured_layout`；其中 `split_tree` 从完整 apartment footprint 递归切分房间，`rect_union` 可由连通房间矩形集合拼出 L/T/凹口式不规则外轮廓，外墙按 room union 的真实边界生成，不再用整体 bbox 补成矩形；`room_graph` 会先生成树状房间邻接关系，再把新房间挂到已有房间边上，形成更自由的错位和凹凸外轮廓；`polygon_shell` 会先采样带凹口的外部 shell，再在 shell 内切分矩形房间；`corridor_spine` 会生成走廊 spine + 两侧房间的公寓式拓扑，并在配置阶段检查 `Hallway`、`room_count` 和 Hallway 上限是否足够容纳必选房间。默认 room type 覆盖客厅、卧室、餐厅、书房、厨房、卫浴和走廊/玄关，并可通过 `procedural.required_room_types` 保证必选组成、通过 `procedural.room_type_weights` 控制剩余分布权重、通过 `procedural.room_type_max_counts` 限制厨房/餐厅/卫浴等类型的最大出现次数、通过 `procedural.room_type_assignment: geometry_fit` 复用 room type 几何规则把类型分配给更合适的房间。随后写出 Front3D-like 建筑 `procedural_source/scene.json` / `architecture.obj`，包括 floor、ceiling、wall、door、外墙 window mesh、room adjacency 和门洞 bbox；再按 `procedural.object_count` 计算每房家具数量，`object_count.by_room_type` 可按房型覆盖家具密度，并从 3D-FUTURE 资产池中按 `procedural.room_profiles` 的类别序列、`required_classes` 和 semantic filter 摆放家具。`procedural.asset_reuse` 默认限制同一 model 在 room/scene 内过度复用，候选池不足时可自动放宽并在 placement stats 里记录。位置采样由 `procedural.placement_policy` 控制，默认 `floor` 靠墙、`table` 靠中心、`seat` 自由采样，且 `placement_policy.by_room_type` 可按房型覆盖，例如厨房/卫浴更偏靠墙、客厅/餐厅桌椅更偏中心；客厅、餐厅、卧室、书房、厨房等可通过 `procedural.placement_groups` 先生成 anchor + companion 关系组，例如茶几/沙发、餐桌椅、床 + 床头柜、书桌椅或台面/椅凳。生成后会按 `procedural.precheck` 检查摆放数量完成率、room 必需类别是否到位、room adjacency 连通性、footprint fill ratio/凹口面积、通用 room 面积/长宽比和按 room type 的几何规则，失败时换 seed 重试同一编号；通过后复用 front3d 的 OBJ/XML、label、floorplan、class mask、quality 和 statistics 输出链路。
-- `procedural_front3d_vision`: 复用 `procedural_front3d` 的户型、家具摆放、precheck、quality、label、floorplan 和 postprocess maps，但通过 `output.profile: vision_only` 跳过合成 `scene.obj`、`scene.xml`、`assets/` 和 OBJ summary。它面向 VisionEncoder 预训练数据，scene 目录前缀为 `procedural_front3d_vision_`，仍保留 `procedural_source/` 和 `placements.json` 作为小体积可追溯源记录。
+- `procedural_front3d_vision`: 复用 `procedural_front3d` 的户型、家具摆放、precheck、quality、label、floorplan 和 maps，但通过 `output.profile: vision_only` 跳过合成 `scene.obj`、`scene.xml`、`assets/` 和 OBJ summary。它面向 VisionEncoder 预训练数据，scene 目录前缀为 `procedural_front3d_vision_`，仍保留 `procedural_source/` 和 `placements.json` 作为小体积可追溯源记录。
 
 `front3d` v1 只合成已有 3D-FRONT 场景，不做基于 3D-FRONT 资产池的随机重排。`procedural_front3d` 是正在开发的无限场景生成 baseline，当前仍是规则系统，不是完整 ProcTHOR/Infinigen 级别的语义约束生成器。
 
@@ -139,7 +139,7 @@ uv run scenegen-batch \
   --set pipeline.run_name=front3d_full_6813
 ```
 
-`config/tasks/front3d_full_simulation.yaml` 是专门合成 Front3D 全量场景的生产模板，只保留 Front3D 相关配置。它默认 `pipeline.scenes: 6813`、`front3d.select: sequential`、`batch.workers: 24`、`batch.scheduler: hybrid`、`batch.task_timeout_s: 600`、`postprocess.maps.enabled: true`，label 默认生成 `[panel, walk] * [0.1, 0.2, 0.5]`。
+`config/tasks/front3d_full_simulation.yaml` 是专门合成 Front3D 全量场景的生产模板，只保留 Front3D 相关配置。它默认 `pipeline.scenes: 6813`、`front3d.select: sequential`、`batch.workers: 24`、`batch.scheduler: hybrid`、`batch.task_timeout_s: 600`、`maps.enabled: true`，label 默认生成 `[panel, walk] * [0.1, 0.2, 0.5]`。
 
 正式 procedural_front3d batch 生产：
 
@@ -153,7 +153,7 @@ uv run scenegen-batch \
   --set pipeline.run_name=procedural_front3d_production_2000
 ```
 
-`config/tasks/procedural_front3d_full_simulation.yaml` 是随机生成数据的任务级模板，只保留 3D-FUTURE 家具池来源、`procedural` 户型/摆放规则、label、floorplan、postprocess 和 batch 等相关字段；不包含 Bistro 配置，也不包含复现已有 Front3D 场景时才需要的 scene selection / precheck 字段。它默认 `batch.workers: 24`、`batch.task_timeout_s: 600`、`postprocess.maps.enabled: true`，BS 数量使用和 Front3D 全量模板一致的 `area_adaptive` 面积自适应策略。
+`config/tasks/procedural_front3d_full_simulation.yaml` 是随机生成数据的任务级模板，只保留 3D-FUTURE 家具池来源、`procedural` 户型/摆放规则、label、floorplan、maps、postprocess dataset 和 batch 等相关字段；不包含 Bistro 配置，也不包含复现已有 Front3D 场景时才需要的 scene selection / precheck 字段。它默认 `batch.workers: 24`、`batch.task_timeout_s: 600`、`maps.enabled: true`，BS 数量使用和 Front3D 全量模板一致的 `area_adaptive` 面积自适应策略。
 
 正式 procedural_front3d_vision batch 生产：
 
@@ -164,22 +164,22 @@ uv run scenegen-batch \
   --set pipeline.run_name=procedural_front3d_vision_production_2000
 ```
 
-`config/tasks/procedural_front3d_vision_full_simulation.yaml` 是随机生成视觉训练数据的任务级模板，默认 `output.profile: vision_only`、`batch.workers: 48`，并显式固定当前生产用 `procedural` 户型与家具摆放参数；不写合成 `scene.obj`、`scene.xml`、`assets/` 或 OBJ summary，但仍生成 `procedural_source/`、`placements.json`、`label_panel_0p5`、floorplan/class mask 和 batch 后处理 maps。
+`config/tasks/procedural_front3d_vision_full_simulation.yaml` 是随机生成视觉训练数据的任务级模板，默认 `output.profile: vision_only`、`batch.workers: 48`，并显式固定当前生产用 `procedural` 户型与家具摆放参数；不写合成 `scene.obj`、`scene.xml`、`assets/` 或 OBJ summary，但仍生成 `procedural_source/`、`placements.json`、`label_panel_0p5`、floorplan/class mask 和 maps。该模板默认通过 `procedural.room_count_ranges` 按 15% / 70% / 15% 采样 1-2、3-7、10-20 间房，并将 `required_room_types` 设为 `null`。
 
 `scenegen-batch` 默认读取 YAML 的 `batch.workers`、`batch.scheduler` 和 `batch.max_retries`；命令行 `--workers`、`--scheduler`、`--max-retries` 可临时覆盖。`hybrid` 调度会先固定分片，只有当 worker 自己队列清空且其他队列仍有待处理任务时，才从剩余任务最多的队列偷取尾部任务；`static` 严格保持固定分片；`dynamic` 使用共享任务队列。batch child 会设置 `runtime.skip_summary=true`，跳过自己的 `summary/` 汇总复制，最终由 batch 顶层统一生成 summary。成功 scene 发布时会从 `batch/worker_runs` move 到 run 根目录，worker 子 run 不再保留成功场景的完整重复副本，只保留日志、配置、小 manifest 和失败场景调试材料。batch 完成后会写 `manifest.json`、`manifest_batch.json` 和 `manifest_<mode>.json`。
 
-正式生产模板会在 batch 末尾自动生成 derived maps；如果还要整理 compact vision dataset：
+正式生产模板会在 scene 生成流程内自动生成 derived maps；如果还要整理 compact vision dataset：
 
 ```bash
 uv run scenegen-batch \
   --config config/tasks/front3d_full_simulation.yaml \
   --set pipeline.run_name=front3d_full_6813_maps \
   --set postprocess.dataset.enabled=true \
-  --set postprocess.maps.bs_label.mode=name \
-  --set postprocess.maps.bs_label.name=label_panel_0p1
+  --set maps.bs_label.mode=name \
+  --set maps.bs_label.name=label_panel_0p1
 ```
 
-`postprocess` 是 batch-only 配置；基础配置默认关闭，full 生产模板默认开启 maps。Front3D/procedural full 模板默认使用 `maps.bs_label.name=label_panel_0p1`；vision-only 生产模板只生成 `label_panel_0p5`，并用 `maps.bs_label.name=label_panel_0p5` 作为 BS 来源，避免把不同 UE 采样密度和策略的 label variant 中的 BS 重复合并。
+`maps` 是标准 scene 生成阶段；`postprocess` 只保留 batch 收尾的 dataset 构建和 maps 补漏/跳过检查。基础配置默认关闭 maps，full 生产模板默认开启。Front3D/procedural full 模板默认使用 `maps.bs_label.name=label_panel_0p1`；vision-only 生产模板只生成 `label_panel_0p5`，并用 `maps.bs_label.name=label_panel_0p5` 作为 BS 来源，避免把不同 UE 采样密度和策略的 label variant 中的 BS 重复合并。
 
 同名任务恢复：
 
@@ -276,7 +276,7 @@ batch/
 manifest_batch.json
 ```
 
-开启 `postprocess.maps.enabled` 后，每个 scene 下会有 `maps/geometry.npz`、`maps/pair_cache.npz`、`maps/metadata.json`。`pair_cache.npz` 是 VisionEncoder 预训练用的 BS-UE pair label cache，字段包含 `bs_xy_px`、`ue_xy_px`、`bs_xy_m`、`ue_xy_m`、`pair_los`、`pair_wall_count`、`pair_distance_m`、`pair_valid_mask`、`bs_index`、`ue_index`、`wall_count_raw`、`bucket`、`bs_snap_distance_m` 和 `bs_snapped`；旧版 dense `maps/propagation.npz` 默认关闭，可通过 `postprocess.maps.write_propagation=true` 额外写出。开启 `postprocess.dataset.enabled` 后，默认输出 `datasets/<run_name>_vision/`，每个样本只保留 `floorplan.png`、`mask.npy/png`、`mask_preview.png`、`geometry.npz`、`pair_cache.npz`、`label_bs.json` 和 `metadata.json`，`manifest.jsonl` 会记录 `image_path`、`mask_path`、`geometry_path`、`pair_cache_path`、尺寸、分辨率和 `split`。
+开启 `maps.enabled` 后，每个 scene 下会有 `maps/geometry.npz`、`maps/pair_cache.npz`、`maps/metadata.json`。`pair_cache.npz` 是 VisionEncoder 预训练用的 BS-UE pair label cache，字段包含 `bs_xy_px`、`ue_xy_px`、`bs_xy_m`、`ue_xy_m`、`pair_los`、`pair_wall_count`、`pair_distance_m`、`pair_valid_mask`、`bs_index`、`ue_index`、`wall_count_raw`、`bucket`、`bs_snap_distance_m` 和 `bs_snapped`；旧版 dense `maps/propagation.npz` 默认关闭，可通过 `maps.write_propagation=true` 额外写出。开启 `postprocess.dataset.enabled` 后，默认输出 `datasets/<run_name>_vision/`，每个样本只保留 `floorplan.png`、`mask.npy/png`、`mask_preview.png`、`geometry.npz`、`pair_cache.npz`、`label_bs.json` 和 `metadata.json`，`manifest.jsonl` 会记录 `image_path`、`mask_path`、`geometry_path`、`pair_cache_path`、尺寸、分辨率和 `split`。
 
 ## 3D-FRONT 数据阶段
 

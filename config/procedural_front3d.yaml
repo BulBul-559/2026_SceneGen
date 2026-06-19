@@ -28,6 +28,7 @@ procedural:
     corridor_spine: 0.8
     grid: 0.2
   room_count: [3, 6]
+  room_count_ranges: []
   room_width_m: [3.2, 5.8]
   room_length_m: [3.2, 6.4]
   room_height_m: [2.8, 3.4]
@@ -431,25 +432,25 @@ floorplan:
     max_points: 4000000
   preview:
     tile_size_px: 360
+maps:
+  enabled: false
+  workers: null
+  scene_glob: procedural_front3d_*
+  overwrite: false
+  r_max_m: 3.0
+  los_stride_px: 4
+  snap_radius_m: 0.25
+  write_propagation: false
+  bs_label:
+    mode: first
+    name: null
+    glob: null
+  pair_cache:
+    enabled: true
+    target_pairs_per_scene: 4096
+    ue_candidates_per_bs: null
+    seed: 0
 postprocess:
-  maps:
-    enabled: false
-    workers: null
-    scene_glob: front3d_*
-    overwrite: false
-    r_max_m: 3.0
-    los_stride_px: 4
-    snap_radius_m: 0.25
-    write_propagation: false
-    bs_label:
-      mode: first
-      name: null
-      glob: null
-    pair_cache:
-      enabled: true
-      target_pairs_per_scene: 4096
-      ue_candidates_per_bs: null
-      seed: 0
   dataset:
     enabled: false
     output_dir: datasets

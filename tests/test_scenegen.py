@@ -56,6 +56,7 @@ from scenegen.procedural import (
     assign_room_types_to_geometry,
     candidates_for_asset_reuse,
     candidate_pose_for_policy,
+    choose_room_count_range,
     choose_procedural_layout,
     companion_directions,
     desired_classes_from_profile,
@@ -308,6 +309,27 @@ def test_procedural_split_tree_layout_tiles_complete_positive_footprint() -> Non
         max(room.y1 for room in rooms) - min(room.y0 for room in rooms)
     )
     assert total_area == pytest.approx(bbox_area)
+    for left_index, left_room in enumerate(rooms):
+        for right_room in rooms[left_index + 1 :]:
+            x_overlap = min(left_room.x1, right_room.x1) - max(left_room.x0, right_room.x0)
+            y_overlap = min(left_room.y1, right_room.y1) - max(left_room.y0, right_room.y0)
+            assert x_overlap <= 1e-6 or y_overlap <= 1e-6
+
+
+def test_corridor_spine_layout_can_expand_to_large_room_count_range() -> None:
+    rooms = make_room_layout(
+        random.Random(2026),
+        "corridor_spine",
+        (10, 20),
+        (3.0, 5.0),
+        (3.0, 5.0),
+        (2.8, 2.8),
+        ("LivingRoom", "Bedroom", "Kitchen", "Hallway"),
+        room_type_max_counts={"LivingRoom": 2, "Bedroom": None, "Kitchen": 1, "Hallway": None},
+    )
+
+    assert 10 <= len(rooms) <= 20
+    assert any(room.room_type == "Hallway" for room in rooms)
     for left_index, left_room in enumerate(rooms):
         for right_room in rooms[left_index + 1 :]:
             x_overlap = min(left_room.x1, right_room.x1) - max(left_room.x0, right_room.x0)
@@ -1392,7 +1414,7 @@ def test_cli_version_matches_package_version(capsys: pytest.CaptureFixture[str])
         (
             "config/front3d.yaml",
             "front3d",
-            {"pipeline", "front3d", "validation", "quality", "label", "floorplan", "postprocess", "batch"},
+            {"pipeline", "front3d", "validation", "quality", "label", "floorplan", "maps", "postprocess", "batch"},
             {"assets", "bistro", "placement", "procedural", "runtime"},
         ),
         (
@@ -1406,6 +1428,7 @@ def test_cli_version_matches_package_version(capsys: pytest.CaptureFixture[str])
                 "quality",
                 "label",
                 "floorplan",
+                "maps",
                 "postprocess",
                 "batch",
             },
@@ -1421,6 +1444,7 @@ def test_cli_version_matches_package_version(capsys: pytest.CaptureFixture[str])
                 "validation",
                 "label",
                 "floorplan",
+                "maps",
                 "postprocess",
                 "batch",
             },
@@ -1454,6 +1478,7 @@ def test_front3d_full_simulation_task_is_front3d_focused() -> None:
         "quality",
         "label",
         "floorplan",
+        "maps",
         "postprocess",
         "batch",
     }
@@ -1501,7 +1526,7 @@ def test_procedural_front3d_vision_config_enables_vision_only_outputs() -> None:
         "write_sionna_assets": False,
         "write_obj_summary": False,
     }
-    assert payload["postprocess"]["maps"]["scene_glob"] == "procedural_front3d_vision_*"
+    assert payload["maps"]["scene_glob"] == "procedural_front3d_vision_*"
     assert payload["postprocess"]["dataset"]["scene_glob"] == "procedural_front3d_vision_*"
     assert payload["floorplan"]["class_mask"]["enabled"] is True
     assert payload["label"]["bs"]["count"]["strategy"] == "area_adaptive"
@@ -1524,17 +1549,17 @@ def test_full_simulation_task_templates_enable_production_outputs() -> None:
 
     for payload in (front3d, procedural):
         assert payload["label"]["ue"]["sampling"]["strategies"] == ["panel", "walk"]
-        assert payload["postprocess"]["maps"]["bs_label"]["name"] == "label_panel_0p1"
+        assert payload["maps"]["bs_label"]["name"] == "label_panel_0p1"
 
     for payload in (front3d, procedural, vision):
         assert payload["floorplan"]["class_mask"]["enabled"] is True
         assert payload["floorplan"]["class_mask"]["furniture_mode"] == "mesh"
         assert payload["floorplan"]["class_mask"]["furniture_height_m"] == 1.6
-        assert payload["postprocess"]["maps"]["enabled"] is True
-        assert payload["postprocess"]["maps"]["write_propagation"] is False
-        assert payload["postprocess"]["maps"]["pair_cache"]["enabled"] is True
-        assert payload["postprocess"]["maps"]["pair_cache"]["target_pairs_per_scene"] == 4096
-        assert payload["postprocess"]["maps"]["bs_label"]["mode"] == "name"
+        assert payload["maps"]["enabled"] is True
+        assert payload["maps"]["write_propagation"] is False
+        assert payload["maps"]["pair_cache"]["enabled"] is True
+        assert payload["maps"]["pair_cache"]["target_pairs_per_scene"] == 4096
+        assert payload["maps"]["bs_label"]["mode"] == "name"
         assert payload["label"]["bs"]["count"]["strategy"] == "area_adaptive"
         assert "per_room" not in payload["label"]["bs"]["count"]
         assert payload["batch"]["scheduler"] == "hybrid"
@@ -1546,18 +1571,18 @@ def test_full_simulation_task_templates_enable_production_outputs() -> None:
     assert front3d["pipeline"]["scenes"] == 6813
     assert front3d["front3d"]["select"] == "sequential"
     assert front3d["label"]["ue"]["sampling"]["grid_m"] == [0.1, 0.2, 0.5]
-    assert front3d["postprocess"]["maps"]["scene_glob"] == "front3d_*"
+    assert front3d["maps"]["scene_glob"] == "front3d_*"
     assert procedural["pipeline"]["scenes"] == 1
     assert procedural["label"]["ue"]["sampling"]["grid_m"] == [0.1, 0.2, 0.4, 0.5]
-    assert procedural["postprocess"]["maps"]["scene_glob"] == "procedural_front3d_*"
+    assert procedural["maps"]["scene_glob"] == "procedural_front3d_*"
     assert procedural["postprocess"]["dataset"]["scene_glob"] == "procedural_front3d_*"
     assert vision["pipeline"]["mode"] == "procedural_front3d_vision"
     assert vision["pipeline"]["scenes"] == 1
     assert vision["batch"]["workers"] == 48
     assert vision["label"]["ue"]["sampling"]["strategies"] == ["panel"]
     assert vision["label"]["ue"]["sampling"]["grid_m"] == [0.5]
-    assert vision["postprocess"]["maps"]["scene_glob"] == "procedural_front3d_vision_*"
-    assert vision["postprocess"]["maps"]["bs_label"]["name"] == "label_panel_0p5"
+    assert vision["maps"]["scene_glob"] == "procedural_front3d_vision_*"
+    assert vision["maps"]["bs_label"]["name"] == "label_panel_0p5"
     assert vision["postprocess"]["dataset"]["scene_glob"] == "procedural_front3d_vision_*"
     assert vision["output"] == {
         "profile": "vision_only",
@@ -1573,6 +1598,7 @@ def test_full_simulation_task_templates_enable_production_outputs() -> None:
         "quality",
         "label",
         "floorplan",
+        "maps",
         "postprocess",
         "batch",
     }
@@ -1590,6 +1616,7 @@ def test_full_simulation_task_templates_enable_production_outputs() -> None:
         "quality",
         "label",
         "floorplan",
+        "maps",
         "postprocess",
         "batch",
     }
@@ -1597,7 +1624,14 @@ def test_full_simulation_task_templates_enable_production_outputs() -> None:
     assert "bistro" not in vision
     assert "placement" not in vision
     assert "runtime" not in vision
-    assert vision["procedural"] == procedural["procedural"]
+    assert vision["procedural"]["room_count"] == [1, 20]
+    assert vision["procedural"]["room_count_ranges"] == [
+        {"range": [1, 2], "weight": 0.15},
+        {"range": [3, 7], "weight": 0.70},
+        {"range": [10, 20], "weight": 0.15},
+    ]
+    assert vision["procedural"]["required_room_types"] is None
+    assert vision["procedural"]["room_type_max_counts"]["Hallway"] is None
     assert_keys_subset_of_default(vision, DEFAULT_CONFIG)
     assert_keys_subset_of_default(procedural, DEFAULT_CONFIG)
 
@@ -3257,15 +3291,15 @@ def test_cli_set_overrides_yaml_and_parses_types(tmp_path: Path) -> None:
             "--set",
             "label.ue.sampling.mask_resolution_m=0.1",
             "--set",
-            "floorplan.enabled=false",
+            "floorplan.class_mask.enabled=true",
             "--set",
-            "postprocess.maps.enabled=true",
+            "maps.enabled=true",
             "--set",
-            "postprocess.maps.workers=2",
+            "maps.workers=2",
             "--set",
-            "postprocess.maps.bs_label.mode=name",
+            "maps.bs_label.mode=name",
             "--set",
-            "postprocess.maps.bs_label.name=label_panel_0p1",
+            "maps.bs_label.name=label_panel_0p1",
         ]
     )
 
@@ -3276,11 +3310,11 @@ def test_cli_set_overrides_yaml_and_parses_types(tmp_path: Path) -> None:
     assert effective["label"]["ue"]["height_m"] == 1.8
     assert effective["label"]["ue"]["sampling"]["grid_m"] == [0.1, 0.2, 0.5]
     assert effective["label"]["ue"]["sampling"]["mask_resolution_m"] == 0.1
-    assert effective["floorplan"]["enabled"] is False
-    assert effective["postprocess"]["maps"]["enabled"] is True
-    assert effective["postprocess"]["maps"]["workers"] == 2
-    assert effective["postprocess"]["maps"]["bs_label"]["mode"] == "name"
-    assert effective["postprocess"]["maps"]["bs_label"]["name"] == "label_panel_0p1"
+    assert effective["floorplan"]["class_mask"]["enabled"] is True
+    assert effective["maps"]["enabled"] is True
+    assert effective["maps"]["workers"] == 2
+    assert effective["maps"]["bs_label"]["mode"] == "name"
+    assert effective["maps"]["bs_label"]["name"] == "label_panel_0p1"
     assert overrides["pipeline"]["mode"] == "front3d"
 
 
@@ -3288,25 +3322,84 @@ def test_postprocess_defaults_are_disabled() -> None:
     root = find_project_root()
     effective, _overrides = load_effective_config(root / "config" / "front3d.yaml", root, parse_args([]))
 
-    assert effective["postprocess"]["maps"]["enabled"] is False
+    assert effective["maps"]["enabled"] is False
     assert effective["postprocess"]["dataset"]["enabled"] is False
-    assert effective["postprocess"]["maps"]["bs_label"]["mode"] == "first"
+    assert effective["maps"]["bs_label"]["mode"] == "first"
+
+
+def test_legacy_postprocess_maps_config_promotes_to_top_level_maps(tmp_path: Path) -> None:
+    root = find_project_root()
+    config_path = tmp_path / "legacy_maps.yaml"
+    config_path.write_text(
+        "pipeline:\n"
+        "  mode: front3d\n"
+        "floorplan:\n"
+        "  class_mask:\n"
+        "    enabled: true\n"
+        "postprocess:\n"
+        "  maps:\n"
+        "    enabled: true\n"
+        "    workers: 2\n"
+        "    bs_label:\n"
+        "      mode: name\n"
+        "      name: label_panel_0p1\n",
+        encoding="utf-8",
+    )
+
+    effective, _overrides = load_effective_config(config_path, root, parse_args([]))
+
+    assert effective["maps"]["enabled"] is True
+    assert effective["maps"]["workers"] == 2
+    assert effective["maps"]["bs_label"]["mode"] == "name"
+    assert effective["maps"]["bs_label"]["name"] == "label_panel_0p1"
 
 
 def test_postprocess_named_bs_label_requires_name(tmp_path: Path) -> None:
     root = find_project_root()
     config_path = tmp_path / "bad_config.yaml"
     config_path.write_text(
-        "postprocess:\n"
-        "  maps:\n"
-        "    enabled: true\n"
-        "    bs_label:\n"
-        "      mode: name\n",
+        "maps:\n"
+        "  enabled: true\n"
+        "  bs_label:\n"
+        "    mode: name\n",
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="postprocess.maps.bs_label.name"):
+    with pytest.raises(ValueError, match="maps.bs_label.name"):
         load_effective_config(config_path, root, parse_args([]))
+
+
+def test_procedural_room_count_ranges_are_weighted_and_normalized(tmp_path: Path) -> None:
+    root = find_project_root()
+    config_path = tmp_path / "room_ranges.yaml"
+    config_path.write_text(
+        "procedural:\n"
+        "  room_count: [1, 20]\n"
+        "  room_count_ranges:\n"
+        "    - range: [1, 2]\n"
+        "      weight: 0.15\n"
+        "    - range: [3, 7]\n"
+        "      weight: 0.70\n"
+        "    - range: [10, 20]\n"
+        "      weight: 0.15\n"
+        "  required_room_types: null\n",
+        encoding="utf-8",
+    )
+
+    effective, _overrides = load_effective_config(config_path, root, parse_args([]))
+    fallback, fallback_meta = choose_room_count_range((3, 6), [], random.Random(7))
+    selected, selected_meta = choose_room_count_range((3, 6), [{"range": [10, 20], "weight": 1.0}], random.Random(7))
+
+    assert effective["procedural"]["room_count_ranges"] == [
+        {"range": [1, 2], "weight": 0.15},
+        {"range": [3, 7], "weight": 0.70},
+        {"range": [10, 20], "weight": 0.15},
+    ]
+    assert effective["procedural"]["required_room_types"] == {}
+    assert fallback == (3, 6)
+    assert fallback_meta is None
+    assert selected == (10, 20)
+    assert selected_meta == {"range": [10, 20], "weight": 1.0}
 
 
 @pytest.mark.parametrize(
@@ -3316,7 +3409,7 @@ def test_postprocess_named_bs_label_requires_name(tmp_path: Path) -> None:
         ("label.batch_strategies=[free_space_grid]", "label.batch_strategies"),
         ("front3d.source_scene_dir=data/3D-Front/3D-FRONT", "front3d.source_scene_dir"),
         ("floorplan.sample_density_scale=128", "floorplan.sample_density_scale"),
-        ("postprocess.maps.los_stride_pixels=4", "postprocess.maps.los_stride_pixels"),
+        ("maps.los_stride_pixels=4", "maps.los_stride_pixels"),
     ],
 )
 def test_cli_set_unknown_field_is_rejected(override: str, field: str) -> None:

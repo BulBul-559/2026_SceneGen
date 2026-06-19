@@ -21,6 +21,7 @@ from .exporters import (
 )
 from .floorplan import FloorplanConfig, generate_floorplan_for_scene
 from .labels import LabelConfig, generate_label_batch_for_scene, label_variants, write_label_overlay
+from .maps import MapsConfig, generate_scene_maps
 from .modes import FRONT3D_LIKE_MODES, FRONT3D_MODE, is_procedural_front3d_like
 from .paths import default_config_path, find_project_root, portable_path, require_dir, require_file
 from .procedural import aggregate_procedural_run_report
@@ -820,6 +821,7 @@ def main(argv: list[str] | None = None) -> int:
     floorplan_config = FloorplanConfig.from_mapping(effective_config["floorplan"], front3d_openings)
     quality_config = QualityConfig.from_mapping(effective_config["quality"])
     label_config = LabelConfig.from_mapping(effective_config["label"], front3d_openings)
+    maps_config = MapsConfig.from_mapping(effective_config["maps"])
 
     setup_timings: dict[str, float] = {}
     if args.mode in front3d_like_modes:
@@ -840,6 +842,7 @@ def main(argv: list[str] | None = None) -> int:
     floorplan_failed = False
     quality_failed = False
     label_failed = False
+    maps_failed = False
     precheck_failed = False
     stop_generation = False
     while len(scene_records) < args.scenes and not stop_generation:
@@ -874,6 +877,7 @@ def main(argv: list[str] | None = None) -> int:
             placements = build.placements
             record = build.record
             record["timings_s"] = scene_timings
+            runtime_artifacts: dict[str, object] = {}
 
             with run_logger.stage(
                 scene_timings,
@@ -1051,6 +1055,7 @@ def main(argv: list[str] | None = None) -> int:
                             forbidden_xy_rects=source.forbidden_xy_rects,
                             front3d_base_scene=build.front3d_base_scene,
                             scene_mesh_arrays=build.floorplan_mesh_arrays,
+                            runtime_artifacts=runtime_artifacts,
                         )
                     floorplan_timings = record["floorplan"].get("timings_s") if isinstance(record.get("floorplan"), dict) else None
                     if isinstance(floorplan_timings, dict):
@@ -1124,6 +1129,55 @@ def main(argv: list[str] | None = None) -> int:
                         stop_generation = True
                         accepted = True
                         break
+            if maps_config.enabled:
+                try:
+                    with run_logger.stage(
+                        scene_timings,
+                        "maps",
+                        scene_key=scene_key,
+                        scene_index=scene_index,
+                        attempt_no=attempt_no,
+                    ):
+                        maps_record = generate_scene_maps(
+                            scene_dir,
+                            run_dir,
+                            maps_config,
+                            class_mask_artifacts=runtime_artifacts.get("class_mask_artifacts"),
+                        )
+                    record["maps"] = maps_record
+                    maps_failed = maps_failed or str(maps_record.get("status")) == "failed"
+                except Exception as exc:
+                    maps_failed = True
+                    traceback_file = run_logger.write_traceback(
+                        scene_key=scene_key,
+                        attempt_no=attempt_no,
+                        stage="maps",
+                        exc=exc,
+                        context={"scene_seed": scene_seed, "scene_dir": scene_key},
+                    )
+                    record["maps"] = {
+                        "ok": False,
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                        "traceback_file": traceback_file,
+                    }
+                    run_logger.event(
+                        "scene_failed",
+                        level="error",
+                        scene_key=scene_key,
+                        scene_index=scene_index,
+                        attempt_no=attempt_no,
+                        stage="maps",
+                        status="failed",
+                        error={"type": type(exc).__name__, "message": str(exc)},
+                        traceback_file=traceback_file,
+                    )
+                    if maps_config.fail_on_error:
+                        record["timings_s"] = scene_timings
+                        scene_records.append(record)
+                        stop_generation = True
+                        accepted = True
+                        break
             record["timings_s"] = scene_timings
             scene_records.append(record)
             quality_note = ""
@@ -1156,6 +1210,7 @@ def main(argv: list[str] | None = None) -> int:
                         "quality_failed": quality_failed,
                         "label_failed": label_failed,
                         "floorplan_failed": floorplan_failed,
+                        "maps_failed": maps_failed,
                         "precheck_failed": precheck_failed,
                     },
                 }
@@ -1268,6 +1323,9 @@ def main(argv: list[str] | None = None) -> int:
         "label_batch_grid_resolutions_m": list(label_config.batch_grid_resolutions_m) if label_config.enabled else [],
         "label_variants": [variant.name for variant in label_variants(label_config)] if label_config.enabled else [],
         "label_variant_count": len(label_variants(label_config)) if label_config.enabled else 0,
+        "maps_requested": bool(maps_config.enabled),
+        "maps_ok": not maps_failed if maps_config.enabled else None,
+        "maps_fail_on_error": bool(maps_config.fail_on_error),
         "statistics": run_statistics,
         "statistics_file": statistics_file,
         "procedural_report": procedural_report if is_procedural_front3d_like(str(args.mode)) else None,
@@ -1332,11 +1390,22 @@ def main(argv: list[str] | None = None) -> int:
     if floorplan_failed and floorplan_config.fail_on_error:
         print("Floorplan generation failed for at least one scene.")
         exit_code = 1
+    if maps_failed and maps_config.fail_on_error:
+        print("Maps generation failed for at least one scene.")
+        exit_code = 1
     run_logger.write_state(
         {
             "status": "completed" if exit_code == 0 else "failed",
             "requested_scenes": int(args.scenes),
             "completed_scenes": len(scene_records),
+            "failed_flags": {
+                "validation_failed": validation_failed,
+                "quality_failed": quality_failed,
+                "label_failed": label_failed,
+                "floorplan_failed": floorplan_failed,
+                "maps_failed": maps_failed,
+                "precheck_failed": precheck_failed,
+            },
             "exit_code": exit_code,
         }
     )

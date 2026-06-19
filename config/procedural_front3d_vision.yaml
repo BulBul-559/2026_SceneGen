@@ -50,22 +50,22 @@ floorplan:
     enabled: true
     furniture_mode: mesh
     furniture_height_m: 1.6
-postprocess:
-  maps:
+maps:
+  enabled: true
+  workers: null
+  scene_glob: procedural_front3d_vision_*
+  overwrite: false
+  write_propagation: false
+  bs_label:
+    mode: name
+    name: label_walk_0p1
+    glob: null
+  pair_cache:
     enabled: true
-    workers: null
-    scene_glob: procedural_front3d_vision_*
-    overwrite: false
-    write_propagation: false
-    bs_label:
-      mode: name
-      name: label_walk_0p1
-      glob: null
-    pair_cache:
-      enabled: true
-      target_pairs_per_scene: 4096
-      ue_candidates_per_bs: null
-      seed: 0
+    target_pairs_per_scene: 4096
+    ue_candidates_per_bs: null
+    seed: 0
+postprocess:
   dataset:
     enabled: false
     scene_glob: procedural_front3d_vision_*

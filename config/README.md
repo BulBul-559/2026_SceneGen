@@ -15,11 +15,11 @@
 
 每次运行都会在 run 目录写出 `effective_config.yaml`，它记录最终真正生效的配置。
 
-`config/tasks/front3d_full_simulation.yaml` 是专门合成全量 3D-FRONT 场景的生产任务模板，只保留 Front3D 生产真正用到的配置段，不包含 Bistro、generated 或 `procedural_front3d` 的配置。它默认按 `front3d.select: sequential` 顺序合成本地 phase1 manifest 中的 `6813` 个场景，`batch.workers: 24`、`batch.task_timeout_s: 600`，开启 `postprocess.maps.enabled`，label 使用 `[panel, walk]` 两种策略和 `[0.1, 0.2, 0.5]` 三档 UE 间隔。
+`config/tasks/front3d_full_simulation.yaml` 是专门合成全量 3D-FRONT 场景的生产任务模板，只保留 Front3D 生产真正用到的配置段，不包含 Bistro、generated 或 `procedural_front3d` 的配置。它默认按 `front3d.select: sequential` 顺序合成本地 phase1 manifest 中的 `6813` 个场景，`batch.workers: 24`、`batch.task_timeout_s: 600`，开启 `maps.enabled`，label 使用 `[panel, walk]` 两种策略和 `[0.1, 0.2, 0.5]` 三档 UE 间隔。
 
-`config/tasks/procedural_front3d_full_simulation.yaml` 是自动随机生成数据的任务模板，只保留程序化生成真正用到的配置段：3D-FUTURE 家具池来源、`procedural` 户型/摆放规则、label、floorplan、postprocess 和 batch。它不包含 Bistro 配置，也不包含复现已有 Front3D 场景时才需要的 scene selection / precheck 字段。该生产模板默认同样使用 `batch.workers: 24`、`batch.task_timeout_s: 600`，开启 `postprocess.maps.enabled`，BS 数量使用 `area_adaptive` 面积自适应策略。任务模板同样会通过 `DEFAULT_CONFIG` 补齐未写字段，并在 run 目录的 `effective_config.yaml` 里记录最终生效配置。
+`config/tasks/procedural_front3d_full_simulation.yaml` 是自动随机生成数据的任务模板，只保留程序化生成真正用到的配置段：3D-FUTURE 家具池来源、`procedural` 户型/摆放规则、label、floorplan、maps、postprocess dataset 和 batch。它不包含 Bistro 配置，也不包含复现已有 Front3D 场景时才需要的 scene selection / precheck 字段。该生产模板默认同样使用 `batch.workers: 24`、`batch.task_timeout_s: 600`，开启 `maps.enabled`，BS 数量使用 `area_adaptive` 面积自适应策略。任务模板同样会通过 `DEFAULT_CONFIG` 补齐未写字段，并在 run 目录的 `effective_config.yaml` 里记录最终生效配置。
 
-`config/tasks/procedural_front3d_vision_full_simulation.yaml` 是随机生成视觉训练数据的任务模板。它默认使用 `pipeline.mode: procedural_front3d_vision`、`output.profile: vision_only` 和 `batch.workers: 48`，并显式写出当前生产用 `procedural` 户型与家具摆放参数，因此不会写合成 `scene.obj`、`scene.xml`、`assets/` 或 OBJ summary；仍会生成 `procedural_source/`、`placements.json`、`label_panel_0p5`、floorplan/class mask，并在 batch 后处理阶段用 `label_panel_0p5` 生成 `maps/geometry.npz` 和 `maps/pair_cache.npz`。
+`config/tasks/procedural_front3d_vision_full_simulation.yaml` 是随机生成视觉训练数据的任务模板。它默认使用 `pipeline.mode: procedural_front3d_vision`、`output.profile: vision_only` 和 `batch.workers: 48`，并显式写出当前生产用 `procedural` 户型与家具摆放参数，因此不会写合成 `scene.obj`、`scene.xml`、`assets/` 或 OBJ summary；仍会生成 `procedural_source/`、`placements.json`、`label_panel_0p5`、floorplan/class mask，并在标准 scene 生成阶段用 `label_panel_0p5` 生成 `maps/geometry.npz` 和 `maps/pair_cache.npz`。该模板默认用 `procedural.room_count_ranges` 按 15% / 70% / 15% 采样 1-2、3-7、10-20 间房，并将 `required_room_types` 设为 `null` 以允许小房间样本。
 
 ## 合并规则
 
@@ -143,6 +143,7 @@ uv run scenegen \
 | `layout` | `grid` / `split_tree` / `rect_union` / `room_graph` / `polygon_shell` / `corridor_spine` / `mixed` | `mixed` | 户型布局策略。`grid` 是早期规整行列；`split_tree` 从完整 apartment footprint 递归切分房间；`rect_union` 从连通房间矩形集合拼出 L/T/凹口式不规则外轮廓；`room_graph` 先生成树状邻接，再把新房间挂到已有房间边上；`polygon_shell` 先采样带凹口的外部 shell，再在 shell 内切分房间；`corridor_spine` 生成走廊 spine + 两侧房间的公寓式拓扑；`mixed` 按 `layout_weights` 加权选择实际 layout。 |
 | `layout_weights` | mapping | `{split_tree: 1.0, rect_union: 1.0, room_graph: 1.0, polygon_shell: 0.8, corridor_spine: 0.8, grid: 0.2}` | 仅在 `layout: mixed` 时生效。权重必须非负，至少一个支持的 layout 权重大于 0；每个 scene 的实际 layout 会写入 manifest 和 `procedural_report.json`。YAML 是深合并，未写出的 layout weight 会继承模板/默认值。 |
 | `room_count` | `[min, max]` | `[3, 6]` | 每个程序化场景的 room 数量范围。 |
+| `room_count_ranges` | list of `{range: [min, max], weight: float}` | `[]` | 可选的加权 room 数区间。非空时每个 scene 先按权重采样一个区间，再在该区间内采样 room 数；旧 `room_count` 只作为兼容/全局边界。区间最大值必须能容纳 `required_room_types` 和 `corridor_spine` 最小房间数。若要生成 1-2 间房，通常需要把 `required_room_types` 设为 `null`。 |
 | `room_width_m` | `[min, max]` | `[3.2, 5.8]` | 单个 room 宽度范围。 |
 | `room_length_m` | `[min, max]` | `[3.2, 6.4]` | 单个 room 长度范围。 |
 | `room_height_m` | `[min, max]` | `[2.8, 3.4]` | 建筑层高范围。 |
@@ -338,24 +339,23 @@ procedural:
 | --- | --- | --- | --- |
 | `sionna` | boolean | `false` | 是否用 `sionna.rt.load_scene()` 验证 `scene.xml`。 |
 
-## postprocess
+## maps
 
-`postprocess` 只由 `scenegen-batch` 使用；普通 `scenegen` 单场景入口不会执行这部分。基础配置默认全部关闭，因此不会改变原来的主生成流程；full 生产任务模板会覆盖为 `postprocess.maps.enabled: true`。
-
-### postprocess.maps
+`maps` 是标准 scene 生成阶段。普通 `scenegen` 单场景入口和 `scenegen-batch` worker 都会在 label 与 floorplan/class mask 之后执行它；batch 收尾阶段会按同一份顶层 `maps` 配置做补漏/跳过检查。基础配置默认关闭，full 生产任务模板会覆盖为 `maps.enabled: true`。旧配置中的 `postprocess.maps` 仍会在 `maps.enabled` 未开启时兼容提升为顶层 maps，但新模板和命令应使用 `maps.*`。
 
 | 字段 | 可选值 / 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `enabled` | boolean | `false` | 是否在 batch 场景生成后为成功 scene 生成 `maps/geometry.npz`、`maps/pair_cache.npz` 和 `maps/metadata.json`。 |
-| `workers` | integer / `null` | `null` | maps 阶段 worker 数；为 `null` 时继承最终 batch worker 数，即 YAML `batch.workers` 或命令行 `--workers` 覆盖后的值。 |
-| `scene_glob` | glob string | `front3d_*` | 在 run 目录中选择 scene 目录。 |
+| `enabled` | boolean | `false` | 是否为成功 scene 生成 `maps/geometry.npz`、`maps/pair_cache.npz` 和 `maps/metadata.json`。开启时要求 `label.enabled=true`、`floorplan.enabled=true` 和 `floorplan.class_mask.enabled=true`。 |
+| `fail_on_error` | boolean | `true` | 单 scene maps 失败时是否让当前生成任务失败。 |
+| `workers` | integer / `null` | `null` | batch 收尾补漏阶段的 worker 数；为 `null` 时继承最终 batch worker 数，即 YAML `batch.workers` 或命令行 `--workers` 覆盖后的值。单场景生成内联阶段不使用该字段。 |
+| `scene_glob` | glob string | `front3d_*` | batch 收尾补漏阶段在 run 目录中选择 scene 目录。 |
 | `overwrite` | boolean | `false` | 已有完整 `maps/` 时是否重新生成；`false` 可用于 resume。 |
 | `r_max_m` | float, `>0` | `3.0` | SDF 裁剪半径。 |
 | `los_stride_px` | integer, `>=1` | `4` | 仅在 `write_propagation: true` 时用于旧版 dense LoS / wall-count 监督图的 UE 网格下采样步长。 |
 | `snap_radius_m` | float, `>=0` | `0.25` | BS 落到非 free-like 像素时，吸附到最近有效像素的最大半径。 |
 | `write_propagation` | boolean | `false` | 是否额外写出旧版 dense `maps/propagation.npz`。默认关闭，VisionEncoder 预训练使用 `pair_cache.npz`。 |
 
-### postprocess.maps.pair_cache
+### maps.pair_cache
 
 | 字段 | 可选值 / 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
@@ -364,13 +364,17 @@ procedural:
 | `ue_candidates_per_bs` | integer / `null` | `null` | 每个 BS 先 ray-test 的 UE 候选数量；为 `null` 时按目标 pair 数自动扩展，最少 1024。 |
 | `seed` | integer | `0` | pair cache 采样基础 seed；会结合 scene key 派生稳定随机种子。 |
 
-### postprocess.maps.bs_label
+### maps.bs_label
 
 | 字段 | 可选值 / 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `mode` | `first` / `name` / `glob` | `first` | 选择哪个 label 文件作为 BS 来源。正式数据集建议用 `name`。 |
 | `name` | string / `null` | `null` | `mode: name` 时使用的 label 文件名或 stem，例如 `label_panel_0p1`。 |
 | `glob` | string / `null` | `null` | `mode: glob` 时的匹配模式，例如 `label_panel_*.json`。 |
+
+## postprocess
+
+`postprocess` 只由 `scenegen-batch` 收尾阶段使用。maps 配置已经提升到顶层；这里主要保留 compact vision dataset 构建。
 
 ### postprocess.dataset
 
@@ -602,7 +606,7 @@ uv run scenegen \
   --set floorplan.geometry.projection=ray_height_filtered
 ```
 
-使用 3D-FRONT 全量正式生产模板。该模板默认 `pipeline.scenes: 6813`、`front3d.select: sequential`、`batch.workers: 24`、`batch.task_timeout_s: 600`、`postprocess.maps.enabled: true`：
+使用 3D-FRONT 全量正式生产模板。该模板默认 `pipeline.scenes: 6813`、`front3d.select: sequential`、`batch.workers: 24`、`batch.task_timeout_s: 600`、`maps.enabled: true`：
 
 ```bash
 uv run scenegen-batch \
@@ -635,15 +639,15 @@ uv run scenegen-batch \
 
 单进程和 batch 结束后都会在 run 根目录写出 `visual_index.html`，把每个 scene 的主 `floorplan_*.png`、`class_mask_preview.png` 和 `label_floorplan/*.png` 聚合成一个可打开的检查页。该文件由已有产物生成，不是新的配置项。
 
-full 生产模板默认会在同一次 batch 后自动生成 maps；如果还要整理 compact vision dataset：
+full 生产模板默认会在 scene 生成流程内自动生成 maps；如果还要整理 compact vision dataset：
 
 ```bash
 uv run scenegen-batch \
   --config config/tasks/front3d_full_simulation.yaml \
   --set pipeline.run_name=front3d_full_6813_maps \
   --set postprocess.dataset.enabled=true \
-  --set postprocess.maps.bs_label.mode=name \
-  --set postprocess.maps.bs_label.name=label_panel_0p1
+  --set maps.bs_label.mode=name \
+  --set maps.bs_label.name=label_panel_0p1
 ```
 
-开启后，run 目录会额外写出 `derived_maps_manifest.jsonl`、`derived_maps_report.json`、`batch/postprocess_state.json`、`batch/postprocess_events.jsonl`、`batch/postprocess_failures.jsonl` 和 `batch/postprocess_report.json`；dataset 默认输出到 `datasets/<run_name>_vision/`。
+开启后，每个 scene 目录会写出 `maps/geometry.npz`、`maps/pair_cache.npz` 和 `maps/metadata.json`；batch 收尾补漏会写出 `derived_maps_manifest.jsonl`、`derived_maps_report.json`、`batch/postprocess_state.json`、`batch/postprocess_events.jsonl`、`batch/postprocess_failures.jsonl` 和 `batch/postprocess_report.json`；dataset 默认输出到 `datasets/<run_name>_vision/`。

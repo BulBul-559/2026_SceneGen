@@ -1643,11 +1643,10 @@ def make_corridor_spine_room_layout(
     max_room_count = int(room_count_range[1])
     hallway_limit = (room_type_max_counts or {}).get(hall_type)
     hallway_capacity = max_room_count if hallway_limit is None else max(1, int(hallway_limit))
-    hall_count = min(
-        max(math.ceil(required_side_count / 2.0), required_hall_count, 1),
-        hallway_capacity,
-    )
-    room_count = max(rng.randint(room_count_range[0], room_count_range[1]), required_side_count + hall_count)
+    target_room_count = max(rng.randint(room_count_range[0], room_count_range[1]), required_side_count + required_hall_count)
+    min_hall_count = max(math.ceil(required_side_count / 2.0), required_hall_count, 1)
+    hall_count = min(max(min_hall_count, math.ceil(target_room_count / 3.0)), hallway_capacity)
+    room_count = max(target_room_count, required_side_count + hall_count)
     room_count = min(room_count, hall_count * 3)
     side_count = max(0, room_count - hall_count)
     if side_count == 0:
@@ -1842,6 +1841,22 @@ def choose_procedural_layout(
     if not any(weight > 0.0 for weight in weights):
         raise ValueError("procedural.layout_weights must assign a positive weight for mixed layout")
     return rng.choices(supported_layouts, weights=weights, k=1)[0]
+
+
+def choose_room_count_range(
+    room_count_range: tuple[int, int],
+    weighted_ranges: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None,
+    rng: random.Random,
+) -> tuple[tuple[int, int], dict[str, Any] | None]:
+    if not weighted_ranges:
+        return room_count_range, None
+    weights = [max(0.0, float(item.get("weight", 1.0))) for item in weighted_ranges]
+    if not any(weight > 0.0 for weight in weights):
+        raise ValueError("procedural.room_count_ranges must contain at least one positive weight")
+    selected = rng.choices(list(weighted_ranges), weights=weights, k=1)[0]
+    selected_range = selected["range"]
+    range_tuple = (int(selected_range[0]), int(selected_range[1]))
+    return range_tuple, {"range": [range_tuple[0], range_tuple[1]], "weight": float(selected.get("weight", 1.0))}
 
 
 def select_room_profile_spec(room_type: str, profiles: dict[str, dict[str, Any]]) -> tuple[str, dict[str, Any]]:
@@ -3162,10 +3177,15 @@ class ProceduralFront3DGenerator:
         stage_start = time.perf_counter()
         configured_layout = str(self.args.procedural_layout)
         selected_layout = choose_procedural_layout(configured_layout, dict(self.args.procedural_layout_weights), rng)
+        selected_room_count_range, selected_room_count_weight = choose_room_count_range(
+            tuple(int(value) for value in self.args.procedural_room_count),
+            list(getattr(self.args, "procedural_room_count_ranges", []) or []),
+            rng,
+        )
         rooms = make_room_layout(
             rng,
             selected_layout,
-            tuple(int(value) for value in self.args.procedural_room_count),
+            selected_room_count_range,
             tuple(float(value) for value in self.args.procedural_room_width_m),
             tuple(float(value) for value in self.args.procedural_room_length_m),
             tuple(float(value) for value in self.args.procedural_room_height_m),
@@ -3225,6 +3245,9 @@ class ProceduralFront3DGenerator:
             "layout": selected_layout,
             "configured_layout": configured_layout,
             "layout_weights": dict(self.args.procedural_layout_weights),
+            "configured_room_count": list(self.args.procedural_room_count),
+            "selected_room_count_range": list(selected_room_count_range),
+            "selected_room_count_weight": selected_room_count_weight,
             "room_count": len(rooms),
             "footprint": rooms_footprint_metrics(rooms),
             "topology": room_topology_metrics(rooms, adjacencies),

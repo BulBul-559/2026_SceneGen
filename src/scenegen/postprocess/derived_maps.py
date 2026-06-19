@@ -726,6 +726,7 @@ def generate_maps_for_scene(
     pair_cache_seed: int = 0,
     write_propagation: bool = False,
     overwrite: bool,
+    class_mask_artifacts: tuple[np.ndarray, dict[str, Any], dict[int, str]] | None = None,
 ) -> dict[str, Any]:
     maps_dir = scene_dir / "maps"
     geometry_path = maps_dir / "geometry.npz"
@@ -746,7 +747,14 @@ def generate_maps_for_scene(
         }
 
     start = time.perf_counter()
-    class_mask, class_meta, class_names = load_class_mask(scene_dir)
+    if class_mask_artifacts is None:
+        class_mask, class_meta, class_names = load_class_mask(scene_dir)
+    else:
+        class_mask, class_meta, class_names = class_mask_artifacts
+        class_mask = class_mask.astype(np.uint8, copy=False)
+        validate_class_mapping(class_names)
+        if class_mask.ndim != 2:
+            raise ValueError(f"class mask must be [H, W], got {class_mask.shape}")
     resolution = float(class_meta["resolution_m_per_pixel"])
     origin_xy_m = [float(value) for value in class_meta["origin_xy_m"]]
     extent_xy_m = [float(value) for value in class_meta["extent_xy_m"]]

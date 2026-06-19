@@ -10,7 +10,7 @@
 - 输出：`output.profile: vision_only`
 - 调度：`batch.scheduler: hybrid`
 - 扫参规则：从 `workers=24` 开始，每次 +8；每组 `pipeline.scenes = workers * 3`
-- 判断信号：wall time、吞吐、产物大小、postprocess maps 耗时、`/proc/pressure/io` PSI
+- 判断信号：wall time、吞吐、产物大小、maps 耗时、`/proc/pressure/io` PSI
 
 ## 结果
 
@@ -30,4 +30,4 @@
 - 24 -> 32 有明显提升；32 -> 40 基本持平；48 是本轮最优点。
 - 初始 60-scene 验证 run `procedural_front3d_vision_test_60_20260619_225525`：24 workers，60/60 成功，wall time `51.23s`，产物 `402M`，maps 60/60，且未生成 `scene.obj`、`scene.xml` 或 `assets/`。
 - 最终模板 60-scene 验证 run `procedural_front3d_vision_final_test_60_20260619_230709`：48 workers，60/60 成功，wall time `37.49s`，产物 `402M`，maps/geometry/pair cache/class mask 60/60，且未生成 `scene.obj`、`scene.xml` 或 `assets/`。
-- 后续根据 label 体积和 BS 稳定性审查，当前 vision-only 任务模板已收敛为只生成 `label_panel_0p5`，并用 `postprocess.maps.bs_label.name: label_panel_0p5` 生产 maps；上面的耗时和体积是多 label 旧模板的历史基线。
+- 后续根据 label 体积和 BS 稳定性审查，当前 vision-only 任务模板已收敛为只生成 `label_panel_0p5`，并用 `maps.bs_label.name: label_panel_0p5` 生产 maps；上面的耗时和体积是多 label 旧模板的历史基线。
