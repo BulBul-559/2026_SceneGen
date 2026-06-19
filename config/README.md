@@ -19,7 +19,7 @@
 
 `config/tasks/procedural_front3d_full_simulation.yaml` 是自动随机生成数据的任务模板，只保留程序化生成真正用到的配置段：3D-FUTURE 家具池来源、`procedural` 户型/摆放规则、label、floorplan、postprocess 和 batch。它不包含 Bistro 配置，也不包含复现已有 Front3D 场景时才需要的 scene selection / precheck 字段。该生产模板默认同样使用 `batch.workers: 24`、`batch.task_timeout_s: 600`，开启 `postprocess.maps.enabled`，BS 数量使用 `area_adaptive` 面积自适应策略。任务模板同样会通过 `DEFAULT_CONFIG` 补齐未写字段，并在 run 目录的 `effective_config.yaml` 里记录最终生效配置。
 
-`config/tasks/procedural_front3d_vision_full_simulation.yaml` 是随机生成视觉训练数据的任务模板。它默认使用 `pipeline.mode: procedural_front3d_vision`、`output.profile: vision_only` 和 `batch.workers: 48`，因此不会写合成 `scene.obj`、`scene.xml`、`assets/` 或 OBJ summary；仍会生成 `procedural_source/`、`placements.json`、label、floorplan/class mask，并在 batch 后处理阶段生成 `maps/geometry.npz` 和 `maps/pair_cache.npz`。
+`config/tasks/procedural_front3d_vision_full_simulation.yaml` 是随机生成视觉训练数据的任务模板。它默认使用 `pipeline.mode: procedural_front3d_vision`、`output.profile: vision_only` 和 `batch.workers: 48`，因此不会写合成 `scene.obj`、`scene.xml`、`assets/` 或 OBJ summary；仍会生成 `procedural_source/`、`placements.json`、`label_panel_0p5`、floorplan/class mask，并在 batch 后处理阶段用 `label_panel_0p5` 生成 `maps/geometry.npz` 和 `maps/pair_cache.npz`。
 
 ## 合并规则
 

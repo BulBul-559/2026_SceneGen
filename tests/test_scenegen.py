@@ -1522,8 +1522,11 @@ def test_full_simulation_task_templates_enable_production_outputs() -> None:
         (root / "config" / "tasks" / "procedural_front3d_vision_full_simulation.yaml").read_text(encoding="utf-8")
     )
 
-    for payload in (front3d, procedural, vision):
+    for payload in (front3d, procedural):
         assert payload["label"]["ue"]["sampling"]["strategies"] == ["panel", "walk"]
+        assert payload["postprocess"]["maps"]["bs_label"]["name"] == "label_panel_0p1"
+
+    for payload in (front3d, procedural, vision):
         assert payload["floorplan"]["class_mask"]["enabled"] is True
         assert payload["floorplan"]["class_mask"]["furniture_mode"] == "mesh"
         assert payload["floorplan"]["class_mask"]["furniture_height_m"] == 1.6
@@ -1532,7 +1535,6 @@ def test_full_simulation_task_templates_enable_production_outputs() -> None:
         assert payload["postprocess"]["maps"]["pair_cache"]["enabled"] is True
         assert payload["postprocess"]["maps"]["pair_cache"]["target_pairs_per_scene"] == 4096
         assert payload["postprocess"]["maps"]["bs_label"]["mode"] == "name"
-        assert payload["postprocess"]["maps"]["bs_label"]["name"] == "label_panel_0p1"
         assert payload["label"]["bs"]["count"]["strategy"] == "area_adaptive"
         assert "per_room" not in payload["label"]["bs"]["count"]
         assert payload["batch"]["scheduler"] == "hybrid"
@@ -1552,8 +1554,10 @@ def test_full_simulation_task_templates_enable_production_outputs() -> None:
     assert vision["pipeline"]["mode"] == "procedural_front3d_vision"
     assert vision["pipeline"]["scenes"] == 1
     assert vision["batch"]["workers"] == 48
-    assert vision["label"]["ue"]["sampling"]["grid_m"] == [0.1, 0.2, 0.4, 0.5]
+    assert vision["label"]["ue"]["sampling"]["strategies"] == ["panel"]
+    assert vision["label"]["ue"]["sampling"]["grid_m"] == [0.5]
     assert vision["postprocess"]["maps"]["scene_glob"] == "procedural_front3d_vision_*"
+    assert vision["postprocess"]["maps"]["bs_label"]["name"] == "label_panel_0p5"
     assert vision["postprocess"]["dataset"]["scene_glob"] == "procedural_front3d_vision_*"
     assert vision["output"] == {
         "profile": "vision_only",

@@ -38,11 +38,11 @@ label:
     height_m: 1.6
     sampling:
       domain: global_floor
-      grid_m: [0.1, 0.2, 0.4, 0.5]
+      grid_m: [0.5]
       mask_resolution_m: 0.05
       wall_clearance_m: 0.2
       min_component_area_m2: 0.25
-      strategies: [panel, walk]
+      strategies: [panel]
     walk:
       furniture_clearance_m: 0.1
       obstacle_strategy: below_ue_column
@@ -106,7 +106,7 @@ postprocess:
     write_propagation: false
     bs_label:
       mode: name
-      name: label_panel_0p1
+      name: label_panel_0p5
       glob: null
     pair_cache:
       enabled: true
