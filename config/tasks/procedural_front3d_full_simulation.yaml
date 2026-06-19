@@ -432,7 +432,7 @@ floorplan:
     tile_size_px: 360
 postprocess:
   maps:
-    enabled: false
+    enabled: true
     workers: null
     scene_glob: procedural_front3d_*
     overwrite: false

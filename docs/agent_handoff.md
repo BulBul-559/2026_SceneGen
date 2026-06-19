@@ -137,7 +137,7 @@ uv run scenegen-batch \
   --set pipeline.run_name=front3d_full_6813
 ```
 
-`config/tasks/front3d_full_simulation.yaml` 是专门合成 Front3D 全量场景的生产模板，只保留 Front3D 相关配置。它默认 `pipeline.scenes: 6813`、`front3d.select: sequential`、`batch.workers: 24`、`batch.scheduler: hybrid`、`batch.task_timeout_s: 600`，label 默认生成 `[panel, walk] * [0.1, 0.2, 0.5]`。
+`config/tasks/front3d_full_simulation.yaml` 是专门合成 Front3D 全量场景的生产模板，只保留 Front3D 相关配置。它默认 `pipeline.scenes: 6813`、`front3d.select: sequential`、`batch.workers: 24`、`batch.scheduler: hybrid`、`batch.task_timeout_s: 600`、`postprocess.maps.enabled: true`，label 默认生成 `[panel, walk] * [0.1, 0.2, 0.5]`。
 
 正式 procedural_front3d batch 生产：
 
@@ -151,23 +151,22 @@ uv run scenegen-batch \
   --set pipeline.run_name=procedural_front3d_production_2000
 ```
 
-`config/tasks/procedural_front3d_full_simulation.yaml` 是随机生成数据的任务级模板，只保留 3D-FUTURE 家具池来源、`procedural` 户型/摆放规则、label、floorplan、postprocess 和 batch 等相关字段；不包含 Bistro 配置，也不包含复现已有 Front3D 场景时才需要的 scene selection / precheck 字段。它默认 `batch.workers: 24`、`batch.task_timeout_s: 600`，BS 数量使用和 Front3D 全量模板一致的 `area_adaptive` 面积自适应策略。
+`config/tasks/procedural_front3d_full_simulation.yaml` 是随机生成数据的任务级模板，只保留 3D-FUTURE 家具池来源、`procedural` 户型/摆放规则、label、floorplan、postprocess 和 batch 等相关字段；不包含 Bistro 配置，也不包含复现已有 Front3D 场景时才需要的 scene selection / precheck 字段。它默认 `batch.workers: 24`、`batch.task_timeout_s: 600`、`postprocess.maps.enabled: true`，BS 数量使用和 Front3D 全量模板一致的 `area_adaptive` 面积自适应策略。
 
 `scenegen-batch` 默认读取 YAML 的 `batch.workers`、`batch.scheduler` 和 `batch.max_retries`；命令行 `--workers`、`--scheduler`、`--max-retries` 可临时覆盖。`hybrid` 调度会先固定分片，只有当 worker 自己队列清空且其他队列仍有待处理任务时，才从剩余任务最多的队列偷取尾部任务；`static` 严格保持固定分片；`dynamic` 使用共享任务队列。batch child 会设置 `runtime.skip_summary=true`，跳过自己的 `summary/` 汇总复制，最终由 batch 顶层统一生成 summary。成功 scene 发布时会从 `batch/worker_runs` move 到 run 根目录，worker 子 run 不再保留成功场景的完整重复副本，只保留日志、配置、小 manifest 和失败场景调试材料。batch 完成后会写 `manifest.json`、`manifest_batch.json` 和 `manifest_<mode>.json`。
 
-正式生产时也可以在 batch 末尾自动生成 derived maps 和 compact vision dataset：
+正式生产模板会在 batch 末尾自动生成 derived maps；如果还要整理 compact vision dataset：
 
 ```bash
 uv run scenegen-batch \
   --config config/tasks/front3d_full_simulation.yaml \
   --set pipeline.run_name=front3d_full_6813_maps \
-  --set postprocess.maps.enabled=true \
   --set postprocess.dataset.enabled=true \
   --set postprocess.maps.bs_label.mode=name \
   --set postprocess.maps.bs_label.name=label_panel_0p1
 ```
 
-`postprocess` 是 batch-only 配置，默认关闭。`maps.bs_label.name=label_panel_0p1` 是当前正式视觉数据集推荐的 BS 来源，避免把不同 UE 采样密度和策略的 label variant 中的 BS 重复合并。
+`postprocess` 是 batch-only 配置；基础配置默认关闭，两个 full 生产模板默认开启 maps。`maps.bs_label.name=label_panel_0p1` 是当前正式视觉数据集推荐的 BS 来源，避免把不同 UE 采样密度和策略的 label variant 中的 BS 重复合并。
 
 同名任务恢复：
 

@@ -1426,6 +1426,10 @@ def test_full_simulation_task_templates_enable_production_outputs() -> None:
         assert payload["floorplan"]["class_mask"]["enabled"] is True
         assert payload["floorplan"]["class_mask"]["furniture_mode"] == "mesh"
         assert payload["floorplan"]["class_mask"]["furniture_height_m"] == 1.6
+        assert payload["postprocess"]["maps"]["enabled"] is True
+        assert payload["postprocess"]["maps"]["write_propagation"] is False
+        assert payload["postprocess"]["maps"]["pair_cache"]["enabled"] is True
+        assert payload["postprocess"]["maps"]["pair_cache"]["target_pairs_per_scene"] == 4096
         assert payload["postprocess"]["maps"]["bs_label"]["mode"] == "name"
         assert payload["postprocess"]["maps"]["bs_label"]["name"] == "label_panel_0p1"
         assert payload["label"]["bs"]["count"]["strategy"] == "area_adaptive"

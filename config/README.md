@@ -14,9 +14,9 @@
 
 每次运行都会在 run 目录写出 `effective_config.yaml`，它记录最终真正生效的配置。
 
-`config/tasks/front3d_full_simulation.yaml` 是专门合成全量 3D-FRONT 场景的生产任务模板，只保留 Front3D 生产真正用到的配置段，不包含 Bistro、generated 或 `procedural_front3d` 的配置。它默认按 `front3d.select: sequential` 顺序合成本地 phase1 manifest 中的 `6813` 个场景，`batch.workers: 24`、`batch.task_timeout_s: 600`，label 使用 `[panel, walk]` 两种策略和 `[0.1, 0.2, 0.5]` 三档 UE 间隔。
+`config/tasks/front3d_full_simulation.yaml` 是专门合成全量 3D-FRONT 场景的生产任务模板，只保留 Front3D 生产真正用到的配置段，不包含 Bistro、generated 或 `procedural_front3d` 的配置。它默认按 `front3d.select: sequential` 顺序合成本地 phase1 manifest 中的 `6813` 个场景，`batch.workers: 24`、`batch.task_timeout_s: 600`，开启 `postprocess.maps.enabled`，label 使用 `[panel, walk]` 两种策略和 `[0.1, 0.2, 0.5]` 三档 UE 间隔。
 
-`config/tasks/procedural_front3d_full_simulation.yaml` 是自动随机生成数据的任务模板，只保留程序化生成真正用到的配置段：3D-FUTURE 家具池来源、`procedural` 户型/摆放规则、label、floorplan、postprocess 和 batch。它不包含 Bistro 配置，也不包含复现已有 Front3D 场景时才需要的 scene selection / precheck 字段。该生产模板默认同样使用 `batch.workers: 24`、`batch.task_timeout_s: 600`，BS 数量使用 `area_adaptive` 面积自适应策略。任务模板同样会通过 `DEFAULT_CONFIG` 补齐未写字段，并在 run 目录的 `effective_config.yaml` 里记录最终生效配置。
+`config/tasks/procedural_front3d_full_simulation.yaml` 是自动随机生成数据的任务模板，只保留程序化生成真正用到的配置段：3D-FUTURE 家具池来源、`procedural` 户型/摆放规则、label、floorplan、postprocess 和 batch。它不包含 Bistro 配置，也不包含复现已有 Front3D 场景时才需要的 scene selection / precheck 字段。该生产模板默认同样使用 `batch.workers: 24`、`batch.task_timeout_s: 600`，开启 `postprocess.maps.enabled`，BS 数量使用 `area_adaptive` 面积自适应策略。任务模板同样会通过 `DEFAULT_CONFIG` 补齐未写字段，并在 run 目录的 `effective_config.yaml` 里记录最终生效配置。
 
 ## 合并规则
 
@@ -328,7 +328,7 @@ procedural:
 
 ## postprocess
 
-`postprocess` 只由 `scenegen-batch` 使用；普通 `scenegen` 单场景入口不会执行这部分。默认全部关闭，因此不会改变原来的主生成流程。
+`postprocess` 只由 `scenegen-batch` 使用；普通 `scenegen` 单场景入口不会执行这部分。基础配置默认全部关闭，因此不会改变原来的主生成流程；full 生产任务模板会覆盖为 `postprocess.maps.enabled: true`。
 
 ### postprocess.maps
 
@@ -590,7 +590,7 @@ uv run scenegen \
   --set floorplan.geometry.projection=ray_height_filtered
 ```
 
-使用 3D-FRONT 全量正式生产模板。该模板默认 `pipeline.scenes: 6813`、`front3d.select: sequential`、`batch.workers: 24`、`batch.task_timeout_s: 600`：
+使用 3D-FRONT 全量正式生产模板。该模板默认 `pipeline.scenes: 6813`、`front3d.select: sequential`、`batch.workers: 24`、`batch.task_timeout_s: 600`、`postprocess.maps.enabled: true`：
 
 ```bash
 uv run scenegen-batch \
@@ -614,13 +614,12 @@ uv run scenegen-batch \
 
 单进程和 batch 结束后都会在 run 根目录写出 `visual_index.html`，把每个 scene 的主 `floorplan_*.png`、`class_mask_preview.png` 和 `label_floorplan/*.png` 聚合成一个可打开的检查页。该文件由已有产物生成，不是新的配置项。
 
-在同一次 batch 后自动生成 maps 和 compact vision dataset：
+full 生产模板默认会在同一次 batch 后自动生成 maps；如果还要整理 compact vision dataset：
 
 ```bash
 uv run scenegen-batch \
   --config config/tasks/front3d_full_simulation.yaml \
   --set pipeline.run_name=front3d_full_6813_maps \
-  --set postprocess.maps.enabled=true \
   --set postprocess.dataset.enabled=true \
   --set postprocess.maps.bs_label.mode=name \
   --set postprocess.maps.bs_label.name=label_panel_0p1
