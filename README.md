@@ -223,7 +223,7 @@ uv run scenegen --config config/tasks/procedural_front3d_full_simulation.yaml --
 
 该模板定位为随机生成数据的任务级配置，只保留 3D-FUTURE 家具池来源、`procedural` 户型/摆放规则、label、floorplan、postprocess 和 batch 等生成链路相关字段；Bistro 字段和复现已有 Front3D 场景的 scene selection/precheck 字段不会出现在这个模板中。它默认使用 `batch.workers: 24`、`batch.task_timeout_s: 600`，默认开启 postprocess maps，BS 数量策略和 Front3D 全量模板一致，使用 `label.bs.count.strategy: area_adaptive` 按房间面积自适应生成。
 
-只需要视觉监督数据时使用 `config/tasks/procedural_front3d_vision_full_simulation.yaml`。它复用程序化户型、家具摆放、precheck、quality、label、floorplan 和 postprocess maps，但 `output.profile: vision_only` 会强制关闭 `scene.obj`、`scene.xml`、`assets/` 和 OBJ summary；默认 `batch.workers: 48`；每个 scene 只生成 `label_panel_0p5`，maps 默认也以它作为 BS 来源；仍保留小体积的 `procedural_source/` 与 `placements.json` 作为可追溯源记录。
+只需要视觉监督数据时使用 `config/tasks/procedural_front3d_vision_full_simulation.yaml`。它复用程序化户型、家具摆放、precheck、quality、label、floorplan 和 postprocess maps，并在模板中显式固定当前生产用 `procedural` 户型与摆放参数；`output.profile: vision_only` 会强制关闭 `scene.obj`、`scene.xml`、`assets/` 和 OBJ summary；默认 `batch.workers: 48`；每个 scene 只生成 `label_panel_0p5`，maps 默认也以它作为 BS 来源；仍保留小体积的 `procedural_source/` 与 `placements.json` 作为可追溯源记录。
 
 三个 full 生产模板默认会在 batch 末尾同步生成 `geometry.npz` 和 BS-UE `pair_cache.npz`。如果还要整理 compact vision dataset，只需额外开启 dataset：
 

@@ -1585,6 +1585,7 @@ def test_full_simulation_task_templates_enable_production_outputs() -> None:
         "pipeline",
         "output",
         "front3d",
+        "procedural",
         "validation",
         "quality",
         "label",
@@ -1596,6 +1597,8 @@ def test_full_simulation_task_templates_enable_production_outputs() -> None:
     assert "bistro" not in vision
     assert "placement" not in vision
     assert "runtime" not in vision
+    assert vision["procedural"] == procedural["procedural"]
+    assert_keys_subset_of_default(vision, DEFAULT_CONFIG)
     assert_keys_subset_of_default(procedural, DEFAULT_CONFIG)
 
 

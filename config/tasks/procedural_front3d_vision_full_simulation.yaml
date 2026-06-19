@@ -23,6 +23,347 @@ front3d:
     min_height_m: 1.6
     include_doors_as_wall: true
     include_windows_as_wall: true
+procedural:
+  layout: mixed
+  layout_weights:
+    split_tree: 1.0
+    rect_union: 1.0
+    room_graph: 1.0
+    polygon_shell: 0.8
+    corridor_spine: 0.8
+    grid: 0.2
+  room_count: [3, 6]
+  room_width_m: [3.2, 5.8]
+  room_length_m: [3.2, 6.4]
+  room_height_m: [2.8, 3.4]
+  room_types: [LivingRoom, Bedroom, DiningRoom, StudyRoom, Kitchen, Bathroom, Hallway]
+  required_room_types:
+    LivingRoom: 1
+    Bedroom: 1
+    Kitchen: 1
+  room_type_assignment: geometry_fit
+  room_type_area_priority: [LivingRoom, DiningRoom, Bedroom, Kitchen, StudyRoom, Bathroom, Hallway]
+  room_type_max_counts:
+    LivingRoom: 2
+    Bedroom: null
+    DiningRoom: 1
+    StudyRoom: 2
+    Kitchen: 1
+    Bathroom: 2
+    Hallway: 2
+  room_type_weights:
+    LivingRoom: 2.0
+    Bedroom: 2.0
+    DiningRoom: 1.2
+    StudyRoom: 1.0
+    Kitchen: 1.0
+    Bathroom: 0.8
+    Hallway: 0.6
+  wall_thickness_m: 0.16
+  door_width_m: 1.0
+  door_clearance_m: 0.35
+  windows:
+    enabled: true
+    room_probability: 0.65
+    max_per_room: 1
+    width_m: [0.8, 1.6]
+    height_m: [0.8, 1.2]
+    sill_height_m: [0.85, 1.1]
+    wall_margin_m: 0.8
+  object_count:
+    strategy: area_adaptive
+    range: [3, 7]
+    min: 2
+    max: 9
+    area_per_object_m2: 4.0
+    jitter: [-1, 1]
+    by_room_type:
+      LivingRoom:
+        min: 4
+        max: 10
+        area_per_object_m2: 4.5
+      Bedroom:
+        min: 3
+        max: 7
+        area_per_object_m2: 5.0
+      DiningRoom:
+        min: 4
+        max: 8
+        area_per_object_m2: 4.0
+      StudyRoom:
+        min: 2
+        max: 6
+        area_per_object_m2: 5.5
+      Kitchen:
+        min: 2
+        max: 5
+        area_per_object_m2: 7.0
+      Bathroom:
+        min: 1
+        max: 4
+        area_per_object_m2: 8.0
+      Hallway:
+        min: 1
+        max: 3
+        area_per_object_m2: 10.0
+  room_profiles:
+    default:
+      classes: [seat, table, floor, seat, table]
+      required_classes: []
+      filters: {}
+    LivingRoom:
+      classes: [seat, table, floor, seat, table]
+      required_classes: [seat, table]
+      filters:
+        seat:
+          super_category: [sofa]
+        table:
+          category: [coffee table, tea table, corner/side table, side table]
+    Bedroom:
+      classes: [floor, table, table, seat]
+      required_classes: [floor]
+      filters:
+        floor:
+          super_category: [bed]
+        table:
+          category: [nightstand]
+    DiningRoom:
+      classes: [table, seat, seat, seat, seat]
+      required_classes: [table, seat]
+      filters:
+        table:
+          category: [dining]
+        seat:
+          category: [dining chair]
+    StudyRoom:
+      classes: [table, seat, floor]
+      required_classes: [table, seat]
+      filters:
+        table:
+          category: [desk]
+        seat:
+          category: [chair]
+    Kitchen:
+      classes: [floor, table, floor, seat]
+      required_classes: [floor]
+      filters:
+        floor:
+          category: [cabinet, kitchen, shelf]
+          super_category: [cabinet]
+        table:
+          category: [counter, kitchen, dining, table]
+        seat:
+          category: [stool, chair]
+    Bathroom:
+      classes: [floor, floor, table]
+      required_classes: [floor]
+      filters:
+        floor:
+          category: [toilet, bath, bathroom, cabinet]
+          super_category: [toilet, bath, cabinet]
+        table:
+          category: [sink, vanity, cabinet]
+    Hallway:
+      classes: [floor, table]
+      required_classes: []
+      filters:
+        floor:
+          category: [cabinet, shelf, wardrobe, shoe]
+        table:
+          category: [console, side table, table]
+  wall_margin_m: 0.25
+  object_margin_m: 0.15
+  placement_policy:
+    default:
+      zone: anywhere
+      wall_offset_m: 0.0
+      center_radius_ratio: 0.35
+    table:
+      zone: center
+      wall_offset_m: 0.0
+      center_radius_ratio: 0.25
+    seat:
+      zone: anywhere
+      wall_offset_m: 0.0
+      center_radius_ratio: 0.35
+    floor:
+      zone: wall
+      wall_offset_m: 0.05
+      center_radius_ratio: 0.35
+    by_room_type:
+      LivingRoom:
+        table:
+          zone: center
+          wall_offset_m: 0.0
+          center_radius_ratio: 0.18
+        seat:
+          zone: center
+          wall_offset_m: 0.0
+          center_radius_ratio: 0.35
+        floor:
+          zone: wall
+          wall_offset_m: 0.05
+          center_radius_ratio: 0.35
+      Bedroom:
+        table:
+          zone: wall
+          wall_offset_m: 0.08
+          center_radius_ratio: 0.35
+        floor:
+          zone: wall
+          wall_offset_m: 0.08
+          center_radius_ratio: 0.35
+      DiningRoom:
+        table:
+          zone: center
+          wall_offset_m: 0.0
+          center_radius_ratio: 0.12
+        seat:
+          zone: center
+          wall_offset_m: 0.0
+          center_radius_ratio: 0.3
+      StudyRoom:
+        table:
+          zone: wall
+          wall_offset_m: 0.1
+          center_radius_ratio: 0.35
+        seat:
+          zone: wall
+          wall_offset_m: 0.1
+          center_radius_ratio: 0.35
+        floor:
+          zone: wall
+          wall_offset_m: 0.05
+          center_radius_ratio: 0.35
+      Kitchen:
+        table:
+          zone: wall
+          wall_offset_m: 0.08
+          center_radius_ratio: 0.35
+        seat:
+          zone: center
+          wall_offset_m: 0.0
+          center_radius_ratio: 0.35
+        floor:
+          zone: wall
+          wall_offset_m: 0.08
+          center_radius_ratio: 0.35
+      Bathroom:
+        table:
+          zone: wall
+          wall_offset_m: 0.08
+          center_radius_ratio: 0.35
+        floor:
+          zone: wall
+          wall_offset_m: 0.08
+          center_radius_ratio: 0.35
+      Hallway:
+        table:
+          zone: wall
+          wall_offset_m: 0.08
+          center_radius_ratio: 0.35
+        floor:
+          zone: wall
+          wall_offset_m: 0.08
+          center_radius_ratio: 0.35
+  placement_groups:
+    enabled: true
+    room_types:
+      LivingRoom:
+        - name: living_seating_set
+          anchor_class: table
+          companion_class: seat
+          companion_count: [1, 2]
+          companion_gap_m: [0.15, 0.45]
+          max_attempts: 30
+      DiningRoom:
+        - name: dining_table_set
+          anchor_class: table
+          companion_class: seat
+          companion_count: [2, 4]
+          companion_gap_m: [0.1, 0.35]
+          max_attempts: 30
+      Bedroom:
+        - name: bed_side_tables
+          anchor_class: floor
+          companion_class: table
+          companion_count: [1, 2]
+          companion_gap_m: [0.05, 0.25]
+          max_attempts: 30
+      StudyRoom:
+        - name: desk_chair_pair
+          anchor_class: table
+          companion_class: seat
+          companion_count: [1, 1]
+          companion_gap_m: [0.1, 0.3]
+          max_attempts: 20
+      Kitchen:
+        - name: counter_stool_pair
+          anchor_class: table
+          companion_class: seat
+          companion_count: [1, 1]
+          companion_gap_m: [0.1, 0.3]
+          max_attempts: 20
+  max_attempts_per_object: 80
+  asset_pool_limit: 500
+  asset_reuse:
+    max_per_room: 1
+    max_per_scene: 2
+    relax_if_needed: true
+  precheck:
+    enabled: true
+    max_attempts_per_scene: 5
+    min_placements: 1
+    min_placement_ratio: 0.5
+    min_room_placement_ratio: 0.34
+    min_class_placement_ratio: {}
+    max_skipped_ratio: 0.8
+    min_unique_model_ratio: null
+    max_duplicate_model_count: null
+    require_connected_rooms: true
+    min_room_area_m2: 8.0
+    max_room_aspect_ratio: 4.0
+    min_footprint_fill_ratio: 0.25
+    max_footprint_fill_ratio: null
+    min_footprint_concavity_m2: null
+    max_footprint_concavity_m2: null
+    min_topology_edge_count: null
+    max_topology_edge_count: null
+    min_topology_leaf_room_count: null
+    max_topology_leaf_room_count: null
+    min_topology_branch_room_count: null
+    max_topology_branch_room_count: null
+    min_topology_graph_diameter: null
+    max_topology_graph_diameter: null
+    room_type_geometry:
+      LivingRoom:
+        min_area_m2: 16.0
+        max_area_m2: null
+        max_aspect_ratio: 3.5
+      Bedroom:
+        min_area_m2: 10.0
+        max_area_m2: null
+        max_aspect_ratio: 3.5
+      DiningRoom:
+        min_area_m2: 10.0
+        max_area_m2: null
+        max_aspect_ratio: 3.5
+      StudyRoom:
+        min_area_m2: 8.0
+        max_area_m2: null
+        max_aspect_ratio: 3.5
+      Kitchen:
+        min_area_m2: 8.0
+        max_area_m2: 35.0
+        max_aspect_ratio: 3.5
+      Bathroom:
+        min_area_m2: 6.0
+        max_area_m2: 28.0
+        max_aspect_ratio: 4.0
+      Hallway:
+        min_area_m2: 6.0
+        max_area_m2: 30.0
+        max_aspect_ratio: 4.0
 validation:
   sionna: false
 quality:

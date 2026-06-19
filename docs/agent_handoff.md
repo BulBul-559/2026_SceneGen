@@ -164,7 +164,7 @@ uv run scenegen-batch \
   --set pipeline.run_name=procedural_front3d_vision_production_2000
 ```
 
-`config/tasks/procedural_front3d_vision_full_simulation.yaml` 是随机生成视觉训练数据的任务级模板，默认 `output.profile: vision_only`、`batch.workers: 48`，不写合成 `scene.obj`、`scene.xml`、`assets/` 或 OBJ summary，但仍生成 `procedural_source/`、`placements.json`、`label_panel_0p5`、floorplan/class mask 和 batch 后处理 maps。
+`config/tasks/procedural_front3d_vision_full_simulation.yaml` 是随机生成视觉训练数据的任务级模板，默认 `output.profile: vision_only`、`batch.workers: 48`，并显式固定当前生产用 `procedural` 户型与家具摆放参数；不写合成 `scene.obj`、`scene.xml`、`assets/` 或 OBJ summary，但仍生成 `procedural_source/`、`placements.json`、`label_panel_0p5`、floorplan/class mask 和 batch 后处理 maps。
 
 `scenegen-batch` 默认读取 YAML 的 `batch.workers`、`batch.scheduler` 和 `batch.max_retries`；命令行 `--workers`、`--scheduler`、`--max-retries` 可临时覆盖。`hybrid` 调度会先固定分片，只有当 worker 自己队列清空且其他队列仍有待处理任务时，才从剩余任务最多的队列偷取尾部任务；`static` 严格保持固定分片；`dynamic` 使用共享任务队列。batch child 会设置 `runtime.skip_summary=true`，跳过自己的 `summary/` 汇总复制，最终由 batch 顶层统一生成 summary。成功 scene 发布时会从 `batch/worker_runs` move 到 run 根目录，worker 子 run 不再保留成功场景的完整重复副本，只保留日志、配置、小 manifest 和失败场景调试材料。batch 完成后会写 `manifest.json`、`manifest_batch.json` 和 `manifest_<mode>.json`。
 
