@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import random
 import shutil
 import time
@@ -79,6 +80,32 @@ def skipped_summary_manifest(summary_subdir: str, item_key: str) -> dict[str, ob
     }
 
 
+def contains_nonfinite_number(value: object) -> bool:
+    if isinstance(value, bool) or value is None:
+        return False
+    if isinstance(value, int | float):
+        return not math.isfinite(float(value))
+    if isinstance(value, dict):
+        return any(contains_nonfinite_number(child) for child in value.values())
+    if isinstance(value, list | tuple):
+        return any(contains_nonfinite_number(child) for child in value)
+    return False
+
+
+def front3d_precheck_threshold(args: argparse.Namespace, name: str, default: float | int) -> float:
+    return float(getattr(args, name, default))
+
+
+def front3d_bbox_size(statistics: dict[str, object]) -> tuple[float, float, float] | None:
+    bbox = statistics.get("front3d_bbox")
+    if not isinstance(bbox, dict):
+        return None
+    size = bbox.get("size_m")
+    if not isinstance(size, (list, tuple)) or len(size) < 3:
+        return None
+    return float(size[0]), float(size[1]), float(size[2])
+
+
 def evaluate_front3d_precheck(args: argparse.Namespace, statistics: dict[str, object]) -> dict[str, object]:
     enabled = args.mode == "front3d" and bool(args.front3d_precheck_enabled)
     result: dict[str, object] = {"enabled": enabled, "ok": True, "errors": []}
@@ -86,6 +113,9 @@ def evaluate_front3d_precheck(args: argparse.Namespace, statistics: dict[str, ob
         return result
 
     errors: list[dict[str, object]] = []
+    if contains_nonfinite_number(statistics):
+        errors.append({"code": "nonfinite_statistics"})
+
     placement_count = int(statistics.get("placement_count", 0))
     if placement_count < int(args.front3d_precheck_min_placements):
         errors.append(
@@ -116,6 +146,47 @@ def evaluate_front3d_precheck(args: argparse.Namespace, statistics: dict[str, ob
                 "threshold": float(args.front3d_precheck_max_footprint_ratio),
             }
         )
+
+    bbox = statistics.get("front3d_bbox")
+    if isinstance(bbox, dict) and bbox.get("finite") is False:
+        errors.append({"code": "nonfinite_architecture_bbox"})
+
+    size = front3d_bbox_size(statistics)
+    if size is not None and all(math.isfinite(value) for value in size):
+        max_bbox_xy = front3d_precheck_threshold(args, "front3d_precheck_max_bbox_xy", 250.0)
+        max_xy = max(size[0], size[1])
+        if max_xy > max_bbox_xy:
+            errors.append({"code": "bbox_xy_too_large", "value": max_xy, "threshold": max_bbox_xy})
+
+        floorplan_resolution = float(getattr(args, "floorplan_resolution", 0.05))
+        if floorplan_resolution > 0:
+            width_px = max(1, int(math.ceil(max(0.0, size[0]) / floorplan_resolution)) + 1)
+            height_px = max(1, int(math.ceil(max(0.0, size[1]) / floorplan_resolution)) + 1)
+            estimated_pixels = width_px * height_px
+            max_pixels = int(front3d_precheck_threshold(args, "front3d_precheck_max_floorplan_pixels", 80_000_000))
+            if estimated_pixels > max_pixels:
+                errors.append({"code": "floorplan_pixels_too_high", "value": estimated_pixels, "threshold": max_pixels})
+
+    floor_area = float(statistics.get("scene_floor_area_m2", 0.0))
+    max_floor_area = front3d_precheck_threshold(args, "front3d_precheck_max_floor_area", 5000.0)
+    if floor_area > max_floor_area:
+        errors.append({"code": "floor_area_too_large", "value": floor_area, "threshold": max_floor_area})
+
+    invalid_count = int(statistics.get("invalid_placement_bbox_count", 0))
+    max_invalid = int(front3d_precheck_threshold(args, "front3d_precheck_max_invalid_placements", 0))
+    if invalid_count > max_invalid:
+        errors.append({"code": "invalid_placement_bbox", "value": invalid_count, "threshold": max_invalid})
+
+    outside_count = int(statistics.get("outside_architecture_bbox_count", 0))
+    max_outside = int(front3d_precheck_threshold(args, "front3d_precheck_max_outside_placements", 0))
+    if outside_count > max_outside:
+        errors.append({"code": "outside_architecture_bbox", "value": outside_count, "threshold": max_outside})
+
+    max_placement_extent = front3d_precheck_threshold(args, "front3d_precheck_max_placement_extent", 200.0)
+    for metric in ("max_placement_xy_extent_m", "max_placement_z_extent_m"):
+        value = float(statistics.get(metric, 0.0))
+        if value > max_placement_extent:
+            errors.append({"code": "placement_extent_too_large", "metric": metric, "value": value, "threshold": max_placement_extent})
 
     result["ok"] = not errors
     result["errors"] = errors
@@ -660,6 +731,12 @@ def front3d_precheck_settings(args: argparse.Namespace) -> dict[str, object]:
         "min_placements": int(args.front3d_precheck_min_placements),
         "max_z_m": float(args.front3d_precheck_max_z),
         "max_footprint_ratio": float(args.front3d_precheck_max_footprint_ratio),
+        "max_bbox_xy_m": float(args.front3d_precheck_max_bbox_xy),
+        "max_floor_area_m2": float(args.front3d_precheck_max_floor_area),
+        "max_floorplan_pixels": int(args.front3d_precheck_max_floorplan_pixels),
+        "max_placement_extent_m": float(args.front3d_precheck_max_placement_extent),
+        "max_invalid_placements": int(args.front3d_precheck_max_invalid_placements),
+        "max_outside_placements": int(args.front3d_precheck_max_outside_placements),
     }
 
 

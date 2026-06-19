@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import time
@@ -333,6 +334,10 @@ def dense_line_pixels(start_xy: tuple[int, int], end_xy: tuple[int, int]) -> lis
 
 
 def wall_segment_count(hits: list[bool]) -> int:
+    return min(wall_segment_count_raw(hits), 3)
+
+
+def wall_segment_count_raw(hits: list[bool]) -> int:
     count = 0
     in_wall = False
     for hit in hits:
@@ -341,7 +346,314 @@ def wall_segment_count(hits: list[bool]) -> int:
             in_wall = True
         elif not hit:
             in_wall = False
-    return min(count, 3)
+    return count
+
+
+def pair_wall_count_raw(
+    wall_mask: np.ndarray,
+    bs_pixel_xy: tuple[int, int],
+    ue_pixel_xy: tuple[int, int],
+) -> int:
+    height, width = wall_mask.shape
+    pixels = [
+        (x_value, y_value)
+        for x_value, y_value in dense_line_pixels(bs_pixel_xy, ue_pixel_xy)
+        if 0 <= x_value < width and 0 <= y_value < height
+    ]
+    return wall_segment_count_raw([bool(wall_mask[y_value, x_value]) for x_value, y_value in pixels])
+
+
+def stable_scene_seed(seed: int, scene_key: str) -> int:
+    digest = hashlib.sha256(f"{int(seed)}:{scene_key}".encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "little", signed=False) % (2**32)
+
+
+def load_label_ue_candidates(
+    scene_dir: Path,
+    free_like_mask: np.ndarray,
+    origin_xy_m: list[float],
+    extent_xy_m: list[float],
+    resolution_m: float,
+    *,
+    bs_label_name: str | None,
+    bs_label_glob: str | None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]:
+    label_files, selection = resolve_bs_label_files(scene_dir, bs_label_name, bs_label_glob)
+    height, width = free_like_mask.shape
+    pixel_values: list[tuple[int, int]] = []
+    meter_values: list[tuple[float, float]] = []
+    source_indices: list[int] = []
+    seen: set[tuple[int, int, int]] = set()
+    total_positions = 0
+    invalid_positions = 0
+    for label_file in label_files:
+        payload = read_json(label_file)
+        raw_points = payload.get("ue_points")
+        if isinstance(raw_points, list) and raw_points:
+            iterable = raw_points
+        else:
+            iterable = [{"position": position} for position in payload.get("ue_positions") or []]
+        for source_index, point in enumerate(iterable):
+            if not isinstance(point, dict):
+                continue
+            position = extract_position(point)
+            if position is None:
+                continue
+            total_positions += 1
+            x_px, y_px = world_to_pixel(position[0], position[1], origin_xy_m, extent_xy_m, resolution_m)
+            if not (0 <= x_px < width and 0 <= y_px < height and bool(free_like_mask[y_px, x_px])):
+                invalid_positions += 1
+                continue
+            key = (x_px, y_px, source_index)
+            if key in seen:
+                continue
+            seen.add(key)
+            pixel_values.append((x_px, y_px))
+            meter_values.append((float(position[0]), float(position[1])))
+            source_indices.append(source_index)
+    metadata = {
+        "source": "label" if pixel_values else "label_empty",
+        "label_selection": selection,
+        "total_positions": total_positions,
+        "valid_positions": len(pixel_values),
+        "invalid_positions": invalid_positions,
+    }
+    return (
+        np.asarray(pixel_values, dtype=np.int32).reshape((-1, 2)),
+        np.asarray(meter_values, dtype=np.float32).reshape((-1, 2)),
+        np.asarray(source_indices, dtype=np.int32),
+        metadata,
+    )
+
+
+def mask_ue_candidates(
+    free_like_mask: np.ndarray,
+    origin_xy_m: list[float],
+    extent_xy_m: list[float],
+    resolution_m: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]:
+    ys, xs = np.nonzero(free_like_mask)
+    pixel_values = np.stack([xs, ys], axis=1).astype(np.int32, copy=False)
+    min_x, min_y = float(origin_xy_m[0]), float(origin_xy_m[1])
+    max_y = min_y + float(extent_xy_m[1])
+    meter_values = np.stack(
+        [
+            min_x + xs.astype(np.float32) * float(resolution_m),
+            max_y - ys.astype(np.float32) * float(resolution_m),
+        ],
+        axis=1,
+    ).astype(np.float32, copy=False)
+    source_indices = np.arange(len(pixel_values), dtype=np.int32)
+    return pixel_values, meter_values, source_indices, {"source": "mask", "valid_positions": int(len(pixel_values))}
+
+
+def ue_candidates(
+    scene_dir: Path,
+    free_like_mask: np.ndarray,
+    origin_xy_m: list[float],
+    extent_xy_m: list[float],
+    resolution_m: float,
+    *,
+    bs_label_name: str | None,
+    bs_label_glob: str | None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]:
+    label_pixels, label_meters, label_indices, label_meta = load_label_ue_candidates(
+        scene_dir,
+        free_like_mask,
+        origin_xy_m,
+        extent_xy_m,
+        resolution_m,
+        bs_label_name=bs_label_name,
+        bs_label_glob=bs_label_glob,
+    )
+    if len(label_pixels):
+        return label_pixels, label_meters, label_indices, label_meta
+    mask_pixels, mask_meters, mask_indices, mask_meta = mask_ue_candidates(
+        free_like_mask,
+        origin_xy_m,
+        extent_xy_m,
+        resolution_m,
+    )
+    mask_meta["label_fallback"] = label_meta
+    return mask_pixels, mask_meters, mask_indices, mask_meta
+
+
+def choose_candidate_indices(rng: np.random.Generator, total: int, desired: int) -> np.ndarray:
+    if total <= 0:
+        return np.asarray([], dtype=np.int64)
+    desired = max(1, int(desired))
+    if desired >= total:
+        return np.arange(total, dtype=np.int64)
+    return rng.choice(total, size=desired, replace=False).astype(np.int64, copy=False)
+
+
+def balanced_bucket_indices(buckets: np.ndarray, target_count: int, rng: np.random.Generator) -> np.ndarray:
+    target_count = max(1, int(target_count))
+    if len(buckets) == 0:
+        return np.asarray([], dtype=np.int64)
+    quota = np.full(4, target_count // 4, dtype=np.int32)
+    quota[: target_count % 4] += 1
+    selected: list[np.ndarray] = []
+    for bucket, take in enumerate(quota.tolist()):
+        if take <= 0:
+            continue
+        available = np.flatnonzero(buckets == bucket)
+        if len(available) == 0:
+            continue
+        selected.append(rng.choice(available, size=take, replace=len(available) < take).astype(np.int64, copy=False))
+    if selected:
+        result = np.concatenate(selected)
+    else:
+        result = np.asarray([], dtype=np.int64)
+    remaining = target_count - len(result)
+    if remaining > 0:
+        pool = np.arange(len(buckets), dtype=np.int64)
+        filler = rng.choice(pool, size=remaining, replace=len(pool) < remaining).astype(np.int64, copy=False)
+        result = np.concatenate([result, filler])
+    rng.shuffle(result)
+    return result
+
+
+def generate_pair_cache(
+    pair_cache_path: Path,
+    *,
+    scene_dir: Path,
+    scene_key: str,
+    scene_id: str | None,
+    wall_mask: np.ndarray,
+    free_like_mask: np.ndarray,
+    snapped_bs: list[SnappedBsPoint],
+    origin_xy_m: list[float],
+    extent_xy_m: list[float],
+    resolution_m: float,
+    target_pairs_per_scene: int,
+    ue_candidates_per_bs: int | None,
+    seed: int,
+    bs_label_filter: dict[str, Any],
+    bs_label_name: str | None,
+    bs_label_glob: str | None,
+) -> dict[str, Any]:
+    if not snapped_bs:
+        raise ValueError("no valid BS points after snapping")
+    ue_pixels, ue_meters, ue_indices, ue_meta = ue_candidates(
+        scene_dir,
+        free_like_mask,
+        origin_xy_m,
+        extent_xy_m,
+        resolution_m,
+        bs_label_name=bs_label_name,
+        bs_label_glob=bs_label_glob,
+    )
+    if len(ue_pixels) == 0:
+        raise ValueError("no valid UE candidates from label or free-like mask")
+
+    rng = np.random.default_rng(stable_scene_seed(seed, scene_key))
+    target_pairs = max(1, int(target_pairs_per_scene))
+    bs_count = len(snapped_bs)
+    base_pairs = target_pairs // bs_count
+    remainder = target_pairs % bs_count
+    default_candidates = max(1024, int(math.ceil(target_pairs / bs_count)) * 4)
+    candidate_count = int(ue_candidates_per_bs or default_candidates)
+
+    bs_xy_px_parts: list[np.ndarray] = []
+    ue_xy_px_parts: list[np.ndarray] = []
+    bs_xy_m_parts: list[np.ndarray] = []
+    ue_xy_m_parts: list[np.ndarray] = []
+    bs_index_parts: list[np.ndarray] = []
+    ue_index_parts: list[np.ndarray] = []
+    wall_raw_parts: list[np.ndarray] = []
+    bs_snap_distance_parts: list[np.ndarray] = []
+    bs_snapped_parts: list[np.ndarray] = []
+
+    for bs_index, bs in enumerate(snapped_bs):
+        pairs_for_bs = base_pairs + (1 if bs_index < remainder else 0)
+        if pairs_for_bs <= 0:
+            continue
+        candidate_indices = choose_candidate_indices(rng, len(ue_pixels), candidate_count)
+        candidate_pixels = ue_pixels[candidate_indices]
+        raw_counts = np.asarray(
+            [
+                pair_wall_count_raw(wall_mask, bs.pixel_xy, (int(ue_px[0]), int(ue_px[1])))
+                for ue_px in candidate_pixels
+            ],
+            dtype=np.uint16,
+        )
+        candidate_buckets = np.minimum(raw_counts, 3).astype(np.uint8, copy=False)
+        selected_local = balanced_bucket_indices(candidate_buckets, pairs_for_bs, rng)
+        selected_source = candidate_indices[selected_local]
+        selected_raw = raw_counts[selected_local]
+        selected_ue_pixels = ue_pixels[selected_source]
+        selected_ue_meters = ue_meters[selected_source]
+
+        bs_pixel = np.asarray(bs.pixel_xy, dtype=np.float32)
+        bs_meter_xy = np.asarray(pixel_to_world(bs.pixel_xy[0], bs.pixel_xy[1], origin_xy_m, extent_xy_m, resolution_m), dtype=np.float32)
+        bs_xy_px_parts.append(np.repeat(bs_pixel[None, :], len(selected_source), axis=0))
+        ue_xy_px_parts.append(selected_ue_pixels.astype(np.float32, copy=False))
+        bs_xy_m_parts.append(np.repeat(bs_meter_xy[None, :], len(selected_source), axis=0))
+        ue_xy_m_parts.append(selected_ue_meters.astype(np.float32, copy=False))
+        bs_index_parts.append(np.full(len(selected_source), bs_index, dtype=np.int32))
+        ue_index_parts.append(ue_indices[selected_source].astype(np.int32, copy=False))
+        wall_raw_parts.append(selected_raw)
+        bs_snap_distance_parts.append(np.full(len(selected_source), bs.snap_distance_m, dtype=np.float32))
+        bs_snapped_parts.append(np.full(len(selected_source), 1 if bs.snapped else 0, dtype=np.uint8))
+
+    if not wall_raw_parts:
+        raise ValueError("pair cache sampling produced no pairs")
+
+    bs_xy_px = np.concatenate(bs_xy_px_parts).astype(np.float32, copy=False)
+    ue_xy_px = np.concatenate(ue_xy_px_parts).astype(np.float32, copy=False)
+    bs_xy_m = np.concatenate(bs_xy_m_parts).astype(np.float32, copy=False)
+    ue_xy_m = np.concatenate(ue_xy_m_parts).astype(np.float32, copy=False)
+    wall_count_raw = np.concatenate(wall_raw_parts).astype(np.uint16, copy=False)
+    bucket = np.minimum(wall_count_raw, 3).astype(np.uint8, copy=False)
+    pair_los = (bucket == 0).astype(np.uint8)
+    pair_distance_m = np.linalg.norm(ue_xy_m - bs_xy_m, axis=1).astype(np.float32, copy=False)
+    pair_valid_mask = np.ones(len(bucket), dtype=np.uint8)
+    bs_index = np.concatenate(bs_index_parts).astype(np.int32, copy=False)
+    ue_index = np.concatenate(ue_index_parts).astype(np.int32, copy=False)
+    bs_snap_distance_m = np.concatenate(bs_snap_distance_parts).astype(np.float32, copy=False)
+    bs_snapped = np.concatenate(bs_snapped_parts).astype(np.uint8, copy=False)
+    order = rng.permutation(len(bucket))
+
+    bucket_counts = {str(index): int(count) for index, count in enumerate(np.bincount(bucket, minlength=4).tolist())}
+    metadata = {
+        "schema_version": "scenegen.pair_cache.v1",
+        "scene_key": scene_key,
+        "scene_id": scene_id,
+        "generated_at": utc_now_iso(),
+        "target_pairs_per_scene": target_pairs,
+        "pair_count": int(len(order)),
+        "bucket_counts": bucket_counts,
+        "bs_count": bs_count,
+        "ue_candidate_count": int(len(ue_pixels)),
+        "ue_candidates_per_bs": candidate_count,
+        "ue_source": ue_meta,
+        "bs_label_filter": bs_label_filter,
+    }
+    np.savez_compressed(
+        pair_cache_path,
+        scene_id=np.asarray(scene_id or "", dtype=np.str_),
+        metadata_json=np.asarray(json.dumps(metadata, ensure_ascii=False, sort_keys=True), dtype=np.str_),
+        bs_xy_px=bs_xy_px[order],
+        ue_xy_px=ue_xy_px[order],
+        bs_xy_m=bs_xy_m[order],
+        ue_xy_m=ue_xy_m[order],
+        pair_los=pair_los[order],
+        pair_wall_count=bucket[order],
+        pair_distance_m=pair_distance_m[order],
+        pair_valid_mask=pair_valid_mask[order],
+        bs_index=bs_index[order],
+        ue_index=ue_index[order],
+        wall_count_raw=wall_count_raw[order],
+        bucket=bucket[order],
+        bs_snap_distance_m=bs_snap_distance_m[order],
+        bs_snapped=bs_snapped[order],
+    )
+    return {
+        "pair_count": int(len(order)),
+        "bucket_counts": bucket_counts,
+        "ue_candidate_count": int(len(ue_pixels)),
+    }
 
 
 def propagation_maps(
@@ -408,13 +720,24 @@ def generate_maps_for_scene(
     snap_radius_m: float,
     bs_label_name: str | None = None,
     bs_label_glob: str | None = None,
+    pair_cache_enabled: bool = True,
+    target_pairs_per_scene: int = 4096,
+    ue_candidates_per_bs: int | None = None,
+    pair_cache_seed: int = 0,
+    write_propagation: bool = False,
     overwrite: bool,
 ) -> dict[str, Any]:
     maps_dir = scene_dir / "maps"
     geometry_path = maps_dir / "geometry.npz"
     propagation_path = maps_dir / "propagation.npz"
+    pair_cache_path = maps_dir / "pair_cache.npz"
     metadata_path = maps_dir / "metadata.json"
-    if maps_dir.exists() and not overwrite and geometry_path.exists() and propagation_path.exists() and metadata_path.exists():
+    required_outputs = [geometry_path, metadata_path]
+    if pair_cache_enabled:
+        required_outputs.append(pair_cache_path)
+    if write_propagation:
+        required_outputs.append(propagation_path)
+    if maps_dir.exists() and not overwrite and all(path.exists() for path in required_outputs):
         return {
             "scene_key": scene_dir.name,
             "status": "skipped",
@@ -436,17 +759,6 @@ def generate_maps_for_scene(
         raise ValueError("no valid BS points after snapping")
 
     sdf, sdf_valid_mask = sdf_from_class_mask(class_mask, r_max_m, resolution)
-    los_maps, wall_count_maps, ue_valid_mask = propagation_maps(
-        wall_mask,
-        free_like_mask,
-        [point.pixel_xy for point in snapped_bs],
-        los_stride_pixels,
-    )
-    if np.any((los_maps == 1) & (wall_count_maps != 0)):
-        raise ValueError("LoS/wall-count consistency failed: los=1 with wall_count!=0")
-    if np.any((wall_count_maps > 0) & (los_maps != 0)):
-        raise ValueError("LoS/wall-count consistency failed: wall_count>0 with los!=0")
-
     maps_dir.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
         geometry_path,
@@ -457,23 +769,70 @@ def generate_maps_for_scene(
         height=np.asarray(class_mask.shape[0], dtype=np.int32),
         width=np.asarray(class_mask.shape[1], dtype=np.int32),
     )
-    bs_coords_px = np.asarray([point.pixel_xy for point in snapped_bs], dtype=np.float32)
-    bs_coords_m = np.asarray(
-        [pixel_to_world(point.pixel_xy[0], point.pixel_xy[1], origin_xy_m, extent_xy_m, resolution) for point in snapped_bs],
-        dtype=np.float32,
-    )
-    np.savez_compressed(
-        propagation_path,
-        bs_coords_px=bs_coords_px,
-        bs_coords_m=bs_coords_m,
-        los_maps=los_maps,
-        wall_count_maps=wall_count_maps,
-        ue_valid_mask=ue_valid_mask,
-        los_stride_pixels=np.asarray(los_stride_pixels, dtype=np.int32),
-        meter_per_pixel=np.asarray(resolution, dtype=np.float32),
-        height=np.asarray(class_mask.shape[0], dtype=np.int32),
-        width=np.asarray(class_mask.shape[1], dtype=np.int32),
-    )
+
+    pair_cache_info: dict[str, Any] | None = None
+    if pair_cache_enabled:
+        pair_cache_info = generate_pair_cache(
+            pair_cache_path,
+            scene_dir=scene_dir,
+            scene_key=scene_dir.name,
+            scene_id=class_meta.get("scene_id"),
+            wall_mask=wall_mask,
+            free_like_mask=free_like_mask,
+            snapped_bs=snapped_bs,
+            origin_xy_m=origin_xy_m,
+            extent_xy_m=extent_xy_m,
+            resolution_m=resolution,
+            target_pairs_per_scene=target_pairs_per_scene,
+            ue_candidates_per_bs=ue_candidates_per_bs,
+            seed=pair_cache_seed,
+            bs_label_filter=bs_label_filter,
+            bs_label_name=bs_label_name,
+            bs_label_glob=bs_label_glob,
+        )
+
+    propagation_info: dict[str, Any] | None = None
+    if write_propagation:
+        los_maps, wall_count_maps, ue_valid_mask = propagation_maps(
+            wall_mask,
+            free_like_mask,
+            [point.pixel_xy for point in snapped_bs],
+            los_stride_pixels,
+        )
+        if np.any((los_maps == 1) & (wall_count_maps != 0)):
+            raise ValueError("LoS/wall-count consistency failed: los=1 with wall_count!=0")
+        if np.any((wall_count_maps > 0) & (los_maps != 0)):
+            raise ValueError("LoS/wall-count consistency failed: wall_count>0 with los!=0")
+        bs_coords_px = np.asarray([point.pixel_xy for point in snapped_bs], dtype=np.float32)
+        bs_coords_m = np.asarray(
+            [
+                pixel_to_world(point.pixel_xy[0], point.pixel_xy[1], origin_xy_m, extent_xy_m, resolution)
+                for point in snapped_bs
+            ],
+            dtype=np.float32,
+        )
+        np.savez_compressed(
+            propagation_path,
+            bs_coords_px=bs_coords_px,
+            bs_coords_m=bs_coords_m,
+            los_maps=los_maps,
+            wall_count_maps=wall_count_maps,
+            ue_valid_mask=ue_valid_mask,
+            los_stride_pixels=np.asarray(los_stride_pixels, dtype=np.int32),
+            meter_per_pixel=np.asarray(resolution, dtype=np.float32),
+            height=np.asarray(class_mask.shape[0], dtype=np.int32),
+            width=np.asarray(class_mask.shape[1], dtype=np.int32),
+        )
+        propagation_info = {
+            "ue_valid_grid": int(ue_valid_mask.sum()),
+            "los_positive": int(los_maps.sum()),
+            "wall_count_positive": int((wall_count_maps > 0).sum()),
+            "shapes": {
+                "los_maps": list(los_maps.shape),
+                "wall_count_maps": list(wall_count_maps.shape),
+                "ue_valid_mask": list(ue_valid_mask.shape),
+            },
+        }
 
     metadata = {
         "schema_version": "scenegen.derived_maps.v1",
@@ -493,6 +852,11 @@ def generate_maps_for_scene(
             "snap_radius_m": snap_radius_m,
             "sdf_storage": "float16_normalized",
             "bs_label_filter": bs_label_filter,
+            "pair_cache_enabled": pair_cache_enabled,
+            "target_pairs_per_scene": target_pairs_per_scene,
+            "ue_candidates_per_bs": ue_candidates_per_bs,
+            "pair_cache_seed": pair_cache_seed,
+            "write_propagation": write_propagation,
         },
         "bs_points": [
             {
@@ -510,24 +874,36 @@ def generate_maps_for_scene(
         "counts": {
             "bs": len(snapped_bs),
             "skipped_bs": len(skipped_bs),
-            "ue_valid_grid": int(ue_valid_mask.sum()),
-            "los_positive": int(los_maps.sum()),
-            "wall_count_positive": int((wall_count_maps > 0).sum()),
+            "free_like_pixels": int(free_like_mask.sum()),
             "sdf_valid_pixels": int(sdf_valid_mask.sum()),
+            **(
+                {
+                    "pair_count": pair_cache_info["pair_count"],
+                    "pair_bucket_counts": pair_cache_info["bucket_counts"],
+                    "ue_candidate_count": pair_cache_info["ue_candidate_count"],
+                }
+                if pair_cache_info
+                else {}
+            ),
+            **(
+                {key: value for key, value in propagation_info.items() if key != "shapes"}
+                if propagation_info
+                else {}
+            ),
         },
         "shapes": {
             "sdf": list(sdf.shape),
-            "los_maps": list(los_maps.shape),
-            "wall_count_maps": list(wall_count_maps.shape),
-            "ue_valid_mask": list(ue_valid_mask.shape),
+            **((propagation_info or {}).get("shapes") or {}),
         },
         "files": {
             "geometry": portable_path(geometry_path, scene_dir),
-            "propagation": portable_path(propagation_path, scene_dir),
+            **({"pair_cache": portable_path(pair_cache_path, scene_dir)} if pair_cache_enabled else {}),
+            **({"propagation": portable_path(propagation_path, scene_dir)} if write_propagation else {}),
         },
         "file_stats": {
             "geometry": checksum_summary(geometry_path),
-            "propagation": checksum_summary(propagation_path),
+            **({"pair_cache": checksum_summary(pair_cache_path)} if pair_cache_enabled else {}),
+            **({"propagation": checksum_summary(propagation_path)} if write_propagation else {}),
         },
         "elapsed_s": round(time.perf_counter() - start, 6),
     }
@@ -538,11 +914,13 @@ def generate_maps_for_scene(
         "status": "generated",
         "maps_dir": portable_path(maps_dir, run_dir),
         "geometry": portable_path(geometry_path, run_dir),
-        "propagation": portable_path(propagation_path, run_dir),
+        **({"pair_cache": portable_path(pair_cache_path, run_dir)} if pair_cache_enabled else {}),
+        **({"propagation": portable_path(propagation_path, run_dir)} if write_propagation else {}),
         "metadata": portable_path(metadata_path, run_dir),
         "bs_count": len(snapped_bs),
         "skipped_bs_count": len(skipped_bs),
-        "ue_valid_grid_count": int(ue_valid_mask.sum()),
+        **({"pair_count": pair_cache_info["pair_count"]} if pair_cache_info else {}),
+        **({"bucket_counts": pair_cache_info["bucket_counts"]} if pair_cache_info else {}),
         "elapsed_s": round(time.perf_counter() - start, 6),
     }
 
@@ -569,6 +947,11 @@ def process_scene_job(job: dict[str, Any]) -> dict[str, Any]:
             snap_radius_m=float(job["snap_radius_m"]),
             bs_label_name=job.get("bs_label_name"),
             bs_label_glob=job.get("bs_label_glob"),
+            pair_cache_enabled=bool(job["pair_cache_enabled"]),
+            target_pairs_per_scene=int(job["target_pairs_per_scene"]),
+            ue_candidates_per_bs=job.get("ue_candidates_per_bs"),
+            pair_cache_seed=int(job["pair_cache_seed"]),
+            write_propagation=bool(job["write_propagation"]),
             overwrite=bool(job["overwrite"]),
         )
     except Exception as exc:  # noqa: BLE001 - keep batch post-processing robust.
@@ -608,6 +991,11 @@ def run_derived_maps(
     snap_radius_m: float = 0.25,
     bs_label_name: str | None = None,
     bs_label_glob: str | None = None,
+    pair_cache_enabled: bool = True,
+    target_pairs_per_scene: int = 4096,
+    ue_candidates_per_bs: int | None = None,
+    pair_cache_seed: int = 0,
+    write_propagation: bool = False,
     overwrite: bool = False,
     workers: int = 1,
     log_every: int = 25,
@@ -630,6 +1018,11 @@ def run_derived_maps(
             "snap_radius_m": snap_radius_m,
             "bs_label_name": bs_label_name,
             "bs_label_glob": bs_label_glob,
+            "pair_cache_enabled": pair_cache_enabled,
+            "target_pairs_per_scene": target_pairs_per_scene,
+            "ue_candidates_per_bs": ue_candidates_per_bs,
+            "pair_cache_seed": pair_cache_seed,
+            "write_propagation": write_propagation,
             "overwrite": overwrite,
         }
         for index, scene_dir in enumerate(candidates, start=1)
@@ -673,6 +1066,11 @@ def run_derived_maps(
             "snap_radius_m": snap_radius_m,
             "bs_label_name": bs_label_name,
             "bs_label_glob": bs_label_glob,
+            "pair_cache_enabled": pair_cache_enabled,
+            "target_pairs_per_scene": target_pairs_per_scene,
+            "ue_candidates_per_bs": ue_candidates_per_bs,
+            "pair_cache_seed": pair_cache_seed,
+            "write_propagation": write_propagation,
             "furniture_as_free": True,
             "workers": workers,
         },
@@ -715,6 +1113,29 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Read BS points from label files matching this glob under each scene label/ directory.",
     )
+    parser.add_argument(
+        "--disable-pair-cache",
+        action="store_true",
+        help="Do not write maps/pair_cache.npz. By default pair cache generation is enabled.",
+    )
+    parser.add_argument(
+        "--target-pairs-per-scene",
+        type=int,
+        default=4096,
+        help="Target number of balanced BS-UE pair labels to cache per scene.",
+    )
+    parser.add_argument(
+        "--ue-candidates-per-bs",
+        type=int,
+        default=None,
+        help="Number of UE candidates ray-tested per BS before bucket-balanced sampling. Default is derived from target pairs.",
+    )
+    parser.add_argument("--pair-cache-seed", type=int, default=0, help="Base seed for deterministic pair-cache sampling.")
+    parser.add_argument(
+        "--write-propagation",
+        action="store_true",
+        help="Also write legacy dense maps/propagation.npz. Disabled by default.",
+    )
     parser.add_argument("--overwrite", action="store_true", help="Regenerate scene maps even if maps files already exist.")
     parser.add_argument("--log-every", type=int, default=25, help="Print progress every N generated/skipped scenes. 0 disables.")
     parser.add_argument("--workers", type=int, default=1, help="Number of parallel scene workers. Default keeps legacy sequential mode.")
@@ -732,6 +1153,11 @@ def main() -> int:
         snap_radius_m=args.snap_radius_m,
         bs_label_name=args.bs_label_name,
         bs_label_glob=args.bs_label_glob,
+        pair_cache_enabled=not args.disable_pair_cache,
+        target_pairs_per_scene=args.target_pairs_per_scene,
+        ue_candidates_per_bs=args.ue_candidates_per_bs,
+        pair_cache_seed=args.pair_cache_seed,
+        write_propagation=args.write_propagation,
         overwrite=args.overwrite,
         workers=args.workers,
         log_every=args.log_every,

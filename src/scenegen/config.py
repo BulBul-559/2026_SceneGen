@@ -49,6 +49,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "min_placements": 1,
             "max_z_m": 8.0,
             "max_footprint_ratio": 5.0,
+            "max_bbox_xy_m": 250.0,
+            "max_floor_area_m2": 5000.0,
+            "max_floorplan_pixels": 80_000_000,
+            "max_placement_extent_m": 200.0,
+            "max_invalid_placements": 0,
+            "max_outside_placements": 0,
         },
         "openings": {
             "mode": "doors",
@@ -419,10 +425,17 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "r_max_m": 3.0,
             "los_stride_px": 4,
             "snap_radius_m": 0.25,
+            "write_propagation": False,
             "bs_label": {
                 "mode": "first",
                 "name": None,
                 "glob": None,
+            },
+            "pair_cache": {
+                "enabled": True,
+                "target_pairs_per_scene": 4096,
+                "ue_candidates_per_bs": None,
+                "seed": 0,
             },
         },
         "dataset": {
@@ -438,6 +451,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "workers": 1,
         "scheduler": "hybrid",
         "max_retries": 1,
+        "task_timeout_s": None,
     },
     "runtime": {
         "batch_child": False,
@@ -1033,6 +1047,12 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     precheck["min_placements"] = int(precheck["min_placements"])
     precheck["max_z_m"] = float(precheck["max_z_m"])
     precheck["max_footprint_ratio"] = float(precheck["max_footprint_ratio"])
+    precheck["max_bbox_xy_m"] = float(precheck["max_bbox_xy_m"])
+    precheck["max_floor_area_m2"] = float(precheck["max_floor_area_m2"])
+    precheck["max_floorplan_pixels"] = int(precheck["max_floorplan_pixels"])
+    precheck["max_placement_extent_m"] = float(precheck["max_placement_extent_m"])
+    precheck["max_invalid_placements"] = int(precheck["max_invalid_placements"])
+    precheck["max_outside_placements"] = int(precheck["max_outside_placements"])
 
     openings = front3d["openings"]
     openings["mode"] = str(openings["mode"])
@@ -1247,10 +1267,19 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     maps["r_max_m"] = float(maps["r_max_m"])
     maps["los_stride_px"] = int(maps["los_stride_px"])
     maps["snap_radius_m"] = float(maps["snap_radius_m"])
+    maps["write_propagation"] = as_bool(maps["write_propagation"], "postprocess.maps.write_propagation")
     bs_label = maps["bs_label"]
     bs_label["mode"] = str(bs_label["mode"])
     bs_label["name"] = normalize_optional_string(bs_label["name"], "postprocess.maps.bs_label.name")
     bs_label["glob"] = normalize_optional_string(bs_label["glob"], "postprocess.maps.bs_label.glob")
+    pair_cache = maps["pair_cache"]
+    pair_cache["enabled"] = as_bool(pair_cache["enabled"], "postprocess.maps.pair_cache.enabled")
+    pair_cache["target_pairs_per_scene"] = int(pair_cache["target_pairs_per_scene"])
+    pair_cache["ue_candidates_per_bs"] = normalize_optional_int(
+        pair_cache["ue_candidates_per_bs"],
+        "postprocess.maps.pair_cache.ue_candidates_per_bs",
+    )
+    pair_cache["seed"] = int(pair_cache["seed"])
 
     dataset = postprocess["dataset"]
     dataset["enabled"] = as_bool(dataset["enabled"], "postprocess.dataset.enabled")
@@ -1264,6 +1293,7 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     batch["workers"] = int(batch["workers"])
     batch["scheduler"] = str(batch["scheduler"])
     batch["max_retries"] = int(batch["max_retries"])
+    batch["task_timeout_s"] = None if batch["task_timeout_s"] is None else float(batch["task_timeout_s"])
     return normalized
 
 
@@ -1508,6 +1538,18 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("front3d.precheck.max_z_m must be positive")
     if precheck["max_footprint_ratio"] <= 0:
         raise ValueError("front3d.precheck.max_footprint_ratio must be positive")
+    if precheck["max_bbox_xy_m"] <= 0:
+        raise ValueError("front3d.precheck.max_bbox_xy_m must be positive")
+    if precheck["max_floor_area_m2"] <= 0:
+        raise ValueError("front3d.precheck.max_floor_area_m2 must be positive")
+    if precheck["max_floorplan_pixels"] < 1:
+        raise ValueError("front3d.precheck.max_floorplan_pixels must be at least 1")
+    if precheck["max_placement_extent_m"] <= 0:
+        raise ValueError("front3d.precheck.max_placement_extent_m must be positive")
+    if precheck["max_invalid_placements"] < 0:
+        raise ValueError("front3d.precheck.max_invalid_placements must be non-negative")
+    if precheck["max_outside_placements"] < 0:
+        raise ValueError("front3d.precheck.max_outside_placements must be non-negative")
     openings = front3d["openings"]
     if openings["mode"] not in {"none", "doors", "windows", "doors_and_windows"}:
         raise ValueError("front3d.openings.mode must be 'none', 'doors', 'windows', or 'doors_and_windows'")
@@ -1636,6 +1678,11 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("postprocess.maps.los_stride_px must be at least 1")
     if maps["snap_radius_m"] < 0:
         raise ValueError("postprocess.maps.snap_radius_m must be non-negative")
+    pair_cache = maps["pair_cache"]
+    if pair_cache["target_pairs_per_scene"] < 1:
+        raise ValueError("postprocess.maps.pair_cache.target_pairs_per_scene must be at least 1")
+    if pair_cache["ue_candidates_per_bs"] is not None and pair_cache["ue_candidates_per_bs"] < 1:
+        raise ValueError("postprocess.maps.pair_cache.ue_candidates_per_bs must be null or at least 1")
     bs_label = maps["bs_label"]
     if bs_label["mode"] not in {"first", "name", "glob"}:
         raise ValueError("postprocess.maps.bs_label.mode must be 'first', 'name', or 'glob'")
@@ -1657,6 +1704,8 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("batch.scheduler must be 'dynamic', 'hybrid', or 'static'")
     if batch["max_retries"] < 0:
         raise ValueError("batch.max_retries must be non-negative")
+    if batch["task_timeout_s"] is not None and batch["task_timeout_s"] <= 0:
+        raise ValueError("batch.task_timeout_s must be positive or null")
 
 
 def save_effective_config(path: Path, config: dict[str, Any]) -> None:
@@ -1724,6 +1773,12 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         front3d_precheck_min_placements=precheck["min_placements"],
         front3d_precheck_max_z=precheck["max_z_m"],
         front3d_precheck_max_footprint_ratio=precheck["max_footprint_ratio"],
+        front3d_precheck_max_bbox_xy=precheck["max_bbox_xy_m"],
+        front3d_precheck_max_floor_area=precheck["max_floor_area_m2"],
+        front3d_precheck_max_floorplan_pixels=precheck["max_floorplan_pixels"],
+        front3d_precheck_max_placement_extent=precheck["max_placement_extent_m"],
+        front3d_precheck_max_invalid_placements=precheck["max_invalid_placements"],
+        front3d_precheck_max_outside_placements=precheck["max_outside_placements"],
         min_tables=placement["tables"][0],
         max_tables=placement["tables"][1],
         floor_extras=placement["floor_extras"],

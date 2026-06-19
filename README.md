@@ -2,7 +2,7 @@
 
 SceneGen 是一个面向 Linux 环境的轻量级室内场景生成项目。它基于空场景和归一化资产，随机生成带家具、桌椅、小物件的 3D 场景，并同步导出 Sionna/Mitsuba 可加载的场景文件和平面图。
 
-当前项目版本：`3.39.0`。
+当前项目版本：`4.0.0`。
 
 当前主工作流包括 Bistro 场景生成、3D-FRONT 已组合场景合成，以及实验性的自动场景生成：Bistro 以 `data/scene/scene.obj` 作为空场景，以 `data/catalogs/bistro.v1.json` 管理资产契约；3D-FRONT 以第一阶段整理出的 `data/3D-Front/scenegen_manifest.json` 为索引，合并建筑结构和已有家具实例；`procedural_front3d` 会自动采样多房间户型，并从 3D-FUTURE/3D-FRONT 资产池中摆放家具。`data/assets/manifest.json` 仍保留为兼容位置，但内容已经与 catalog 使用同一份清洗后的契约。
 
@@ -204,7 +204,7 @@ uv run scenegen --config config/procedural_front3d.yaml --set pipeline.scenes=1 
 uv run scenegen --config config/tasks/front3d_full_simulation.yaml --set pipeline.scenes=1 --set pipeline.run_name=front3d_full_sample
 ```
 
-该模板是专门合成 Front3D 全量场景的生产模板，只保留 Front3D 生产相关配置段，不包含 Bistro 和程序化随机生成配置。它默认按 `front3d.select: sequential` 顺序合成 `6813` 个场景，`batch.workers: 24`，并打开 label、geometry sampling floorplan、class mask 和 mesh furniture mask。`label.ue.sampling.strategies` 默认包含 `[panel, walk]`，`label.ue.sampling.grid_m` 默认包含 `[0.1, 0.2, 0.5]`。label 可行域 mask 默认以 `label.ue.sampling.mask_resolution_m: 0.05` 构建，不同 UE 间隔只在这张高精度 mask 上抽样。
+该模板是专门合成 Front3D 全量场景的生产模板，只保留 Front3D 生产相关配置段，不包含 Bistro 和程序化随机生成配置。它默认按 `front3d.select: sequential` 顺序合成 `6813` 个场景，`batch.workers: 24`，`batch.task_timeout_s: 600`，并打开 label、geometry sampling floorplan、class mask 和 mesh furniture mask。`label.ue.sampling.strategies` 默认包含 `[panel, walk]`，`label.ue.sampling.grid_m` 默认包含 `[0.1, 0.2, 0.5]`。label 可行域 mask 默认以 `label.ue.sampling.mask_resolution_m: 0.05` 构建，不同 UE 间隔只在这张高精度 mask 上抽样。
 
 自动场景生成的大规模生产模板：
 
@@ -212,7 +212,9 @@ uv run scenegen --config config/tasks/front3d_full_simulation.yaml --set pipelin
 uv run scenegen --config config/tasks/procedural_front3d_full_simulation.yaml --set pipeline.scenes=1 --set pipeline.run_name=procedural_front3d_full_sample
 ```
 
-如果要在同一个 batch 中同步生成 derived maps 并整理 compact vision dataset，开启 `postprocess`：
+该模板定位为随机生成数据的任务级配置，只保留 3D-FUTURE 家具池来源、`procedural` 户型/摆放规则、label、floorplan、postprocess 和 batch 等生成链路相关字段；Bistro 字段和复现已有 Front3D 场景的 scene selection/precheck 字段不会出现在这个模板中。它默认使用 `batch.workers: 24`、`batch.task_timeout_s: 600`，BS 数量策略和 Front3D 全量模板一致，使用 `label.bs.count.strategy: area_adaptive` 按房间面积自适应生成。
+
+如果要在同一个 batch 中同步生成 `geometry.npz`、BS-UE `pair_cache.npz` 并整理 compact vision dataset，开启 `postprocess`：
 
 ```bash
 uv run scenegen-batch \
@@ -307,7 +309,7 @@ batch/
   worker_runs/
 ```
 
-开启 `postprocess.maps.enabled` 后，每个成功 scene 会额外得到 `maps/geometry.npz`、`maps/propagation.npz` 和 `maps/metadata.json`。开启 `postprocess.dataset.enabled` 后，默认会在 `datasets/<run_name>_vision/` 下构建 compact vision dataset，只保留训练需要的 floorplan、mask、derived maps、BS label 和 metadata。
+开启 `postprocess.maps.enabled` 后，每个成功 scene 会额外得到 `maps/geometry.npz`、`maps/pair_cache.npz` 和 `maps/metadata.json`。`pair_cache.npz` 按 scene 缓存 bucket-balanced BS-UE pair 标签，包含像素/米制坐标、LoS、截断/原始穿墙段数、距离和 BS snap 信息；旧版 dense `maps/propagation.npz` 默认不再写出，可用 `postprocess.maps.write_propagation=true` 显式保留。开启 `postprocess.dataset.enabled` 后，默认会在 `datasets/<run_name>_vision/` 下构建 compact vision dataset，只保留训练需要的 floorplan、mask、geometry、pair cache、BS label 和 metadata。
 
 `manifest_batch.json`、`manifest.json` 和 `manifest_<mode>.json` 会在 batch 完成后统一汇总最终发布到 run 根目录的标准场景目录，例如 `front3d_0000/` 或 `procedural_front3d_0000/`。
 

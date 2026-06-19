@@ -41,6 +41,75 @@ class TaskProcessError(RuntimeError):
         self.stderr = stderr
 
 
+class TaskTimeoutError(TaskProcessError):
+    def __init__(
+        self,
+        *,
+        timeout_s: float,
+        returncode: int,
+        command: list[str],
+        stdout: str,
+        stderr: str,
+        killed_after_terminate: bool,
+    ):
+        super().__init__(returncode, command, stdout, stderr)
+        self.timeout_s = timeout_s
+        self.killed_after_terminate = killed_after_terminate
+
+    def __str__(self) -> str:
+        detail = "killed after terminate grace period" if self.killed_after_terminate else "terminated"
+        return f"scenegen task timed out after {self.timeout_s:g}s and was {detail}"
+
+
+@dataclass(frozen=True)
+class TaskSubprocessResult:
+    returncode: int
+    stdout: str
+    stderr: str
+
+
+def run_task_subprocess(
+    command: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    timeout_s: float | None,
+    terminate_grace_s: float = 30.0,
+) -> TaskSubprocessResult:
+    if timeout_s is None:
+        process = subprocess.run(command, cwd=cwd, env=env, text=True, capture_output=True, check=False)
+        return TaskSubprocessResult(returncode=process.returncode, stdout=process.stdout, stderr=process.stderr)
+
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        process.terminate()
+        killed_after_terminate = False
+        try:
+            stdout, stderr = process.communicate(timeout=terminate_grace_s)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            killed_after_terminate = True
+            stdout, stderr = process.communicate()
+        raise TaskTimeoutError(
+            timeout_s=timeout_s,
+            returncode=process.returncode if process.returncode is not None else -9,
+            command=command,
+            stdout=stdout or "",
+            stderr=stderr or "",
+            killed_after_terminate=killed_after_terminate,
+        ) from None
+    return TaskSubprocessResult(returncode=process.returncode, stdout=stdout or "", stderr=stderr or "")
+
+
 def now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -312,6 +381,7 @@ def run_task(
     worker_id: str,
     task: dict[str, Any],
     attempt_no: int,
+    task_timeout_s: float | None,
 ) -> dict[str, Any]:
     start = time.perf_counter()
     worker_plain_log = paths.workers / f"{worker_id}.log"
@@ -343,7 +413,36 @@ def run_task(
     env = os.environ.copy()
     src_path = str(repo_root / "src")
     env["PYTHONPATH"] = f"{src_path}:{env['PYTHONPATH']}" if env.get("PYTHONPATH") else src_path
-    process = subprocess.run(command, cwd=repo_root, env=env, text=True, capture_output=True, check=False)
+    try:
+        process = run_task_subprocess(command, cwd=repo_root, env=env, timeout_s=task_timeout_s)
+    except TaskTimeoutError as exc:
+        duration_s = round(time.perf_counter() - start, 6)
+        with worker_plain_log.open("a", encoding="utf-8") as handle:
+            handle.write(f"\n=== {now_iso()} {task['task_id']} attempt {attempt_no} timeout {exc.returncode} ===\n")
+            handle.write("COMMAND: " + " ".join(command) + "\n")
+            handle.write(f"TIMEOUT_S: {exc.timeout_s:g}\n")
+            handle.write(f"KILLED_AFTER_TERMINATE: {exc.killed_after_terminate}\n")
+            handle.write("--- stdout ---\n")
+            handle.write(exc.stdout)
+            handle.write("\n--- stderr ---\n")
+            handle.write(exc.stderr)
+            handle.write("\n")
+        append_jsonl(
+            paths.timings,
+            {
+                "schema_version": "scenegen.batch.timing.v1",
+                "ts": now_iso(),
+                "worker_id": worker_id,
+                "task_id": task["task_id"],
+                "scene_key": task["scene_key"],
+                "stage": "task_subprocess",
+                "attempt_no": attempt_no,
+                "status": "timeout",
+                "duration_ms": round(duration_s * 1000.0, 3),
+                "timeout_s": exc.timeout_s,
+            },
+        )
+        raise
     duration_s = round(time.perf_counter() - start, 6)
     with worker_plain_log.open("a", encoding="utf-8") as handle:
         handle.write(f"\n=== {now_iso()} {task['task_id']} attempt {attempt_no} exit {process.returncode} ===\n")
@@ -453,6 +552,8 @@ def write_task_failure(paths: BatchPaths, worker_id: str, task: dict[str, Any], 
         "stderr_file": str(stderr_path.relative_to(paths.run_dir)) if stderr_path.is_file() else None,
         "returncode": exc.returncode if isinstance(exc, TaskProcessError) else None,
         "command": exc.command if isinstance(exc, TaskProcessError) else None,
+        "timeout_s": exc.timeout_s if isinstance(exc, TaskTimeoutError) else None,
+        "killed_after_terminate": exc.killed_after_terminate if isinstance(exc, TaskTimeoutError) else None,
         "stdout_tail": exc.stdout[-4000:] if isinstance(exc, TaskProcessError) else None,
         "stderr_tail": exc.stderr[-4000:] if isinstance(exc, TaskProcessError) else None,
     }
@@ -472,6 +573,7 @@ def worker_loop(
     raw_set_values: list[str],
     paths: BatchPaths,
     max_retries: int,
+    task_timeout_s: float | None,
     state: dict[str, Any],
     state_lock: threading.Lock,
 ) -> list[dict[str, Any]]:
@@ -555,6 +657,7 @@ def worker_loop(
                         worker_id=worker_id,
                         task=task,
                         attempt_no=attempt_no,
+                        task_timeout_s=task_timeout_s,
                     )
                 except Exception as exc:
                     traceback_file = write_task_failure(paths, worker_id, task, attempt_no, exc)
@@ -618,6 +721,7 @@ def build_final_manifest(
     records: list[dict[str, Any]],
     workers: int,
     max_retries: int,
+    task_timeout_s: float | None,
     scheduler: str,
 ) -> dict[str, Any]:
     mode = str(effective_config["pipeline"]["mode"])
@@ -660,6 +764,7 @@ def build_final_manifest(
         "workers": workers,
         "scheduler": scheduler,
         "max_retries": max_retries,
+        "task_timeout_s": task_timeout_s,
         "requested_scenes": effective_config["pipeline"]["scenes"],
         "succeeded_scenes": len(records),
         "failed_scenes": len(read_jsonl(paths.dead_letter)),
@@ -713,6 +818,8 @@ def main(argv: list[str] | None = None) -> int:
     workers = int(args.workers) if args.workers is not None else int(batch_config["workers"])
     scheduler = str(args.scheduler) if args.scheduler is not None else str(batch_config["scheduler"])
     max_retries = int(args.max_retries) if args.max_retries is not None else int(batch_config["max_retries"])
+    task_timeout_s = batch_config.get("task_timeout_s")
+    task_timeout_s = None if task_timeout_s is None else float(task_timeout_s)
     if workers < 1:
         raise ValueError("--workers must be at least 1")
     if max_retries < 0:
@@ -724,6 +831,7 @@ def main(argv: list[str] | None = None) -> int:
         "workers": workers,
         "scheduler": scheduler,
         "max_retries": max_retries,
+        "task_timeout_s": task_timeout_s,
     }
     run_name = effective_config["pipeline"]["run_name"] or make_timestamp()
     effective_config["pipeline"]["run_name"] = run_name
@@ -743,6 +851,7 @@ def main(argv: list[str] | None = None) -> int:
         "workers": workers,
         "scheduler": scheduler,
         "max_retries": max_retries,
+        "task_timeout_s": task_timeout_s,
         "run_dir": str(run_dir),
     }
     save_effective_config(run_dir / "effective_config.yaml", effective_config)
@@ -802,6 +911,7 @@ def main(argv: list[str] | None = None) -> int:
                 raw_set_values=list(args.set_values or []),
                 paths=paths,
                 max_retries=max_retries,
+                task_timeout_s=task_timeout_s,
                 state=state,
                 state_lock=state_lock,
             )
@@ -824,6 +934,7 @@ def main(argv: list[str] | None = None) -> int:
         records=records,
         workers=workers,
         max_retries=max_retries,
+        task_timeout_s=task_timeout_s,
         scheduler=scheduler,
     )
     failed_count = int(manifest["failed_scenes"])

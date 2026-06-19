@@ -144,6 +144,16 @@ def test_los_and_wall_count_maps_detect_single_and_double_walls() -> None:
     assert np.all(los[wall_counts > 0] == 0)
 
 
+def test_pair_wall_count_raw_counts_contiguous_wall_segments() -> None:
+    wall_mask = np.zeros((9, 11), dtype=bool)
+    wall_mask[1:8, 4] = True
+    wall_mask[1:8, 7] = True
+
+    assert derived.pair_wall_count_raw(wall_mask, (2, 4), (3, 4)) == 0
+    assert derived.pair_wall_count_raw(wall_mask, (2, 4), (5, 4)) == 1
+    assert derived.pair_wall_count_raw(wall_mask, (2, 4), (9, 4)) == 2
+
+
 def test_bs_world_to_pixel_conversion_and_snap() -> None:
     class_mask = np.full((8, 10), 2, dtype=np.uint8)
     class_mask[2, 2] = 3
@@ -194,10 +204,13 @@ def test_generate_maps_and_build_dataset_copy_only_training_files(tmp_path: Path
     )
     assert record["status"] == "generated"
     geometry = np.load(scene_dir / "maps" / "geometry.npz")
-    propagation = np.load(scene_dir / "maps" / "propagation.npz")
+    pair_cache = np.load(scene_dir / "maps" / "pair_cache.npz")
     assert geometry["sdf"].dtype == np.float16
-    assert propagation["los_maps"].shape == (1, 8, 10)
-    assert propagation["wall_count_maps"][0, 2, 7] > 0
+    assert pair_cache["bs_xy_px"].shape == (4096, 2)
+    assert pair_cache["ue_xy_px"].shape == (4096, 2)
+    assert pair_cache["pair_los"].shape == (4096,)
+    assert pair_cache["wall_count_raw"].max() > 0
+    assert np.all(pair_cache["pair_wall_count"] == np.minimum(pair_cache["wall_count_raw"], 3))
 
     dataset_dir = tmp_path / "dataset"
     dataset_record = dataset.build_scene_dataset_entry(scene_dir, dataset_dir, run_dir, overwrite=False)
@@ -209,7 +222,7 @@ def test_generate_maps_and_build_dataset_copy_only_training_files(tmp_path: Path
         "mask.png",
         "mask_preview.png",
         "geometry.npz",
-        "propagation.npz",
+        "pair_cache.npz",
         "label_bs.json",
         "metadata.json",
     }
@@ -217,6 +230,8 @@ def test_generate_maps_and_build_dataset_copy_only_training_files(tmp_path: Path
     label_bs = json.loads((target / "label_bs.json").read_text(encoding="utf-8"))
     assert label_bs["bs_count"] == 1
     assert label_bs["bs_points"][0]["label"] == "BS_A"
+    assert dataset_record["pair_cache_path"] == "front3d_0000/pair_cache.npz"
+    assert dataset_record["split"] == "train"
 
 
 def test_derived_maps_resume_skips_existing_maps(tmp_path: Path) -> None:
@@ -267,7 +282,7 @@ def test_batch_postprocess_generates_maps_dataset_and_logs(tmp_path: Path) -> No
     dataset_dir = tmp_path / "datasets" / "postprocess_fixture_vision"
     assert report["status"] == "completed"
     assert (run_dir / "front3d_0000" / "maps" / "geometry.npz").is_file()
-    assert (dataset_dir / "front3d_0000" / "propagation.npz").is_file()
+    assert (dataset_dir / "front3d_0000" / "pair_cache.npz").is_file()
     assert (run_dir / "batch" / "postprocess_state.json").is_file()
     assert (run_dir / "batch" / "postprocess_events.jsonl").is_file()
     assert (run_dir / "batch" / "postprocess_failures.jsonl").is_file()
@@ -298,7 +313,7 @@ def write_compact_dataset_scene(dataset_dir: Path, scene_key: str, scene_id: str
         "mask.png",
         "mask_preview.png",
         "geometry.npz",
-        "propagation.npz",
+        "pair_cache.npz",
     ]:
         (scene_dir / name).write_bytes(f"{scene_key}:{name}".encode("utf-8"))
     write_json(
@@ -334,13 +349,18 @@ def append_manifest_record(dataset_dir: Path, scene_key: str, scene_id: str) -> 
         "width": 5,
         "meter_per_pixel": 0.05,
         "bs_count": 1,
+        "image_path": f"{scene_key}/floorplan.png",
+        "mask_path": f"{scene_key}/mask.npy",
+        "geometry_path": f"{scene_key}/geometry.npz",
+        "pair_cache_path": f"{scene_key}/pair_cache.npz",
+        "split": "train",
         "files": {
             "floorplan": "floorplan.png",
             "mask_npy": "mask.npy",
             "mask_png": "mask.png",
             "mask_preview": "mask_preview.png",
             "geometry": "geometry.npz",
-            "propagation": "propagation.npz",
+            "pair_cache": "pair_cache.npz",
             "label_bs": "label_bs.json",
         },
     }
@@ -384,3 +404,5 @@ def test_merge_vision_datasets_prefers_primary_and_renumbers(tmp_path: Path) -> 
     assert label["scene_key"] == "front3d_0002"
     manifest_records = [json.loads(line) for line in (output / "manifest.jsonl").read_text(encoding="utf-8").splitlines()]
     assert [record["scene_key"] for record in manifest_records] == ["front3d_0000", "front3d_0001", "front3d_0002"]
+    assert manifest_records[2]["pair_cache_path"] == "front3d_0002/pair_cache.npz"
+    assert manifest_records[2]["split"] == "train"

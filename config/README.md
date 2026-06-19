@@ -14,9 +14,9 @@
 
 每次运行都会在 run 目录写出 `effective_config.yaml`，它记录最终真正生效的配置。
 
-`config/tasks/front3d_full_simulation.yaml` 是专门合成全量 3D-FRONT 场景的生产任务模板，只保留 Front3D 生产真正用到的配置段，不包含 Bistro、generated 或 `procedural_front3d` 的配置。它默认按 `front3d.select: sequential` 顺序合成本地 phase1 manifest 中的 `6813` 个场景，`batch.workers: 24`，label 使用 `[panel, walk]` 两种策略和 `[0.1, 0.2, 0.5]` 三档 UE 间隔。
+`config/tasks/front3d_full_simulation.yaml` 是专门合成全量 3D-FRONT 场景的生产任务模板，只保留 Front3D 生产真正用到的配置段，不包含 Bistro、generated 或 `procedural_front3d` 的配置。它默认按 `front3d.select: sequential` 顺序合成本地 phase1 manifest 中的 `6813` 个场景，`batch.workers: 24`、`batch.task_timeout_s: 600`，label 使用 `[panel, walk]` 两种策略和 `[0.1, 0.2, 0.5]` 三档 UE 间隔。
 
-`config/tasks/procedural_front3d_full_simulation.yaml` 是自动随机生成场景的任务模板。任务模板同样会通过 `DEFAULT_CONFIG` 补齐未写字段，并在 run 目录的 `effective_config.yaml` 里记录最终生效配置。
+`config/tasks/procedural_front3d_full_simulation.yaml` 是自动随机生成数据的任务模板，只保留程序化生成真正用到的配置段：3D-FUTURE 家具池来源、`procedural` 户型/摆放规则、label、floorplan、postprocess 和 batch。它不包含 Bistro 配置，也不包含复现已有 Front3D 场景时才需要的 scene selection / precheck 字段。该生产模板默认同样使用 `batch.workers: 24`、`batch.task_timeout_s: 600`，BS 数量使用 `area_adaptive` 面积自适应策略。任务模板同样会通过 `DEFAULT_CONFIG` 补齐未写字段，并在 run 目录的 `effective_config.yaml` 里记录最终生效配置。
 
 ## 合并规则
 
@@ -88,6 +88,12 @@ uv run scenegen \
 | `min_placements` | integer, `>=0` | `1` | 至少保留多少个家具实例。 |
 | `max_z_m` | float, `>0` | `8.0` | 候选家具 bbox 最大 Z 阈值。 |
 | `max_footprint_ratio` | float, `>0` | `5.0` | 家具总投影面积 / 建筑 bbox 面积阈值。 |
+| `max_bbox_xy_m` | float, `>0` | `250.0` | 建筑 bbox 的 X/Y 任一边长上限，用于过滤异常坐标导致的超大场景。 |
+| `max_floor_area_m2` | float, `>0` | `5000.0` | 建筑 bbox 估算 floor area 上限。 |
+| `max_floorplan_pixels` | integer, `>=1` | `80000000` | 按 `floorplan.resolution_m` 估算的 floorplan/class mask 像素上限。 |
+| `max_placement_extent_m` | float, `>0` | `200.0` | 单个家具 bbox X/Y/Z 任一尺寸上限。 |
+| `max_invalid_placements` | integer, `>=0` | `0` | 允许的空 bbox、反向 bbox 或非有限 bbox 家具数量。 |
+| `max_outside_placements` | integer, `>=0` | `0` | 允许完全落在建筑 bbox 外的家具数量。 |
 
 ### front3d.openings
 
@@ -328,13 +334,23 @@ procedural:
 
 | 字段 | 可选值 / 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `enabled` | boolean | `false` | 是否在 batch 场景生成后为成功 scene 生成 `maps/geometry.npz`、`maps/propagation.npz` 和 `maps/metadata.json`。 |
+| `enabled` | boolean | `false` | 是否在 batch 场景生成后为成功 scene 生成 `maps/geometry.npz`、`maps/pair_cache.npz` 和 `maps/metadata.json`。 |
 | `workers` | integer / `null` | `null` | maps 阶段 worker 数；为 `null` 时继承最终 batch worker 数，即 YAML `batch.workers` 或命令行 `--workers` 覆盖后的值。 |
 | `scene_glob` | glob string | `front3d_*` | 在 run 目录中选择 scene 目录。 |
 | `overwrite` | boolean | `false` | 已有完整 `maps/` 时是否重新生成；`false` 可用于 resume。 |
 | `r_max_m` | float, `>0` | `3.0` | SDF 裁剪半径。 |
-| `los_stride_px` | integer, `>=1` | `4` | LoS / wall-count 监督图的 UE 网格下采样步长。 |
+| `los_stride_px` | integer, `>=1` | `4` | 仅在 `write_propagation: true` 时用于旧版 dense LoS / wall-count 监督图的 UE 网格下采样步长。 |
 | `snap_radius_m` | float, `>=0` | `0.25` | BS 落到非 free-like 像素时，吸附到最近有效像素的最大半径。 |
+| `write_propagation` | boolean | `false` | 是否额外写出旧版 dense `maps/propagation.npz`。默认关闭，VisionEncoder 预训练使用 `pair_cache.npz`。 |
+
+### postprocess.maps.pair_cache
+
+| 字段 | 可选值 / 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `enabled` | boolean | `true` | 是否生成 `maps/pair_cache.npz`。 |
+| `target_pairs_per_scene` | integer, `>=1` | `4096` | 每个 scene 目标缓存 BS-UE pair 数。pair 会按 BS 平均分配，并按 wall-count bucket 0/1/2/3 均衡抽样。 |
+| `ue_candidates_per_bs` | integer / `null` | `null` | 每个 BS 先 ray-test 的 UE 候选数量；为 `null` 时按目标 pair 数自动扩展，最少 1024。 |
+| `seed` | integer | `0` | pair cache 采样基础 seed；会结合 scene key 派生稳定随机种子。 |
 
 ### postprocess.maps.bs_label
 
@@ -352,18 +368,19 @@ procedural:
 | `output_dir` | path | `datasets` | dataset 输出根目录。 |
 | `name` | string / `null` | `null` | dataset 目录名；为 `null` 时使用 `<run_name>_vision`。 |
 | `scene_glob` | glob string | `front3d_*` | 参与 dataset 构建的 scene 目录。 |
-| `require_maps` | boolean | `true` | 是否要求每个 scene 已有 `maps/geometry.npz` 和 `maps/propagation.npz`。 |
+| `require_maps` | boolean | `true` | 是否要求每个 scene 已有 `maps/geometry.npz` 和 `maps/pair_cache.npz`。 |
 | `overwrite` | boolean | `false` | dataset 中已有同名 scene 目录时是否覆盖。 |
 
 ## batch
 
-`batch` 只由 `scenegen-batch` 使用；普通 `scenegen` 单进程入口不会读取这部分。`scenegen-batch` 会优先使用 YAML 中的 `batch.*`，如果命令行显式传入 `--workers`、`--scheduler` 或 `--max-retries`，则命令行覆盖 YAML。`config/tasks/front3d_full_simulation.yaml` 默认设置为 `workers: 24`，用于全量 Front3D 合成。
+`batch` 只由 `scenegen-batch` 使用；普通 `scenegen` 单进程入口不会读取这部分。`scenegen-batch` 会优先使用 YAML 中的 `batch.*`，如果命令行显式传入 `--workers`、`--scheduler` 或 `--max-retries`，则命令行覆盖 YAML。`task_timeout_s` 默认 `null`，表示不限制单个子任务时长；设置为正数后，超时任务会先收到 SIGTERM，宽限期后仍未退出才 SIGKILL，并在 batch traceback JSON 中记录 `timeout_s`。`config/tasks/front3d_full_simulation.yaml` 和 `config/tasks/procedural_front3d_full_simulation.yaml` 生产模板默认设置为 `workers: 24`、`task_timeout_s: 600`。
 
 | 字段 | 可选值 / 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `workers` | integer, `>=1` | `1` | batch worker 数。Front3D 全量任务模板默认 `24`。 |
 | `scheduler` | `dynamic` / `hybrid` / `static` | `hybrid` | worker 调度策略。`hybrid` 先固定分片，空闲后偷取尾部任务；`dynamic` 共享队列；`static` 严格固定分片。 |
 | `max_retries` | integer, `>=0` | `1` | 单个 scene 子进程失败后的最大重试次数。 |
+| `task_timeout_s` | float / `null` | `null` | 单个 scene 子进程超时时间；`null` 表示不限制。 |
 
 ## quality
 
@@ -573,7 +590,7 @@ uv run scenegen \
   --set floorplan.geometry.projection=ray_height_filtered
 ```
 
-使用 3D-FRONT 全量正式生产模板。该模板默认 `pipeline.scenes: 6813`、`front3d.select: sequential`、`batch.workers: 24`：
+使用 3D-FRONT 全量正式生产模板。该模板默认 `pipeline.scenes: 6813`、`front3d.select: sequential`、`batch.workers: 24`、`batch.task_timeout_s: 600`：
 
 ```bash
 uv run scenegen-batch \
@@ -581,7 +598,7 @@ uv run scenegen-batch \
   --set pipeline.run_name=front3d_full_6813
 ```
 
-使用自动场景生成正式生产模板跑 4 worker batch：
+使用自动随机生成数据任务模板跑 4 worker batch：
 
 ```bash
 uv run scenegen-batch \

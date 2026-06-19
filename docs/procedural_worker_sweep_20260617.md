@@ -5,7 +5,7 @@
 ## 测试设置
 
 - 分支：`codex/procedural-scene-generation`
-- 版本：`SceneGen 3.39.0`
+- 版本：`SceneGen 4.0.0`
 - 配置：`config/tasks/procedural_front3d_full_simulation.yaml`
 - 调度：`--scheduler hybrid`
 - batch 重试：`--max-retries 0`

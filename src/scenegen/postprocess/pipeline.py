@@ -167,12 +167,18 @@ def run_batch_postprocess(
             append_event(paths, "stage_started", stage="maps")
             append_log(paths, "stage maps started")
             maps_workers = int(maps_config["workers"] or batch_workers)
+            pair_cache_config = maps_config.get("pair_cache") or {}
             maps_report = run_derived_maps(
                 run_dir,
                 scene_glob=str(maps_config["scene_glob"]),
                 los_stride_pixels=int(maps_config["los_stride_px"]),
                 r_max_m=float(maps_config["r_max_m"]),
                 snap_radius_m=float(maps_config["snap_radius_m"]),
+                pair_cache_enabled=bool(pair_cache_config.get("enabled", True)),
+                target_pairs_per_scene=int(pair_cache_config.get("target_pairs_per_scene", 4096)),
+                ue_candidates_per_bs=pair_cache_config.get("ue_candidates_per_bs"),
+                pair_cache_seed=int(pair_cache_config.get("seed", 0)),
+                write_propagation=bool(maps_config.get("write_propagation", False)),
                 overwrite=bool(maps_config["overwrite"]),
                 workers=maps_workers,
                 log_every=0,

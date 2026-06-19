@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,6 +44,8 @@ def placed_box(placement: PlacedAsset) -> Box3D:
 
 
 def box_xy_area(box: Box3D) -> float:
+    if not all(math.isfinite(float(value)) for value in box):
+        return 0.0
     return max(0.0, box[1] - box[0]) * max(0.0, box[3] - box[2])
 
 
@@ -104,14 +107,66 @@ def scene_statistics(
     support_counts = Counter(placement.support_type for placement in placements)
     footprint_by_class: Counter[str] = Counter()
     total_footprint = 0.0
+    invalid_bbox_count = 0
+    nonfinite_bbox_count = 0
+    outside_architecture_bbox_count = 0
+    max_placement_xy_extent = 0.0
+    max_placement_z_extent = 0.0
+    scene_box: Box3D | None = None
+    if mode in {"front3d", "procedural_front3d"} and front3d_base_scene is not None:
+        scene_box = (
+            front3d_base_scene.bbox_min[0],
+            front3d_base_scene.bbox_max[0],
+            front3d_base_scene.bbox_min[1],
+            front3d_base_scene.bbox_max[1],
+            front3d_base_scene.bbox_min[2],
+            front3d_base_scene.bbox_max[2],
+        )
     for placement in placements:
-        area = box_xy_area(placed_box(placement))
+        box = placed_box(placement)
+        if not all(math.isfinite(float(value)) for value in box):
+            nonfinite_bbox_count += 1
+            invalid_bbox_count += 1
+            continue
+        x_extent = box[1] - box[0]
+        y_extent = box[3] - box[2]
+        z_extent = box[5] - box[4]
+        max_placement_xy_extent = max(max_placement_xy_extent, x_extent, y_extent)
+        max_placement_z_extent = max(max_placement_z_extent, z_extent)
+        if x_extent <= 0.0 or y_extent <= 0.0 or z_extent <= 0.0:
+            invalid_bbox_count += 1
+        if scene_box is not None and (
+            box[1] < scene_box[0]
+            or box[0] > scene_box[1]
+            or box[3] < scene_box[2]
+            or box[2] > scene_box[3]
+            or box[5] < scene_box[4]
+            or box[4] > scene_box[5] + 3.0
+        ):
+            outside_architecture_bbox_count += 1
+        area = box_xy_area(box)
         total_footprint += area
         footprint_by_class[placement.asset.placement_class] += area
 
     floor_area = floor_area_for_scene(mode, room, base_scene, front3d_base_scene)
-    z_min = min((placement.min_z for placement in placements), default=0.0)
-    z_max = max((placement.max_z for placement in placements), default=0.0)
+    finite_min_z = [placement.min_z for placement in placements if math.isfinite(float(placement.min_z))]
+    finite_max_z = [placement.max_z for placement in placements if math.isfinite(float(placement.max_z))]
+    z_min = min(finite_min_z, default=0.0)
+    z_max = max(finite_max_z, default=0.0)
+    front3d_bbox: dict[str, object] | None = None
+    if front3d_base_scene is not None:
+        bbox_values = (*front3d_base_scene.bbox_min, *front3d_base_scene.bbox_max)
+        bbox_finite = all(math.isfinite(float(value)) for value in bbox_values)
+        size_x = front3d_base_scene.bbox_max[0] - front3d_base_scene.bbox_min[0]
+        size_y = front3d_base_scene.bbox_max[1] - front3d_base_scene.bbox_min[1]
+        size_z = front3d_base_scene.bbox_max[2] - front3d_base_scene.bbox_min[2]
+        front3d_bbox = {
+            "finite": bbox_finite,
+            "min": [rounded(value) for value in front3d_base_scene.bbox_min],
+            "max": [rounded(value) for value in front3d_base_scene.bbox_max],
+            "size_m": [rounded(size_x), rounded(size_y), rounded(size_z)],
+            "xy_area_m2": rounded(box_xy_area((0.0, size_x, 0.0, size_y, 0.0, size_z))),
+        }
     return {
         "mode": mode,
         "placement_count": len(placements),
@@ -124,6 +179,12 @@ def scene_statistics(
             name: rounded(area) for name, area in sorted(footprint_by_class.items())
         },
         "z_range_m": [rounded(z_min), rounded(z_max)],
+        "invalid_placement_bbox_count": invalid_bbox_count,
+        "nonfinite_placement_bbox_count": nonfinite_bbox_count,
+        "outside_architecture_bbox_count": outside_architecture_bbox_count,
+        "max_placement_xy_extent_m": rounded(max_placement_xy_extent),
+        "max_placement_z_extent_m": rounded(max_placement_z_extent),
+        "front3d_bbox": front3d_bbox,
     }
 
 

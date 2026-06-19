@@ -137,7 +137,7 @@ uv run scenegen-batch \
   --set pipeline.run_name=front3d_full_6813
 ```
 
-`config/tasks/front3d_full_simulation.yaml` 是专门合成 Front3D 全量场景的生产模板，只保留 Front3D 相关配置。它默认 `pipeline.scenes: 6813`、`front3d.select: sequential`、`batch.workers: 24`、`batch.scheduler: hybrid`，label 默认生成 `[panel, walk] * [0.1, 0.2, 0.5]`。
+`config/tasks/front3d_full_simulation.yaml` 是专门合成 Front3D 全量场景的生产模板，只保留 Front3D 相关配置。它默认 `pipeline.scenes: 6813`、`front3d.select: sequential`、`batch.workers: 24`、`batch.scheduler: hybrid`、`batch.task_timeout_s: 600`，label 默认生成 `[panel, walk] * [0.1, 0.2, 0.5]`。
 
 正式 procedural_front3d batch 生产：
 
@@ -150,6 +150,8 @@ uv run scenegen-batch \
   --set pipeline.scenes=2000 \
   --set pipeline.run_name=procedural_front3d_production_2000
 ```
+
+`config/tasks/procedural_front3d_full_simulation.yaml` 是随机生成数据的任务级模板，只保留 3D-FUTURE 家具池来源、`procedural` 户型/摆放规则、label、floorplan、postprocess 和 batch 等相关字段；不包含 Bistro 配置，也不包含复现已有 Front3D 场景时才需要的 scene selection / precheck 字段。它默认 `batch.workers: 24`、`batch.task_timeout_s: 600`，BS 数量使用和 Front3D 全量模板一致的 `area_adaptive` 面积自适应策略。
 
 `scenegen-batch` 默认读取 YAML 的 `batch.workers`、`batch.scheduler` 和 `batch.max_retries`；命令行 `--workers`、`--scheduler`、`--max-retries` 可临时覆盖。`hybrid` 调度会先固定分片，只有当 worker 自己队列清空且其他队列仍有待处理任务时，才从剩余任务最多的队列偷取尾部任务；`static` 严格保持固定分片；`dynamic` 使用共享任务队列。batch child 会设置 `runtime.skip_summary=true`，跳过自己的 `summary/` 汇总复制，最终由 batch 顶层统一生成 summary。成功 scene 发布时会从 `batch/worker_runs` move 到 run 根目录，worker 子 run 不再保留成功场景的完整重复副本，只保留日志、配置、小 manifest 和失败场景调试材料。batch 完成后会写 `manifest.json`、`manifest_batch.json` 和 `manifest_<mode>.json`。
 
@@ -262,7 +264,7 @@ batch/
 manifest_batch.json
 ```
 
-开启 `postprocess.maps.enabled` 后，每个 scene 下会有 `maps/geometry.npz`、`maps/propagation.npz`、`maps/metadata.json`。开启 `postprocess.dataset.enabled` 后，默认输出 `datasets/<run_name>_vision/`，每个样本只保留 `floorplan.png`、`mask.npy/png`、`mask_preview.png`、`geometry.npz`、`propagation.npz`、`label_bs.json` 和 `metadata.json`。
+开启 `postprocess.maps.enabled` 后，每个 scene 下会有 `maps/geometry.npz`、`maps/pair_cache.npz`、`maps/metadata.json`。`pair_cache.npz` 是 VisionEncoder 预训练用的 BS-UE pair label cache，字段包含 `bs_xy_px`、`ue_xy_px`、`bs_xy_m`、`ue_xy_m`、`pair_los`、`pair_wall_count`、`pair_distance_m`、`pair_valid_mask`、`bs_index`、`ue_index`、`wall_count_raw`、`bucket`、`bs_snap_distance_m` 和 `bs_snapped`；旧版 dense `maps/propagation.npz` 默认关闭，可通过 `postprocess.maps.write_propagation=true` 额外写出。开启 `postprocess.dataset.enabled` 后，默认输出 `datasets/<run_name>_vision/`，每个样本只保留 `floorplan.png`、`mask.npy/png`、`mask_preview.png`、`geometry.npz`、`pair_cache.npz`、`label_bs.json` 和 `metadata.json`，`manifest.jsonl` 会记录 `image_path`、`mask_path`、`geometry_path`、`pair_cache_path`、尺寸、分辨率和 `split`。
 
 ## 3D-FRONT 数据阶段
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import random
+import sys
 from argparse import Namespace
 from collections import Counter
 from copy import deepcopy
@@ -15,6 +16,7 @@ from PIL import Image
 
 from scenegen import __version__
 from scenegen.assets import AssetSpec, group_assets_by_class, legacy_item_to_spec, load_assets, resolve_obj_file
+from scenegen.batch import TaskTimeoutError, run_task_subprocess
 from scenegen.batch import main as batch_main
 from scenegen.batch import parse_args as parse_batch_args
 from scenegen.cli import evaluate_front3d_precheck, evaluate_procedural_precheck, main, parse_args, prepare_run_dir
@@ -1426,20 +1428,38 @@ def test_full_simulation_task_templates_enable_production_outputs() -> None:
         assert payload["floorplan"]["class_mask"]["furniture_height_m"] == 1.6
         assert payload["postprocess"]["maps"]["bs_label"]["mode"] == "name"
         assert payload["postprocess"]["maps"]["bs_label"]["name"] == "label_panel_0p1"
+        assert payload["label"]["bs"]["count"]["strategy"] == "area_adaptive"
+        assert "per_room" not in payload["label"]["bs"]["count"]
+        assert payload["batch"]["workers"] == 24
+        assert payload["batch"]["scheduler"] == "hybrid"
+        assert payload["batch"]["max_retries"] == 1
+        assert payload["batch"]["task_timeout_s"] == 600
 
     assert front3d["pipeline"]["scenes"] == 6813
     assert front3d["front3d"]["select"] == "sequential"
     assert front3d["label"]["ue"]["sampling"]["grid_m"] == [0.1, 0.2, 0.5]
-    assert front3d["batch"]["workers"] == 24
-    assert front3d["batch"]["scheduler"] == "hybrid"
-    assert front3d["batch"]["max_retries"] == 1
     assert front3d["postprocess"]["maps"]["scene_glob"] == "front3d_*"
     assert procedural["pipeline"]["scenes"] == 1
     assert procedural["label"]["ue"]["sampling"]["grid_m"] == [0.1, 0.2, 0.4, 0.5]
-    assert procedural["batch"]["workers"] == 1
     assert procedural["postprocess"]["maps"]["scene_glob"] == "procedural_front3d_*"
     assert procedural["postprocess"]["dataset"]["scene_glob"] == "procedural_front3d_*"
-    assert nested_key_paths(procedural) == nested_key_paths(DEFAULT_CONFIG)
+    assert set(procedural) == {
+        "pipeline",
+        "front3d",
+        "procedural",
+        "validation",
+        "quality",
+        "label",
+        "floorplan",
+        "postprocess",
+        "batch",
+    }
+    assert set(procedural["front3d"]) == {"manifest", "source_dir", "arch_variant", "object_variant", "openings"}
+    assert "assets" not in procedural
+    assert "bistro" not in procedural
+    assert "placement" not in procedural
+    assert "runtime" not in procedural
+    assert_keys_subset_of_default(procedural, DEFAULT_CONFIG)
 
 
 @pytest.mark.parametrize(
@@ -2126,6 +2146,51 @@ def test_front3d_precheck_rejects_anomalous_statistics() -> None:
         "too_few_placements",
         "z_range_too_high",
         "footprint_ratio_too_high",
+    }
+
+
+def test_front3d_precheck_rejects_pathological_geometry_statistics() -> None:
+    args = Namespace(
+        mode="front3d",
+        front3d_precheck_enabled=True,
+        front3d_precheck_min_placements=1,
+        front3d_precheck_max_z=8,
+        front3d_precheck_max_footprint_ratio=5,
+        front3d_precheck_max_bbox_xy=250,
+        front3d_precheck_max_floor_area=5000,
+        front3d_precheck_max_floorplan_pixels=80_000_000,
+        front3d_precheck_max_placement_extent=200,
+        front3d_precheck_max_invalid_placements=0,
+        front3d_precheck_max_outside_placements=0,
+        floorplan_resolution=0.05,
+    )
+
+    result = evaluate_front3d_precheck(
+        args,
+        {
+            "placement_count": 2,
+            "z_range_m": [0.0, 2.0],
+            "approx_footprint_ratio": 1.0,
+            "scene_floor_area_m2": 1.2e16,
+            "invalid_placement_bbox_count": 1,
+            "outside_architecture_bbox_count": 2,
+            "max_placement_xy_extent_m": 524288.0,
+            "max_placement_z_extent_m": 2.0,
+            "front3d_bbox": {
+                "finite": True,
+                "size_m": [524288.0, 300.0, 3.0],
+            },
+        },
+    )
+
+    assert result["ok"] is False
+    assert {error["code"] for error in result["errors"]} >= {
+        "bbox_xy_too_large",
+        "floorplan_pixels_too_high",
+        "floor_area_too_large",
+        "invalid_placement_bbox",
+        "outside_architecture_bbox",
+        "placement_extent_too_large",
     }
 
 
@@ -3558,6 +3623,21 @@ def test_front3d_batch_scheduler_defaults_to_hybrid(tmp_path: Path) -> None:
     assert args.max_retries is None
 
 
+def test_batch_subprocess_timeout_terminates_and_preserves_output(tmp_path: Path) -> None:
+    with pytest.raises(TaskTimeoutError) as exc_info:
+        run_task_subprocess(
+            [sys.executable, "-c", "import time; print('started', flush=True); time.sleep(10)"],
+            cwd=tmp_path,
+            env={},
+            timeout_s=0.5,
+            terminate_grace_s=0.1,
+        )
+
+    assert exc_info.value.timeout_s == 0.5
+    assert "started" in exc_info.value.stdout
+    assert exc_info.value.returncode in {-15, -9}
+
+
 def test_front3d_batch_uses_yaml_batch_defaults(tmp_path: Path) -> None:
     pytest.importorskip("trimesh")
     config_path = make_front3d_runtime_fixture(tmp_path)
@@ -3576,7 +3656,8 @@ def test_front3d_batch_uses_yaml_batch_defaults(tmp_path: Path) -> None:
     assert manifest["workers"] == 2
     assert manifest["scheduler"] == "dynamic"
     assert manifest["max_retries"] == 0
-    assert effective["batch"] == {"workers": 2, "scheduler": "dynamic", "max_retries": 0}
+    assert manifest["task_timeout_s"] is None
+    assert effective["batch"] == {"workers": 2, "scheduler": "dynamic", "max_retries": 0, "task_timeout_s": None}
 
 
 def test_front3d_batch_cli_overrides_yaml_batch_defaults(tmp_path: Path) -> None:
@@ -3608,7 +3689,8 @@ def test_front3d_batch_cli_overrides_yaml_batch_defaults(tmp_path: Path) -> None
     assert manifest["workers"] == 2
     assert manifest["scheduler"] == "hybrid"
     assert manifest["max_retries"] == 0
-    assert effective["batch"] == {"workers": 2, "scheduler": "hybrid", "max_retries": 0}
+    assert manifest["task_timeout_s"] is None
+    assert effective["batch"] == {"workers": 2, "scheduler": "hybrid", "max_retries": 0, "task_timeout_s": None}
 
 
 @pytest.mark.parametrize("scheduler", ["static", "dynamic", "hybrid"])

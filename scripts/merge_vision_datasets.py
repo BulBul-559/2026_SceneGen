@@ -227,6 +227,11 @@ def merge_datasets(
                 "meter_per_pixel": source_record.get("meter_per_pixel")
                 or (metadata or {}).get("resolution_m_per_pixel"),
                 "bs_count": source_record.get("bs_count") or (label or {}).get("bs_count"),
+                "image_path": f"{final_scene_key}/{files.get('floorplan', 'floorplan.png')}",
+                "mask_path": f"{final_scene_key}/{files.get('mask_npy', 'mask.npy')}",
+                "geometry_path": f"{final_scene_key}/{files.get('geometry', 'geometry.npz')}",
+                "pair_cache_path": f"{final_scene_key}/{files.get('pair_cache', 'pair_cache.npz')}",
+                "split": source_record.get("split", "train"),
                 "files": files,
                 "file_stats": scene_file_stats,
             }

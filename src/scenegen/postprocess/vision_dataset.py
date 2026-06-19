@@ -60,7 +60,7 @@ def required_scene_files(scene_dir: Path, require_maps: bool) -> dict[str, Path]
     }
     if require_maps:
         files["geometry"] = scene_dir / "maps" / "geometry.npz"
-        files["propagation"] = scene_dir / "maps" / "propagation.npz"
+        files["pair_cache"] = scene_dir / "maps" / "pair_cache.npz"
     return files
 
 
@@ -130,7 +130,7 @@ def build_scene_dataset_entry(
         "mask_png": (files["mask_png"], target_scene_dir / "mask.png"),
         "mask_preview": (files["mask_preview"], target_scene_dir / "mask_preview.png"),
         "geometry": (files["geometry"], target_scene_dir / "geometry.npz"),
-        "propagation": (files["propagation"], target_scene_dir / "propagation.npz"),
+        "pair_cache": (files["pair_cache"], target_scene_dir / "pair_cache.npz"),
     }
     for source, destination in copies.values():
         copy_file(source, destination)
@@ -162,7 +162,7 @@ def build_scene_dataset_entry(
         },
         "maps": {
             "geometry": "geometry.npz",
-            "propagation": "propagation.npz",
+            "pair_cache": "pair_cache.npz",
             "parameters": maps_metadata.get("parameters"),
             "shapes": maps_metadata.get("shapes"),
         },
@@ -176,7 +176,7 @@ def build_scene_dataset_entry(
             "mask_png": "mask.png",
             "mask_preview": "mask_preview.png",
             "geometry": "geometry.npz",
-            "propagation": "propagation.npz",
+            "pair_cache": "pair_cache.npz",
             "label_bs": "label_bs.json",
         },
         "file_stats": {
@@ -195,6 +195,11 @@ def build_scene_dataset_entry(
         "width": int(metadata["grid_shape"][1]),
         "meter_per_pixel": float(metadata["resolution_m_per_pixel"]),
         "bs_count": label_payload["bs_count"],
+        "image_path": portable_path(target_scene_dir / "floorplan.png", target_root),
+        "mask_path": portable_path(target_scene_dir / "mask.npy", target_root),
+        "geometry_path": portable_path(target_scene_dir / "geometry.npz", target_root),
+        "pair_cache_path": portable_path(target_scene_dir / "pair_cache.npz", target_root),
+        "split": "train",
         "files": metadata["files"],
     }
 
@@ -289,7 +294,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("dataset_dir", type=Path, help="Output dataset directory.")
     parser.add_argument("--scene-glob", default="front3d_*", help="Scene directory glob under run_dir.")
     parser.add_argument("--limit", type=int, default=None, help="Copy only the first N eligible scenes.")
-    parser.add_argument("--require-maps", action="store_true", help="Require maps/geometry.npz and maps/propagation.npz.")
+    parser.add_argument("--require-maps", action="store_true", help="Require maps/geometry.npz and maps/pair_cache.npz.")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing scene directories in dataset_dir.")
     parser.add_argument("--log-every", type=int, default=25, help="Print progress every N processed scenes. 0 disables.")
     return parser.parse_args()

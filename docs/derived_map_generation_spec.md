@@ -304,7 +304,7 @@ UE_D 在家具区域:
 
 ### 4.6 存储
 
-LoS map 与 wall-count map 使用同一 propagation 文件存储：
+旧版 dense LoS map 与 wall-count map 可选使用同一 propagation 文件存储；VisionEncoder 预训练默认改用后文的 `pair_cache.npz`：
 
 ```text
 scene_id_propagation.npz
@@ -392,7 +392,7 @@ wall_count_map: uint8, [H_los, W_los]
 value in {0, 1, 2, 3}
 ```
 
-存储在 propagation 文件：
+旧版 dense 输出存储在 propagation 文件：
 
 ```text
 scene_id_propagation.npz
@@ -670,9 +670,9 @@ derived_maps/
   geometry/
     scene_000001_geometry.npz
     scene_000002_geometry.npz
-  propagation/
-    scene_000001_propagation.npz
-    scene_000002_propagation.npz
+  pair_cache/
+    scene_000001_pair_cache.npz
+    scene_000002_pair_cache.npz
   manifest.jsonl
 ```
 
@@ -684,10 +684,11 @@ derived_maps/
   "image_path": "images/scene_000001.png",
   "mask_path": "masks/scene_000001.png",
   "geometry_path": "derived_maps/geometry/scene_000001_geometry.npz",
-  "propagation_path": "derived_maps/propagation/scene_000001_propagation.npz",
+  "pair_cache_path": "derived_maps/pair_cache/scene_000001_pair_cache.npz",
   "height": 640,
   "width": 896,
-  "meter_per_pixel": 0.05
+  "meter_per_pixel": 0.05,
+  "split": "train"
 }
 ```
 
@@ -702,7 +703,7 @@ front3d_0000/
   mask.png
   mask_preview.png
   geometry.npz
-  propagation.npz
+  pair_cache.npz
   label_bs.json
   metadata.json
 manifest.jsonl
@@ -736,7 +737,32 @@ height:           int scalar
 width:            int scalar
 ```
 
-### 9.2 Propagation NPZ
+### 9.2 Pair Cache NPZ
+
+```text
+scene_id:             str scalar
+metadata_json:        str scalar
+bs_xy_px:             float32, [N, 2]
+ue_xy_px:             float32, [N, 2]
+bs_xy_m:              float32, [N, 2]
+ue_xy_m:              float32, [N, 2]
+pair_los:            uint8, [N]
+pair_wall_count:     uint8, [N]      # min(wall_count_raw, 3)
+pair_distance_m:     float32, [N]
+pair_valid_mask:     uint8, [N]
+bs_index:            int32, [N]
+ue_index:            int32, [N]
+wall_count_raw:      uint16, [N]
+bucket:              uint8, [N]      # same as pair_wall_count
+bs_snap_distance_m:  float32, [N]
+bs_snapped:          uint8, [N]
+```
+
+`pair_cache.npz` 默认按 scene 生成至少 `postprocess.maps.pair_cache.target_pairs_per_scene` 个 BS-UE pair。采样先按 BS 分配目标数量，再从 label UE 或 free-like mask UE 候选中 ray-test，并按 wall-count bucket `0/1/2/3+` 均衡抽样。BS 点如果轻微落到墙边，会在 `snap_radius_m` 范围内吸附到最近 free-like 像素，并在 pair 级记录 snap 信息。
+
+### 9.3 Propagation NPZ
+
+VisionEncoder 预训练默认使用 `pair_cache.npz`，不再要求离线存储 dense `propagation.npz`。旧版 `propagation.npz` 仍可通过 `postprocess.maps.write_propagation=true` 额外生成，schema 如下。
 
 ```text
 bs_coords_px:       float32, [K, 2]
@@ -761,29 +787,30 @@ W_los = ceil(W / los_stride_pixels)
 
 ## 10. Dataset 读取行为
 
-训练时，一个 scene 可以包含多个 BS 条件样本。推荐 Dataset 行为：
+训练时，一个 scene 可以包含多个 BS-UE pair 监督样本。推荐 Dataset 行为：
 
 ```python
 scene = load_scene(scene_id)
-k = random choice from [0, K)
+pair_indices = random choice from pair_cache valid rows, e.g. 256 pairs/scene/epoch
 
 sample = {
     "image": image,
     "mask": mask,
     "sdf": sdf,
     "sdf_valid_mask": sdf_valid_mask,
-    "bs_point_px": bs_coords_px[k],
-    "los_map": los_maps[k],
-    "wall_count_map": wall_count_maps[k],
-    "ue_valid_mask": ue_valid_mask,
-    # Generated online from bs_point_px, meter_per_pixel, H, W:
+    "bs_xy_px": pair_cache["bs_xy_px"][pair_indices],
+    "ue_xy_px": pair_cache["ue_xy_px"][pair_indices],
+    "pair_los": pair_cache["pair_los"][pair_indices],
+    "pair_wall_count": pair_cache["pair_wall_count"][pair_indices],
+    "pair_distance_m": pair_cache["pair_distance_m"][pair_indices],
+    # Generated online from bs/ue coords, meter_per_pixel, H, W:
     # "bs_heatmap", "dx_map", "dy_map", "log_distance_map"
     "meter_per_pixel": meter_per_pixel,
     "orig_size": (H, W),
 }
 ```
 
-同一个 scene 在不同 epoch 随机使用不同 BS，增强 conditional task 的多样性。
+同一个 scene 在不同 epoch 随机使用不同 pair，增强 conditional task 的多样性。
 
 如果需要复现实验，记录：
 
