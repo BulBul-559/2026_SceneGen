@@ -510,6 +510,9 @@ procedural:
 | --- | --- | --- | --- |
 | `enabled` | boolean | `true` | 是否生成基于 `scene.obj` 的几何占据图。 |
 | `projection` | `sampling` / `ray_height_filtered` | `sampling` | 几何投影方式。`sampling` 使用面积加权随机表面采样；`ray_height_filtered` 是确定性的高度过滤 column 投影。 |
+| `vertical_axis` | `auto` / `x` / `y` / `z` | `auto` | 几何投影使用的竖直轴。`auto` 保留给未知 mesh，会按 bbox 最短轴推断；`front3d` / `procedural_front3d` / `procedural_front3d_vision` 会将 `auto` 解析为确定的 `z`，并拒绝显式 `x`/`y`。这些模式的模板也显式写为 `z`。 |
+
+当 `floorplan.geometry.enabled` 和 `floorplan.class_mask.enabled` 同时开启时，生成流程会校验几何 floorplan 和四分类 `class_mask` 的 `grid_shape` 是否一致；不一致会作为 floorplan 错误中断，避免侧视图/错轴图像进入训练数据。
 
 ### floorplan.geometry.height
 

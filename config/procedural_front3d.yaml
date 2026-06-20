@@ -414,6 +414,7 @@ floorplan:
   geometry:
     enabled: true
     projection: sampling
+    vertical_axis: z
     height:
       mode: heights
       values_m: [1.6]

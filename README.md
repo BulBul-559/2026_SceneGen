@@ -2,7 +2,7 @@
 
 SceneGen 是一个面向 Linux 环境的轻量级室内场景生成项目。它基于空场景和归一化资产，随机生成带家具、桌椅、小物件的 3D 场景，并同步导出 Sionna/Mitsuba 可加载的场景文件和平面图。
 
-当前项目版本：`4.1.0`。
+当前项目版本：`4.2.0`。
 
 当前主工作流包括 Bistro 场景生成、3D-FRONT 已组合场景合成，以及实验性的自动场景生成：Bistro 以 `data/scene/scene.obj` 作为空场景，以 `data/catalogs/bistro.v1.json` 管理资产契约；3D-FRONT 以第一阶段整理出的 `data/3D-Front/scenegen_manifest.json` 为索引，合并建筑结构和已有家具实例；`procedural_front3d` 会自动采样多房间户型，并从 3D-FUTURE/3D-FRONT 资产池中摆放家具；`procedural_front3d_vision` 复用同一套随机户型和家具摆放，只输出 floorplan、class mask、label 和 maps 训练数据，不写合成 `scene.obj`、`scene.xml` 或 Sionna assets。`data/assets/manifest.json` 仍保留为兼容位置，但内容已经与 catalog 使用同一份清洗后的契约。
 
@@ -548,17 +548,17 @@ label:
 
 当前 floorplan 默认生成几何占据图；front3d 模式可选生成四分类 `class_mask`，用于训练时区分 outdoor、wall、free_space、furniture。`class_mask` 的 furniture 层默认使用 mesh footprint，若需要更快但更粗的输出，可设置 `floorplan.class_mask.furniture_mode: bbox`。
 
-第一版是几何占据图，沿用了原 `2026_FloorplanGen` 的 mesh 投影逻辑：
+几何占据图沿用了原 `2026_FloorplanGen` 的 mesh 投影逻辑，但竖直轴现在是正式配置项，不再只靠 bbox 启发式猜测。`front3d`、`procedural_front3d` 和 `procedural_front3d_vision` 的建筑与家具链路约定为 Z-up，因此这些模式会把 `floorplan.geometry.vertical_axis` 解析为 `z`；未知外部 mesh 仍可使用默认 `auto`。
 
 1. 读取每个场景生成后的 `scene.obj`。
 2. 用 `trimesh` 合并并解析网格。
-3. 自动推断竖直轴。
+3. 按 `floorplan.geometry.vertical_axis` 选择竖直轴，`front3d` 类模式固定为 `z`。
 4. 在网格表面采样点云。
 5. 自动估计有效高度范围。
 6. 按配置生成累计俯视投影：默认只生成 `1.6m` 一个高度；也可以切换回旧版逐层扫描。
-7. 输出分层 PNG、预览图、侧视图、投影栈和元数据。
+7. 输出分层 PNG、预览图、侧视图、投影栈和元数据；若同时生成 `class_mask`，系统会校验几何 floorplan 与 class mask 的栅格尺寸一致，不一致时直接报错。
 
-默认几何平面图使用高密度单高度方案：`floorplan.geometry.projection: sampling`、`floorplan.resolution_m: 0.05`、`floorplan.sampling.density_scale: 128.0`、`floorplan.sampling.max_points: 4000000`、`floorplan.geometry.height.values_m: [1.6]`。这类输出偏几何占据图，不包含资产类别语义。由于原始投影来自面积加权随机表面采样，低密度时可能有点状采样噪声；当前默认保留较高采样密度，但用 4M 点上限控制大场景生成耗时。
+默认几何平面图使用高密度单高度方案：`floorplan.geometry.projection: sampling`、`floorplan.geometry.vertical_axis: z`（front3d 类模式）、`floorplan.resolution_m: 0.05`、`floorplan.sampling.density_scale: 128.0`、`floorplan.sampling.max_points: 4000000`、`floorplan.geometry.height.values_m: [1.6]`。这类输出偏几何占据图，不包含资产类别语义。由于原始投影来自面积加权随机表面采样，低密度时可能有点状采样噪声；当前默认保留较高采样密度，但用 4M 点上限控制大场景生成耗时。
 
 也可以切换到确定性的高度过滤投影：`floorplan.geometry.projection: ray_height_filtered`。该模式不使用随机表面采样，而是对 mesh 三角形做 XY column rasterization；每个像素只在 `bottom_m <= z <= target_height` 范围内存在几何时被标为 occupied，因此同一 `scene.obj` 和同一配置会得到稳定的 `floorplan_*.png`。
 

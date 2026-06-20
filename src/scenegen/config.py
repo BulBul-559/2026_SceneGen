@@ -424,6 +424,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "geometry": {
             "enabled": True,
             "projection": "sampling",
+            "vertical_axis": "auto",
             "height": {
                 "mode": "heights",
                 "values_m": [1.6],
@@ -640,6 +641,20 @@ def parse_float_sequence(value: Any, key: str) -> list[float]:
 
 def parse_string_sequence(value: Any, key: str) -> list[str]:
     return [str(part).strip() for part in parse_sequence(value, key) if str(part).strip()]
+
+
+def normalize_floorplan_vertical_axis(value: Any, mode: str) -> str:
+    axis = str(value).strip().lower()
+    if axis not in {"auto", "x", "y", "z"}:
+        raise ValueError("floorplan.geometry.vertical_axis must be 'auto', 'x', 'y', or 'z'")
+    if mode in FRONT3D_LIKE_MODES:
+        if axis not in {"auto", "z"}:
+            raise ValueError(
+                "floorplan.geometry.vertical_axis must be 'z' or 'auto' in "
+                "front3d/procedural_front3d/procedural_front3d_vision mode"
+            )
+        return "z"
+    return axis
 
 
 def parse_optional_string_sequence(value: Any, key: str) -> list[str]:
@@ -1328,6 +1343,7 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     geometry = floorplan["geometry"]
     geometry["enabled"] = as_bool(geometry["enabled"], "floorplan.geometry.enabled")
     geometry["projection"] = str(geometry["projection"])
+    geometry["vertical_axis"] = normalize_floorplan_vertical_axis(geometry["vertical_axis"], pipeline["mode"])
     height = geometry["height"]
     height["mode"] = str(height["mode"])
     height["values_m"] = parse_float_sequence(height["values_m"], "floorplan.geometry.height.values_m")
@@ -1736,6 +1752,8 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         raise ValueError("At least one of floorplan.geometry.enabled or floorplan.class_mask.enabled must be true")
     if geometry["projection"] not in {"sampling", "ray_height_filtered"}:
         raise ValueError("floorplan.geometry.projection must be 'sampling' or 'ray_height_filtered'")
+    if geometry["vertical_axis"] not in {"auto", "x", "y", "z"}:
+        raise ValueError("floorplan.geometry.vertical_axis must be 'auto', 'x', 'y', or 'z'")
     if class_mask["enabled"] and mode not in FRONT3D_LIKE_MODES:
         raise ValueError(
             "floorplan.class_mask.enabled currently supports only front3d/procedural_front3d/procedural_front3d_vision mode"
@@ -1996,6 +2014,7 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         floorplan_enabled=floorplan["enabled"],
         floorplan_geometry_enabled=geometry["enabled"],
         floorplan_geometry_projection=geometry["projection"],
+        floorplan_geometry_vertical_axis=geometry["vertical_axis"],
         floorplan_class_mask_enabled=class_mask["enabled"],
         floorplan_class_mask_wall_dilation=class_mask["wall_dilation_m"],
         floorplan_class_mask_furniture_dilation=class_mask["furniture_dilation_m"],

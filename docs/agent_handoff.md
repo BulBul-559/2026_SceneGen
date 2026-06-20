@@ -64,6 +64,7 @@ SceneGen 是一个 Linux/uv 管理的轻量室内 3D 场景生成项目。它把
 
 - `floorplan.resolution_m: 0.05`
 - `floorplan.geometry.projection: sampling`
+- `floorplan.geometry.vertical_axis: auto`: 普通未知 mesh 保留自动推断；`front3d`、`procedural_front3d` 和 `procedural_front3d_vision` 在配置归一化阶段固定解析为 `z`，模板也显式写 `z`。同时生成几何 floorplan 和 class mask 时会校验两者 `grid_shape` 一致，不一致直接作为 floorplan 错误暴露。
 - `floorplan.geometry.height.mode: heights`
 - `floorplan.geometry.height.values_m: [1.6]`
 - `floorplan.sampling.density_scale: 128.0`

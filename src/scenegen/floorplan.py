@@ -22,6 +22,7 @@ FIXED_ORIGIN_XY = np.array([0.0, 0.0], dtype=np.float64)
 SIDE_VIEW_MAX_POINTS = 750_000
 SURFACE_SAMPLE_CHUNK_SIZE = 500_000
 FLOORPLAN_PNG_COMPRESS_LEVEL = 1
+VERTICAL_AXIS_INDEX_BY_NAME = {"x": 0, "y": 1, "z": 2}
 CLASS_MASK_LABELS: dict[int, str] = {
     0: "outdoor",
     1: "wall",
@@ -55,6 +56,7 @@ class FloorplanConfig:
     enabled: bool
     geometry_enabled: bool
     geometry_projection: str
+    geometry_vertical_axis: str
     class_mask_enabled: bool
     class_mask_wall_dilation_m: float
     class_mask_furniture_dilation_m: float
@@ -84,6 +86,7 @@ class FloorplanConfig:
             enabled=bool(payload["enabled"]),
             geometry_enabled=bool(geometry["enabled"]),
             geometry_projection=str(geometry["projection"]),
+            geometry_vertical_axis=str(geometry["vertical_axis"]),
             class_mask_enabled=bool(class_mask["enabled"]),
             class_mask_wall_dilation_m=float(class_mask["wall_dilation_m"]),
             class_mask_furniture_dilation_m=float(class_mask["furniture_dilation_m"]),
@@ -164,6 +167,7 @@ def generate_floorplan_for_scene(
             height_mode=config.height_mode,
             heights_m=config.heights_m,
             projection_mode=config.geometry_projection,
+            vertical_axis=config.geometry_vertical_axis,
             scene_mesh_arrays=scene_mesh_arrays,
         )
         timings_s["floorplan_geometry"] = round(time.perf_counter() - start, 6)
@@ -216,9 +220,38 @@ def generate_floorplan_for_scene(
         timings_s["class_mask"] = round(time.perf_counter() - start, 6)
         record["class_mask"] = class_mask
         record["class_mask_preview"] = class_mask["preview"]
+        if config.geometry_enabled:
+            alignment = validate_floorplan_geometry_class_mask_alignment(geometry_record, class_mask)
+            record["geometry_class_mask_alignment"] = alignment
+            record["geometry"]["class_mask_alignment"] = alignment
     if timings_s:
         record["timings_s"] = timings_s
     return record
+
+
+def validate_floorplan_geometry_class_mask_alignment(
+    geometry_record: dict[str, object],
+    class_mask_record: dict[str, object],
+) -> dict[str, object]:
+    geometry_shape = geometry_record.get("grid_shape")
+    class_mask_shape = class_mask_record.get("grid_shape")
+    if not isinstance(geometry_shape, list | tuple) or len(geometry_shape) != 2:
+        raise RuntimeError("floorplan geometry record is missing grid_shape")
+    if not isinstance(class_mask_shape, list | tuple) or len(class_mask_shape) != 2:
+        raise RuntimeError("floorplan class mask record is missing grid_shape")
+    geometry_shape_int = [int(value) for value in geometry_shape]
+    class_mask_shape_int = [int(value) for value in class_mask_shape]
+    if geometry_shape_int != class_mask_shape_int:
+        raise RuntimeError(
+            "floorplan geometry grid_shape does not match class_mask grid_shape: "
+            f"geometry={geometry_shape_int}, class_mask={class_mask_shape_int}. "
+            "For front3d-like modes this usually indicates an invalid vertical axis."
+        )
+    return {
+        "ok": True,
+        "geometry_grid_shape": geometry_shape_int,
+        "class_mask_grid_shape": class_mask_shape_int,
+    }
 
 
 def generate_front3d_class_mask(
@@ -849,10 +882,14 @@ def process_scene(
     height_mode: str = "layers",
     heights_m: list[float] | None = None,
     projection_mode: str = "sampling",
+    vertical_axis: str = "auto",
     scene_mesh_arrays: SceneMeshArrays | None = None,
 ) -> dict[str, object]:
     if projection_mode not in {"sampling", "ray_height_filtered"}:
         raise ValueError("projection_mode must be 'sampling' or 'ray_height_filtered'")
+    vertical_axis = str(vertical_axis).strip().lower()
+    if vertical_axis not in {"auto", "x", "y", "z"}:
+        raise ValueError("vertical_axis must be 'auto', 'x', 'y', or 'z'")
     timings_s: dict[str, float] = {}
     output_dir.mkdir(parents=True, exist_ok=True)
     stage_start = time.perf_counter()
@@ -871,8 +908,8 @@ def process_scene(
         }
         vertices = np.asarray(scene_mesh_arrays.vertices, dtype=np.float64)
         faces = np.asarray(scene_mesh_arrays.faces, dtype=np.int64)
-    vertical_axis = int(np.argmin(np.ptp(vertices, axis=0)))
-    reorder = [axis for axis in range(3) if axis != vertical_axis] + [vertical_axis]
+    vertical_axis_index, vertical_axis_strategy = resolve_vertical_axis(vertices, vertical_axis)
+    reorder = [axis for axis in range(3) if axis != vertical_axis_index] + [vertical_axis_index]
     oriented_vertices = vertices[:, reorder]
     oriented_mesh = trimesh.Trimesh(vertices=oriented_vertices, faces=faces, process=False)
     timings_s["load_orient_mesh"] = round(time.perf_counter() - stage_start, 6)
@@ -1044,7 +1081,9 @@ def process_scene(
         "prepared_mesh": portable_path(mesh_path, path_root),
         "resolution_m_per_pixel": resolution,
         "patch_size_px_for_1m": int(round(1.0 / resolution)),
-        "vertical_axis_original": axis_name(vertical_axis),
+        "vertical_axis": vertical_axis,
+        "vertical_axis_strategy": vertical_axis_strategy,
+        "vertical_axis_original": axis_name(vertical_axis_index),
         "grid_shape": [int(height), int(width)],
         "origin_xy_m": [float(xy_min[0]), float(xy_min[1])],
         "extent_xy_m": [float(xy_max[0] - xy_min[0]), float(xy_max[1] - xy_min[1])],
@@ -1079,6 +1118,9 @@ def process_scene(
         "step_m": float(step),
         "height_mode": height_mode,
         "projection_mode": projection_mode,
+        "vertical_axis": vertical_axis,
+        "vertical_axis_original": axis_name(vertical_axis_index),
+        "grid_shape": [int(height), int(width)],
         "z_levels_m": [float(level) for level in z_levels],
         "raw": portable_path(primary_layer_path, path_root),
         "timings_s": timings_s,
@@ -1876,3 +1918,9 @@ def build_contact_sheet(
 
 def axis_name(index: int) -> str:
     return "xyz"[index]
+
+
+def resolve_vertical_axis(vertices: np.ndarray, vertical_axis: str) -> tuple[int, str]:
+    if vertical_axis == "auto":
+        return int(np.argmin(np.ptp(vertices, axis=0))), "auto_shortest_extent"
+    return VERTICAL_AXIS_INDEX_BY_NAME[vertical_axis], "configured"

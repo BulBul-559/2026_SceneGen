@@ -22,7 +22,12 @@ from scenegen.batch import parse_args as parse_batch_args
 from scenegen.cli import evaluate_front3d_precheck, evaluate_procedural_precheck, main, parse_args, prepare_run_dir
 from scenegen.config import DEFAULT_CONFIG, load_effective_config
 from scenegen.exporters import write_clean_obj_full_from_source, write_front3d_obj, write_front3d_scene_files
-from scenegen.floorplan import floorplan_layer_filename, generate_front3d_class_mask, process_scene
+from scenegen.floorplan import (
+    floorplan_layer_filename,
+    generate_front3d_class_mask,
+    process_scene,
+    validate_floorplan_geometry_class_mask_alignment,
+)
 from scenegen.front3d import choose_scene_ids, scenegen_transform_for_child
 from scenegen.geometry import load_bistro_base_scene, load_obj_mesh
 from scenegen.labels import (
@@ -1193,6 +1198,32 @@ def run_height_filtered_fixture(input_obj: Path, output_dir: Path) -> dict[str, 
     )
 
 
+def write_box_obj(path: Path, width: float, length: float, height: float) -> None:
+    vertices = [
+        (0.0, 0.0, 0.0),
+        (width, 0.0, 0.0),
+        (width, length, 0.0),
+        (0.0, length, 0.0),
+        (0.0, 0.0, height),
+        (width, 0.0, height),
+        (width, length, height),
+        (0.0, length, height),
+    ]
+    faces = [
+        (1, 2, 3, 4),
+        (5, 8, 7, 6),
+        (1, 5, 6, 2),
+        (2, 6, 7, 3),
+        (3, 7, 8, 4),
+        (4, 8, 5, 1),
+    ]
+    with path.open("w", encoding="utf-8", newline="\n") as handle:
+        for vertex in vertices:
+            handle.write(f"v {vertex[0]} {vertex[1]} {vertex[2]}\n")
+        for face in faces:
+            handle.write("f " + " ".join(str(index) for index in face) + "\n")
+
+
 def test_ray_height_filtered_projection_respects_target_height_and_is_deterministic(tmp_path: Path) -> None:
     obj_path = tmp_path / "fixture.obj"
     write_height_filtered_fixture_obj(obj_path)
@@ -1219,6 +1250,47 @@ def test_ray_height_filtered_projection_respects_target_height_and_is_determinis
     first_hash = hashlib.sha256((tmp_path / "first" / "floorplan_1p60.png").read_bytes()).hexdigest()
     second_hash = hashlib.sha256((tmp_path / "second" / "floorplan_1p60.png").read_bytes()).hexdigest()
     assert first_hash == second_hash
+
+
+def test_fixed_z_vertical_axis_keeps_narrow_front3d_like_mesh_top_down(tmp_path: Path) -> None:
+    obj_path = tmp_path / "narrow.obj"
+    write_box_obj(obj_path, width=10.0, length=3.0, height=3.3)
+
+    record = process_scene(
+        input_path=obj_path,
+        output_dir=tmp_path / "floorplan",
+        resolution=0.5,
+        step=0.5,
+        manual_top_z=None,
+        bottom_z=0.0,
+        sample_density_scale=1.0,
+        min_sample_points=10,
+        max_sample_points=100,
+        preview_output_path=tmp_path / "floorplan" / "preview.png",
+        side_view_output_path=tmp_path / "floorplan" / "side_view.png",
+        preview_tile_size=160,
+        height_mode="heights",
+        heights_m=[1.6],
+        projection_mode="ray_height_filtered",
+        vertical_axis="z",
+    )
+
+    meta = json.loads((tmp_path / "floorplan" / "meta.json").read_text(encoding="utf-8"))
+    assert record["vertical_axis"] == "z"
+    assert record["vertical_axis_original"] == "z"
+    assert record["grid_shape"] == [7, 21]
+    assert meta["vertical_axis"] == "z"
+    assert meta["vertical_axis_strategy"] == "configured"
+    assert meta["vertical_axis_original"] == "z"
+    assert meta["grid_shape"] == [7, 21]
+
+
+def test_floorplan_geometry_class_mask_alignment_rejects_mismatched_shapes() -> None:
+    with pytest.raises(RuntimeError, match="does not match class_mask"):
+        validate_floorplan_geometry_class_mask_alignment(
+            {"grid_shape": [67, 204]},
+            {"grid_shape": [193, 204]},
+        )
 
 
 def write_l_shaped_furniture_obj(path: Path) -> None:
@@ -1552,6 +1624,7 @@ def test_full_simulation_task_templates_enable_production_outputs() -> None:
         assert payload["maps"]["bs_label"]["name"] == "label_panel_0p1"
 
     for payload in (front3d, procedural, vision):
+        assert payload["floorplan"]["geometry"]["vertical_axis"] == "z"
         assert payload["floorplan"]["class_mask"]["enabled"] is True
         assert payload["floorplan"]["class_mask"]["furniture_mode"] == "mesh"
         assert payload["floorplan"]["class_mask"]["furniture_height_m"] == 1.6
@@ -3256,8 +3329,40 @@ def test_partial_config_inherits_builtin_defaults(tmp_path: Path) -> None:
     assert "manifest" not in effective["assets"]
     assert effective["bistro"]["forbidden_xy"] == [[1.0, 11.0, 4.5, 16.0], [8.0, 8.0, 14.0, 10.0]]
     assert effective["floorplan"]["geometry"]["height"]["values_m"] == [1.6]
+    assert effective["floorplan"]["geometry"]["vertical_axis"] == "auto"
     assert effective["label"]["ue"]["sampling"]["mask_resolution_m"] == 0.05
     assert effective["floorplan"]["sampling"]["max_points"] == 4_000_000
+
+
+def test_front3d_like_configs_resolve_floorplan_vertical_axis_to_z() -> None:
+    root = find_project_root()
+    for config_name in (
+        "front3d.yaml",
+        "procedural_front3d.yaml",
+        "procedural_front3d_vision.yaml",
+        "tasks/front3d_full_simulation.yaml",
+        "tasks/procedural_front3d_full_simulation.yaml",
+        "tasks/procedural_front3d_vision_full_simulation.yaml",
+    ):
+        effective, _overrides = load_effective_config(root / "config" / config_name, root, parse_args([]))
+
+        assert effective["floorplan"]["geometry"]["vertical_axis"] == "z"
+
+
+def test_front3d_like_configs_reject_non_z_floorplan_vertical_axis(tmp_path: Path) -> None:
+    root = find_project_root()
+    config_path = tmp_path / "bad_front3d_axis.yaml"
+    config_path.write_text(
+        "pipeline:\n"
+        "  mode: front3d\n"
+        "floorplan:\n"
+        "  geometry:\n"
+        "    vertical_axis: x\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="floorplan.geometry.vertical_axis"):
+        load_effective_config(config_path, root, parse_args([]))
 
 
 def test_legacy_assets_manifest_config_is_rejected(tmp_path: Path) -> None:
@@ -3420,7 +3525,15 @@ def test_cli_set_unknown_field_is_rejected(override: str, field: str) -> None:
         load_effective_config(root / "config" / "bistro.yaml", root, args)
 
 
-def write_front3d_fixture_obj(path: Path, *, material: str, height_axis_y: bool = False) -> None:
+def write_front3d_fixture_obj(
+    path: Path,
+    *,
+    material: str,
+    height_axis_y: bool = False,
+    width: float = 3.0,
+    length: float = 3.0,
+    height: float = 2.5,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if height_axis_y:
         vertices = [
@@ -3436,13 +3549,13 @@ def write_front3d_fixture_obj(path: Path, *, material: str, height_axis_y: bool 
     else:
         vertices = [
             (0.0, 0.0, 0.0),
-            (3.0, 0.0, 0.0),
-            (3.0, 3.0, 0.0),
-            (0.0, 3.0, 0.0),
-            (0.0, 0.0, 2.5),
-            (3.0, 0.0, 2.5),
-            (3.0, 3.0, 2.5),
-            (0.0, 3.0, 2.5),
+            (width, 0.0, 0.0),
+            (width, length, 0.0),
+            (0.0, length, 0.0),
+            (0.0, 0.0, height),
+            (width, 0.0, height),
+            (width, length, height),
+            (0.0, length, height),
         ]
     faces = [(1, 2, 3), (1, 3, 4), (5, 7, 6), (5, 8, 7), (1, 5, 6), (1, 6, 2)]
     with path.open("w", encoding="utf-8", newline="\n") as handle:
@@ -3522,7 +3635,7 @@ def make_front3d_runtime_fixture(tmp_path: Path) -> Path:
     arch_dir = root / "scenegen_architecture_normalized" / scene_id
     arch_obj = arch_dir / f"{scene_id}.obj"
     arch_json = arch_dir / f"{scene_id}.json"
-    write_front3d_fixture_obj(arch_obj, material="WallInner")
+    write_front3d_fixture_obj(arch_obj, material="WallInner", width=4.0)
     arch_json.write_text(
         json.dumps(
             {
@@ -3723,6 +3836,8 @@ def test_front3d_scene_outputs_match_standard_layout(tmp_path: Path) -> None:
     assert not (scene_dir / "floorplan" / "geometry_raw.png").exists()
     floorplan_meta = json.loads((scene_dir / "floorplan" / "meta.json").read_text(encoding="utf-8"))
     assert floorplan_meta["sampling"]["sampler"] == "numpy_area_weighted"
+    assert floorplan_meta["vertical_axis"] == "z"
+    assert floorplan_meta["vertical_axis_original"] == "z"
     for filename in ("class_mask.png", "class_mask_preview.png", "class_mask.npy", "class_mask.npz", "class_mask_meta.json"):
         assert (scene_dir / "floorplan" / filename).is_file()
     class_mask = np.load(scene_dir / "floorplan" / "class_mask.npy")

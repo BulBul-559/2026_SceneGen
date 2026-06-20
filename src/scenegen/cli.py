@@ -1350,6 +1350,7 @@ def main(argv: list[str] | None = None) -> int:
         "floorplan_ok": not floorplan_failed if floorplan_config.enabled else None,
         "floorplan_geometry_requested": bool(floorplan_config.enabled and floorplan_config.geometry_enabled),
         "floorplan_geometry_projection": floorplan_config.geometry_projection if floorplan_config.enabled else None,
+        "floorplan_geometry_vertical_axis": floorplan_config.geometry_vertical_axis if floorplan_config.enabled else None,
         "floorplan_class_mask_requested": bool(floorplan_config.enabled and floorplan_config.class_mask_enabled),
         "floorplan_class_mask_furniture_mode": (
             floorplan_config.class_mask_furniture_mode

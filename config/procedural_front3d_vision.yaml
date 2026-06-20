@@ -46,6 +46,7 @@ floorplan:
   resolution_m: 0.05
   geometry:
     enabled: true
+    vertical_axis: z
   class_mask:
     enabled: true
     furniture_mode: mesh
