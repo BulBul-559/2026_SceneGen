@@ -29,7 +29,7 @@ label:
 floorplan:
   enabled: true
   fail_on_error: true
-  resolution_m: 1.0
+  resolution_m: 0.05
   geometry:
     enabled: true
     projection: ray_height_filtered

@@ -2,7 +2,7 @@
 
 SceneGen 是一个面向 Linux 环境的轻量级场景生成项目。它基于空场景、归一化资产、3D-FRONT 或 DeepMIMO 几何源，生成/转换 3D 场景，并同步导出 Sionna/Mitsuba 可加载的场景文件和平面图。
 
-当前项目版本：`4.4.0`。
+当前项目版本：`4.5.0`。
 
 当前主工作流包括 Bistro 场景生成、3D-FRONT 已组合场景合成、实验性的自动场景生成，以及 DeepMIMO 几何转换：Bistro 以 `data/scene/scene.obj` 作为空场景，以 `data/catalogs/bistro.v1.json` 管理资产契约；3D-FRONT 以第一阶段整理出的 `data/3D-Front/scenegen_manifest.json` 为索引，合并建筑结构和已有家具实例；`procedural_front3d` 会自动采样多房间户型，并从 3D-FUTURE/3D-FRONT 资产池中摆放家具；`procedural_front3d_vision` 复用同一套随机户型和家具摆放，只输出 floorplan、class mask、label 和 maps 训练数据，不写合成 `scene.obj`、`scene.xml` 或 Sionna assets；`deepmimo` 读取 `vertices.mat`、`objects.json`、`params.json` 和可选 `faces.mat`，兼容 object 直接 vertex-index faces 与 face-id 引用两种 schema，转换为标准 `scene.obj`、`scene.xml` 和几何 floorplan。`data/assets/manifest.json` 仍保留为兼容位置，但内容已经与 catalog 使用同一份清洗后的契约。
 
@@ -234,7 +234,7 @@ uv run scenegen --config config/tasks/procedural_front3d_full_simulation.yaml --
 
 只需要视觉监督数据时使用 `config/tasks/procedural_front3d_vision_full_simulation.yaml`。它复用程序化户型、家具摆放、precheck、quality、label、floorplan 和 maps，并在模板中显式固定当前生产用 `procedural` 户型与摆放参数；`output.profile: vision_only` 会强制关闭 `scene.obj`、`scene.xml`、`assets/` 和 OBJ summary；默认 `batch.workers: 48`；每个 scene 只生成 `label_panel_0p5`，maps 默认也以它作为 BS 来源；仍保留小体积的 `procedural_source/` 与 `placements.json` 作为可追溯源记录。该模板默认使用 `procedural.room_count_ranges` 按 15% / 70% / 15% 采样 1-2、3-7、10-20 间房，并将 `required_room_types` 置空以允许小房间样本。
 
-DeepMIMO 使用 `config/tasks/deepmimo_full_simulation.yaml` 做生产入口。它默认读取 `data/deepmimo/*/{vertices.mat,objects.json,params.json}`，如果 `objects.json` 使用 face-id schema 则同时读取同目录 `faces.mat`；按顺序生成 `deepmimo_0000/` 起的标准场景目录，写出 `scene.obj`、`scene.xml`、`assets/`、`placements.json` 和 `floorplan/`；label、class mask 和 maps 默认关闭。DeepMIMO 是城市级/室外尺度数据，模板默认使用 `floorplan.resolution_m: 1.0` 和确定性的 `ray_height_filtered` 投影，避免用 Front3D 的 `0.05m/px` 造成超大图像。
+DeepMIMO 使用 `config/tasks/deepmimo_full_simulation.yaml` 做生产入口。它默认读取 `data/deepmimo/*/{vertices.mat,objects.json,params.json}`，如果 `objects.json` 使用 face-id schema 则同时读取同目录 `faces.mat`；按顺序生成 `deepmimo_0000/` 起的标准场景目录，写出 `scene.obj`、`scene.xml`、`assets/`、`placements.json` 和 `floorplan/`；label、class mask 和 maps 默认关闭。DeepMIMO 模板默认使用和 Front3D 一致的 `floorplan.resolution_m: 0.05`，并使用确定性的 `ray_height_filtered` 投影。
 
 Front3D/procedural full 生产模板默认会在每个 scene 的标准生成流程内同步生成 `geometry.npz` 和 BS-UE `pair_cache.npz`；batch 收尾阶段会按顶层 `maps` 配置做补漏/跳过检查。如果还要整理 compact vision dataset，只需额外开启 dataset：
 
@@ -577,7 +577,7 @@ label:
 6. 按配置生成累计俯视投影：默认只生成 `1.6m` 一个高度；也可以切换回旧版逐层扫描。
 7. 输出分层 PNG、预览图、侧视图、投影栈和元数据；若同时生成 `class_mask`，系统会校验几何 floorplan 与 class mask 的栅格尺寸一致，不一致时直接报错。
 
-默认几何平面图使用高密度单高度方案：`floorplan.geometry.projection: sampling`、`floorplan.geometry.vertical_axis: z`（Z-up 数据源模式）、`floorplan.resolution_m: 0.05`、`floorplan.sampling.density_scale: 128.0`、`floorplan.sampling.max_points: 4000000`、`floorplan.geometry.height.values_m: [1.6]`。这类输出偏几何占据图，不包含资产类别语义。由于原始投影来自面积加权随机表面采样，低密度时可能有点状采样噪声；当前默认保留较高采样密度，但用 4M 点上限控制大场景生成耗时。DeepMIMO 模板会覆盖为 `floorplan.resolution_m: 1.0` 和 `floorplan.geometry.projection: ray_height_filtered`，更适合城市级范围。
+默认几何平面图使用高密度单高度方案：`floorplan.geometry.projection: sampling`、`floorplan.geometry.vertical_axis: z`（Z-up 数据源模式）、`floorplan.resolution_m: 0.05`、`floorplan.sampling.density_scale: 128.0`、`floorplan.sampling.max_points: 4000000`、`floorplan.geometry.height.values_m: [1.6]`。这类输出偏几何占据图，不包含资产类别语义。由于原始投影来自面积加权随机表面采样，低密度时可能有点状采样噪声；当前默认保留较高采样密度，但用 4M 点上限控制大场景生成耗时。DeepMIMO 模板保持同样的 `floorplan.resolution_m: 0.05`，但会覆盖为确定性的 `floorplan.geometry.projection: ray_height_filtered`。
 
 也可以切换到确定性的高度过滤投影：`floorplan.geometry.projection: ray_height_filtered`。该模式不使用随机表面采样，而是对 mesh 三角形做 XY column rasterization；每个像素只在 `bottom_m <= z <= target_height` 范围内存在几何时被标为 occupied，因此同一 `scene.obj` 和同一配置会得到稳定的 `floorplan_*.png`。
 

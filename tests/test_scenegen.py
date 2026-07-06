@@ -1615,7 +1615,7 @@ def test_procedural_front3d_vision_config_enables_vision_only_outputs() -> None:
     assert "bistro" not in payload
 
 
-def test_deepmimo_config_uses_large_scale_geometry_defaults() -> None:
+def test_deepmimo_config_matches_front3d_floorplan_scale() -> None:
     root = find_project_root()
     payload = yaml.safe_load((root / "config" / "deepmimo.yaml").read_text(encoding="utf-8"))
     effective, _ = load_effective_config(root / "config" / "deepmimo.yaml", root, Namespace(set_values=[]))
@@ -1623,7 +1623,7 @@ def test_deepmimo_config_uses_large_scale_geometry_defaults() -> None:
     assert payload["pipeline"]["mode"] == "deepmimo"
     assert payload["deepmimo"] == DEFAULT_CONFIG["deepmimo"]
     assert payload["label"]["enabled"] is False
-    assert payload["floorplan"]["resolution_m"] == 1.0
+    assert payload["floorplan"]["resolution_m"] == 0.05
     assert payload["floorplan"]["geometry"]["projection"] == "ray_height_filtered"
     assert payload["floorplan"]["geometry"]["vertical_axis"] == "z"
     assert payload["floorplan"]["class_mask"]["enabled"] is False
@@ -1738,7 +1738,7 @@ def test_full_simulation_task_templates_enable_production_outputs() -> None:
     assert deepmimo["batch"]["workers"] == 1
     assert deepmimo["batch"]["task_timeout_s"] == 600
     assert deepmimo["label"]["enabled"] is False
-    assert deepmimo["floorplan"]["resolution_m"] == 1.0
+    assert deepmimo["floorplan"]["resolution_m"] == 0.05
     assert deepmimo["floorplan"]["geometry"]["projection"] == "ray_height_filtered"
     assert deepmimo["floorplan"]["geometry"]["vertical_axis"] == "z"
     assert deepmimo["floorplan"]["class_mask"]["enabled"] is False
