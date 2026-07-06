@@ -8,7 +8,7 @@
 - `front3d.yaml`: 合成已有 3D-FRONT 场景。
 - `procedural_front3d.yaml`: 自动生成类 3D-FRONT 户型，并使用 3D-FUTURE 家具池摆放物体。
 - `procedural_front3d_vision.yaml`: 复用程序化户型和家具摆放，但只输出视觉训练需要的 floorplan、label、maps 和小体积源记录。
-- `deepmimo.yaml`: 读取 DeepMIMO v4 场景目录，将 `vertices.mat` / `objects.json` / `params.json` 转成标准 OBJ/XML/floorplan。
+- `deepmimo.yaml`: 读取 DeepMIMO v4 场景目录，将 `vertices.mat` / `objects.json` / `params.json` 和可选 `faces.mat` 转成标准 OBJ/XML/floorplan。
 
 没有写在模板里的字段仍会从代码内置 `DEFAULT_CONFIG` 补齐，并最终写入 run 目录的 `effective_config.yaml`。因此一级模板负责“可读的基础入口”，`config/tasks/*.yaml` 负责具体生产任务参数。
 
@@ -133,11 +133,11 @@ objects.json
 params.json
 ```
 
-运行时会从 `vertices.mat` 读取 `vertices` 矩阵，从 `objects.json` 读取 object label 和 polygon face index，并把每个多边形面 fan-triangulate 后直接交给 floorplan；同时写出标准 `scene.obj`、按 label/material 拆分的 Sionna `assets/` 和 `scene.xml`。由于当前 DeepMIMO 源没有 Front3D 的 room/furniture 语义，`config/deepmimo.yaml` 默认关闭 label、class mask 和 maps。
+运行时会从 `vertices.mat` 读取 `vertices` 矩阵，从 `objects.json` 读取 object label 和 face 定义，并把每个多边形面 fan-triangulate 后直接交给 floorplan；同时写出标准 `scene.obj`、按 label/material 拆分的 Sionna `assets/` 和 `scene.xml`。当前兼容两种 DeepMIMO object schema：outdoor 场景可直接在 `objects.json.face_vertex_idxs` 中保存 vertex index；indoor 场景可在 `objects.json.faces` 中保存 `faces.mat` 的 row id，再由 `faces.mat.faces` 映射到三角面 vertex index。由于当前 DeepMIMO 源没有 Front3D 的 room/furniture 语义，`config/deepmimo.yaml` 默认关闭 label、class mask 和 maps。
 
 | 字段 | 可选值 / 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `root` | path | `data/deepmimo` | DeepMIMO 场景根目录。每个子目录若同时包含 `vertices.mat`、`objects.json` 和 `params.json`，就会被视为可生产场景。 |
+| `root` | path | `data/deepmimo` | DeepMIMO 场景根目录。每个子目录若同时包含 `vertices.mat`、`objects.json` 和 `params.json`，就会被视为可生产场景；若 object 使用 face-id schema，则还需要 `faces.mat`。 |
 | `scene_ids` | list of string | `[]` | 指定 DeepMIMO 子目录名；为空时自动发现完整场景目录。 |
 | `select` | `sequential` / `random` | `sequential` | 自动选择场景策略。batch 会把每个任务锁定到一个具体 scene id，避免 worker 重复选择同一目录。 |
 | `start_index` | integer, `>=0` | `0` | `select: sequential` 且未显式指定 `scene_ids` 时，从发现列表的第几个场景开始。 |

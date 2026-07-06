@@ -89,6 +89,8 @@ def _numeric_array_from_payload(data_type: int, payload: bytes, endian: str) -> 
         6: np.dtype(f"{endian}u4"),
         7: np.dtype(f"{endian}f4"),
         9: np.dtype(f"{endian}f8"),
+        12: np.dtype(f"{endian}i8"),
+        13: np.dtype(f"{endian}u8"),
     }
     dtype = dtype_by_type.get(data_type)
     if dtype is None:
@@ -177,7 +179,44 @@ def _parse_faces(raw_faces: Any, scene_dir: Path, object_name: str) -> tuple[tup
     return tuple(faces)
 
 
-def load_deepmimo_objects(path: Path) -> tuple[DeepMIMOObject, ...]:
+def load_deepmimo_face_index_matrix(path: Path) -> np.ndarray:
+    faces = np.asarray(load_mat_single_matrix(path, "faces"), dtype=np.int64)
+    if faces.ndim != 2 or faces.shape[1] < 3:
+        raise ValueError(f"DeepMIMO faces must have shape [N, >=3], got {faces.shape} in {path}")
+    if np.any(faces < 0):
+        raise ValueError(f"DeepMIMO faces contain negative vertex indices: {path}")
+    return faces
+
+
+def _parse_face_id_refs(
+    raw_faces: Any,
+    face_index_matrix: np.ndarray | None,
+    scene_dir: Path,
+    object_name: str,
+) -> tuple[tuple[int, ...], ...]:
+    if face_index_matrix is None:
+        raise ValueError(f"DeepMIMO object {object_name!r} in {scene_dir} uses face ids but faces.mat is missing")
+    if not isinstance(raw_faces, list):
+        raise ValueError(f"DeepMIMO object {object_name!r} in {scene_dir} has non-list faces")
+    faces: list[tuple[int, ...]] = []
+    for group in raw_faces:
+        if isinstance(group, int):
+            face_ids = [group]
+        elif isinstance(group, list):
+            face_ids = [int(index) for index in group]
+        else:
+            raise ValueError(f"DeepMIMO object {object_name!r} in {scene_dir} has a non-list face id group")
+        for face_id in face_ids:
+            if face_id < 0 or face_id >= int(face_index_matrix.shape[0]):
+                raise ValueError(
+                    f"DeepMIMO object {object_name!r} in {scene_dir} references face id {face_id}, "
+                    f"but faces.mat has {face_index_matrix.shape[0]} faces"
+                )
+            faces.append(tuple(int(value) for value in face_index_matrix[face_id].tolist()))
+    return tuple(faces)
+
+
+def load_deepmimo_objects(path: Path, face_index_matrix: np.ndarray | None = None) -> tuple[DeepMIMOObject, ...]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, list):
         raise ValueError(f"DeepMIMO objects file must be a JSON list: {path}")
@@ -186,7 +225,14 @@ def load_deepmimo_objects(path: Path) -> tuple[DeepMIMOObject, ...]:
         if not isinstance(item, dict):
             raise ValueError(f"DeepMIMO objects file contains a non-object entry: {path}")
         name = str(item.get("name") or f"object_{len(objects):04d}")
-        faces = _parse_faces(item.get("face_vertex_idxs"), path.parent, name)
+        if "face_vertex_idxs" in item:
+            faces = _parse_faces(item.get("face_vertex_idxs"), path.parent, name)
+        elif "faces" in item:
+            faces = _parse_face_id_refs(item.get("faces"), face_index_matrix, path.parent, name)
+        else:
+            raise ValueError(
+                f"DeepMIMO object {name!r} in {path} must contain either face_vertex_idxs or faces"
+            )
         raw_materials = item.get("face_material_idxs") or []
         if not isinstance(raw_materials, list):
             raise ValueError(f"DeepMIMO object {name!r} has non-list face_material_idxs in {path}")
@@ -222,7 +268,9 @@ def _bbox_tuple(vertices: np.ndarray, reducer: Any) -> Vec3:
 def load_deepmimo_scene(scene_dir: Path, normalize_positive_xy: bool = True) -> DeepMIMOScene:
     scene_dir = scene_dir.resolve()
     vertices = load_deepmimo_vertices(scene_dir / "vertices.mat")
-    objects = load_deepmimo_objects(scene_dir / "objects.json")
+    faces_mat = scene_dir / "faces.mat"
+    face_index_matrix = load_deepmimo_face_index_matrix(faces_mat) if faces_mat.is_file() else None
+    objects = load_deepmimo_objects(scene_dir / "objects.json", face_index_matrix)
     params = json.loads((scene_dir / "params.json").read_text(encoding="utf-8"))
     source_bbox_min = _bbox_tuple(vertices, np.min)
     source_bbox_max = _bbox_tuple(vertices, np.max)

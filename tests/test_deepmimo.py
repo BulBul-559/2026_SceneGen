@@ -24,8 +24,7 @@ def _mat_element(data_type: int, payload: bytes) -> bytes:
     return struct.pack("<II", data_type, len(payload)) + payload + pad
 
 
-def write_vertices_mat(path: Path, vertices: np.ndarray) -> None:
-    vertices = np.asarray(vertices, dtype=np.float32)
+def _write_mat_matrix(path: Path, name: str, values: np.ndarray, data_type: int, class_id: int) -> None:
     header = bytearray(128)
     text = b"MATLAB 5.0 MAT-file, SceneGen DeepMIMO test fixture"
     header[: len(text)] = text
@@ -33,13 +32,21 @@ def write_vertices_mat(path: Path, vertices: np.ndarray) -> None:
     header[126:128] = b"IM"
     payload = b"".join(
         [
-            _mat_element(6, struct.pack("<II", 7, 0)),
-            _mat_element(5, struct.pack("<ii", vertices.shape[0], vertices.shape[1])),
-            _mat_element(1, b"vertices"),
-            _mat_element(7, np.asfortranarray(vertices).tobytes(order="F")),
+            _mat_element(6, struct.pack("<II", class_id, 0)),
+            _mat_element(5, struct.pack("<ii", values.shape[0], values.shape[1])),
+            _mat_element(1, name.encode("ascii")),
+            _mat_element(data_type, np.asfortranarray(values).tobytes(order="F")),
         ]
     )
     path.write_bytes(bytes(header) + _mat_element(14, payload))
+
+
+def write_vertices_mat(path: Path, vertices: np.ndarray) -> None:
+    _write_mat_matrix(path, "vertices", np.asarray(vertices, dtype=np.float32), data_type=7, class_id=7)
+
+
+def write_faces_mat(path: Path, faces: np.ndarray) -> None:
+    _write_mat_matrix(path, "faces", np.asarray(faces, dtype=np.int64), data_type=12, class_id=14)
 
 
 def make_deepmimo_fixture(root: Path, scene_id: str = "test_o1") -> Path:
@@ -96,6 +103,49 @@ def make_deepmimo_fixture(root: Path, scene_id: str = "test_o1") -> Path:
     return scene_dir
 
 
+def make_deepmimo_face_id_fixture(root: Path, scene_id: str = "test_i1") -> Path:
+    scene_dir = root / scene_id
+    scene_dir.mkdir(parents=True)
+    vertices = np.asarray(
+        [
+            [0.0, 0.0, 0.0],
+            [4.0, 0.0, 0.0],
+            [4.0, 3.0, 0.0],
+            [0.0, 3.0, 0.0],
+            [0.0, 0.0, 2.5],
+            [4.0, 0.0, 2.5],
+            [4.0, 3.0, 2.5],
+            [0.0, 3.0, 2.5],
+        ],
+        dtype=np.float32,
+    )
+    faces = np.asarray(
+        [
+            [0, 1, 2],
+            [0, 2, 3],
+            [4, 5, 6],
+            [4, 6, 7],
+            [0, 1, 5],
+            [0, 5, 4],
+        ],
+        dtype=np.int64,
+    )
+    write_vertices_mat(scene_dir / "vertices.mat", vertices)
+    write_faces_mat(scene_dir / "faces.mat", faces)
+    objects = [
+        {"id": 0, "label": "floorplans", "faces": [[0, 1], [2, 3]]},
+        {"id": 2, "label": "floorplans", "faces": [[4, 5]]},
+    ]
+    (scene_dir / "objects.json").write_text(json.dumps(objects), encoding="utf-8")
+    params = {
+        "version": "test",
+        "materials": {"material_0": {"id": 0, "name": "ITU concrete"}},
+        "scene": {"n_objects": 2, "n_vertices": int(vertices.shape[0]), "n_faces": int(faces.shape[0])},
+    }
+    (scene_dir / "params.json").write_text(json.dumps(params), encoding="utf-8")
+    return scene_dir
+
+
 def test_deepmimo_vertices_mat_reader_loads_single_matrix(tmp_path: Path) -> None:
     scene_dir = make_deepmimo_fixture(tmp_path)
 
@@ -128,6 +178,22 @@ def test_deepmimo_scene_writer_outputs_standard_geometry(tmp_path: Path) -> None
     assert build.floorplan_mesh_arrays.faces.shape == (14, 3)
     assert float(build.floorplan_mesh_arrays.vertices[:, 0].min()) == 0.0
     assert float(build.floorplan_mesh_arrays.vertices[:, 1].min()) == 0.0
+
+
+def test_deepmimo_face_id_schema_expands_faces_mat(tmp_path: Path) -> None:
+    scene_dir = make_deepmimo_face_id_fixture(tmp_path / "root")
+    scene = load_deepmimo_scene(scene_dir, normalize_positive_xy=True)
+    output_dir = tmp_path / "out" / "deepmimo_0000"
+    material_map = material_map_for_config(DeepMIMOConfig(root=tmp_path / "root"))
+
+    build = write_deepmimo_scene_files(output_dir, scene, 0, 123, material_map)
+
+    assert len(scene.objects) == 2
+    assert scene.objects[0].faces == ((0, 1, 2), (0, 2, 3), (4, 5, 6), (4, 6, 7))
+    assert build.record["deepmimo"]["label_counts"] == {"floorplans": 2}
+    assert build.floorplan_mesh_arrays is not None
+    assert build.floorplan_mesh_arrays.faces.shape == (6, 3)
+    assert (output_dir / "assets" / "deepmimo" / "floorplans__concrete.obj").is_file()
 
 
 def test_deepmimo_index_discovers_and_orders_scenes(tmp_path: Path) -> None:
