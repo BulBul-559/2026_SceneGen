@@ -19,9 +19,10 @@ from typing import Any
 
 from . import __version__
 from .config import load_effective_config, save_effective_config
+from .deepmimo import DeepMIMOConfig, DeepMIMOIndex
 from .exporters import collect_label_floorplans, collect_raw_floorplans, collect_scene_objs, make_timestamp, write_visual_index
 from .front3d import Front3DConfig, Front3DIndex, choose_scene_ids
-from .modes import FRONT3D_MODE, FRONT3D_LIKE_MODES, is_procedural_front3d_like, scene_prefix_for_mode
+from .modes import DEEPMIMO_MODE, FRONT3D_MODE, FRONT3D_LIKE_MODES, is_procedural_front3d_like, scene_prefix_for_mode
 from .paths import find_project_root, portable_path
 from .postprocess.pipeline import run_batch_postprocess
 from .procedural import aggregate_procedural_run_report
@@ -30,7 +31,7 @@ from .runlog import append_jsonl, atomic_write_json
 
 
 BATCH_SCHEMA_VERSION = "scenegen.batch.v1"
-SUPPORTED_BATCH_MODES = FRONT3D_LIKE_MODES
+SUPPORTED_BATCH_MODES = frozenset({*FRONT3D_LIKE_MODES, DEEPMIMO_MODE})
 
 
 class TaskProcessError(RuntimeError):
@@ -121,7 +122,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--config",
         type=Path,
         required=True,
-        help="SceneGen YAML config. Batch v1 supports front3d, procedural_front3d, and procedural_front3d_vision.",
+        help="SceneGen YAML config. Batch v1 supports front3d, procedural_front3d, procedural_front3d_vision, and deepmimo.",
     )
     parser.add_argument(
         "--workers",
@@ -244,7 +245,8 @@ def plan_tasks(effective_config: dict[str, Any], workers: int) -> list[dict[str,
     mode = str(effective_config["pipeline"]["mode"])
     if mode not in SUPPORTED_BATCH_MODES:
         raise ValueError(
-            "scenegen-batch v1 supports only pipeline.mode=front3d, procedural_front3d, or procedural_front3d_vision"
+            "scenegen-batch v1 supports only pipeline.mode=front3d, procedural_front3d, "
+            "procedural_front3d_vision, or deepmimo"
         )
     count = int(effective_config["pipeline"]["scenes"])
     seed = int(effective_config["pipeline"]["seed"])
@@ -276,6 +278,25 @@ def plan_tasks(effective_config: dict[str, Any], workers: int) -> list[dict[str,
             random.Random(seed),
             start_index=config.start_index,
         )
+        scene_prefix = scene_prefix_for_mode(mode)
+    elif mode == DEEPMIMO_MODE:
+        deepmimo = effective_config["deepmimo"]
+        config = DeepMIMOConfig(
+            root=Path(deepmimo["root"]),
+            scene_ids=tuple(deepmimo["scene_ids"]),
+            scene_selection=str(deepmimo["select"]),
+            start_index=int(deepmimo["start_index"]),
+            normalize_positive_xy=bool(deepmimo["positive_xy"]),
+            material_by_label=dict(deepmimo["material_by_label"]),
+            default_material=str(deepmimo["default_material"]),
+        )
+        index = DeepMIMOIndex(config)
+        if config.scene_selection == "random":
+            selection_rng = random.Random(seed)
+            scene_ids = [selection_rng.choice(index.scene_ids) for _ in range(count)]
+        else:
+            start_index = int(config.start_index) if not config.scene_ids else 0
+            scene_ids = [index.scene_ids[(start_index + offset) % len(index.scene_ids)] for offset in range(count)]
         scene_prefix = scene_prefix_for_mode(mode)
     else:
         scene_ids = [f"procedural_seed_{output_index_start + index:06d}" for index in range(count)]
@@ -347,6 +368,14 @@ def command_for_task(
                 f"front3d.scene_ids={json.dumps([task['scene_id']])}",
                 "front3d.select=sequential",
                 "front3d.start_index=0",
+            ]
+        )
+    if task.get("mode") == DEEPMIMO_MODE:
+        set_values.extend(
+            [
+                f"deepmimo.scene_ids={json.dumps([task['scene_id']])}",
+                "deepmimo.select=sequential",
+                "deepmimo.start_index=0",
             ]
         )
     command = [sys.executable, "-m", "scenegen.cli", "--config", str(config_path)]
@@ -781,7 +810,16 @@ def build_final_manifest(
         "requested_scenes": effective_config["pipeline"]["scenes"],
         "succeeded_scenes": len(records),
         "failed_scenes": len(read_jsonl(paths.dead_letter)),
-        "front3d_manifest": portable_path(Path(effective_config["front3d"]["manifest"]), paths.run_dir),
+        "front3d_manifest": (
+            portable_path(Path(effective_config["front3d"]["manifest"]), paths.run_dir)
+            if mode in FRONT3D_LIKE_MODES
+            else None
+        ),
+        "deepmimo_root": (
+            portable_path(Path(effective_config["deepmimo"]["root"]), paths.run_dir)
+            if mode == DEEPMIMO_MODE
+            else None
+        ),
         "summary_obj": copy_manifest,
         "summary_floorplan_raw": raw_floorplan_manifest,
         "summary_label_floorplan": label_floorplan_manifest,

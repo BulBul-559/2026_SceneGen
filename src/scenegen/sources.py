@@ -5,10 +5,11 @@ import random
 from dataclasses import dataclass
 from pathlib import Path
 
+from .deepmimo import DeepMIMOConfig, DeepMIMOIndex, material_map_for_config, write_deepmimo_scene_files
 from .exporters import write_bistro_scene_files, write_front3d_scene_files, write_scene_files
 from .front3d import Front3DConfig, Front3DIndex, build_scene_from_front3d
 from .geometry import load_bistro_base_scene
-from .modes import FRONT3D_MODE, is_procedural_front3d_like, scene_prefix_for_mode
+from .modes import DEEPMIMO_MODE, FRONT3D_MODE, is_procedural_front3d_like, scene_prefix_for_mode
 from .models import Asset, BistroBaseScene, Front3DBaseScene, PlacedAsset, Rect2D, Room, SceneMeshArrays
 from .placement import build_bistro_scene_placements, build_scene_placements
 from .procedural import ProceduralFront3DGenerator
@@ -262,11 +263,69 @@ class ProceduralFront3DSceneSource:
         )
 
 
+class DeepMIMOSceneSource:
+    mode = DEEPMIMO_MODE
+    scene_prefix = "deepmimo"
+    base_scene: BistroBaseScene | None = None
+    forbidden_xy_rects: tuple[Rect2D, ...] = ()
+
+    def __init__(self, args: argparse.Namespace):
+        config = DeepMIMOConfig(
+            root=args.deepmimo_root,
+            scene_ids=tuple(args.deepmimo_scene_ids),
+            scene_selection=args.deepmimo_scene_selection,
+            start_index=args.deepmimo_start_index,
+            normalize_positive_xy=args.deepmimo_normalize_positive_xy,
+            material_by_label=dict(args.deepmimo_material_by_label),
+            default_material=args.deepmimo_default_material,
+        )
+        self.index = DeepMIMOIndex(config)
+        self.config = config
+        self.material_map = material_map_for_config(config)
+        self.collect_floorplan_mesh_arrays = bool(args.floorplan_enabled and args.floorplan_geometry_enabled)
+        self.write_scene_obj = bool(getattr(args, "output_write_scene_obj", True))
+        self.write_sionna_assets = bool(getattr(args, "output_write_sionna_assets", True))
+        self._selection_rng = random.Random(args.seed)
+        self._selection_cursor = int(config.start_index) if not config.scene_ids else 0
+
+    def next_scene_id(self) -> str:
+        if self.config.scene_selection == "random":
+            return self._selection_rng.choice(self.index.scene_ids)
+        scene_id = self.index.scene_ids[self._selection_cursor % len(self.index.scene_ids)]
+        self._selection_cursor += 1
+        return scene_id
+
+    def build_scene(
+        self,
+        scene_dir: Path,
+        scene_index: int,
+        scene_seed: int,
+        rng: random.Random,
+    ) -> SceneBuildResult:
+        scene = self.index.load_scene(self.next_scene_id())
+        build = write_deepmimo_scene_files(
+            scene_dir,
+            scene,
+            scene_index,
+            scene_seed,
+            self.material_map,
+            collect_floorplan_mesh_arrays=self.collect_floorplan_mesh_arrays,
+            write_scene_obj=self.write_scene_obj,
+            write_sionna_assets=self.write_sionna_assets,
+        )
+        return SceneBuildResult(
+            placements=[],
+            bounds_xy=build.bounds_xy,
+            record=build.record,
+            floorplan_mesh_arrays=build.floorplan_mesh_arrays,
+        )
+
+
 def create_scene_source(
     args: argparse.Namespace,
     assets_by_class: dict[str, list[Asset]],
     bistro_base_dir: Path | None,
-) -> GeneratedSceneSource | BistroSceneSource | Front3DSceneSource | ProceduralFront3DSceneSource:
+) -> GeneratedSceneSource | BistroSceneSource | Front3DSceneSource | ProceduralFront3DSceneSource | DeepMIMOSceneSource:
     if args.mode == "generated":
         return GeneratedSceneSource(assets_by_class, args)
     if args.mode == "bistro":
@@ -277,4 +336,6 @@ def create_scene_source(
         return Front3DSceneSource(args)
     if is_procedural_front3d_like(str(args.mode)):
         return ProceduralFront3DSceneSource(args)
+    if args.mode == DEEPMIMO_MODE:
+        return DeepMIMOSceneSource(args)
     raise ValueError(f"Unsupported scene generation mode: {args.mode}")

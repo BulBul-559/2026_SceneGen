@@ -8,7 +8,7 @@ from typing import Any
 
 import yaml
 
-from .modes import FRONT3D_LIKE_MODES, PROCEDURAL_FRONT3D_VISION_MODE, SUPPORTED_PIPELINE_MODES
+from .modes import DEEPMIMO_MODE, FRONT3D_LIKE_MODES, PROCEDURAL_FRONT3D_VISION_MODE, SUPPORTED_PIPELINE_MODES
 
 
 LABEL_VERSION = "1.1"
@@ -94,6 +94,18 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "min_height_m": 1.6,
             "include_doors_as_wall": True,
             "include_windows_as_wall": True,
+        },
+    },
+    "deepmimo": {
+        "root": "data/deepmimo",
+        "scene_ids": [],
+        "select": "sequential",
+        "start_index": 0,
+        "positive_xy": True,
+        "default_material": "itu-concrete",
+        "material_by_label": {
+            "buildings": "itu-concrete",
+            "terrain": "itu-concrete",
         },
     },
     "placement": {
@@ -647,11 +659,11 @@ def normalize_floorplan_vertical_axis(value: Any, mode: str) -> str:
     axis = str(value).strip().lower()
     if axis not in {"auto", "x", "y", "z"}:
         raise ValueError("floorplan.geometry.vertical_axis must be 'auto', 'x', 'y', or 'z'")
-    if mode in FRONT3D_LIKE_MODES:
+    if mode in FRONT3D_LIKE_MODES or mode == DEEPMIMO_MODE:
         if axis not in {"auto", "z"}:
             raise ValueError(
                 "floorplan.geometry.vertical_axis must be 'z' or 'auto' in "
-                "front3d/procedural_front3d/procedural_front3d_vision mode"
+                "front3d/procedural_front3d/procedural_front3d_vision/deepmimo mode"
             )
         return "z"
     return axis
@@ -1161,6 +1173,20 @@ def normalize_effective_config(config: dict[str, Any], repo_root: Path, config_p
     openings["include_windows_as_wall"] = as_bool(
         openings["include_windows_as_wall"], "front3d.openings.include_windows_as_wall"
     )
+
+    deepmimo = normalized["deepmimo"]
+    deepmimo["root"] = str(resolve_path(repo_root, deepmimo["root"]))
+    deepmimo["scene_ids"] = (
+        parse_string_sequence(deepmimo.get("scene_ids"), "deepmimo.scene_ids") if deepmimo.get("scene_ids") else []
+    )
+    deepmimo["select"] = str(deepmimo["select"])
+    deepmimo["start_index"] = int(deepmimo["start_index"])
+    deepmimo["positive_xy"] = as_bool(deepmimo["positive_xy"], "deepmimo.positive_xy")
+    deepmimo["default_material"] = str(deepmimo["default_material"])
+    raw_materials = deepmimo.get("material_by_label") or {}
+    if not isinstance(raw_materials, dict):
+        raise ValueError("deepmimo.material_by_label must be a mapping")
+    deepmimo["material_by_label"] = {str(label): str(material) for label, material in raw_materials.items()}
 
     placement = normalized["placement"]
     placement["tables"] = parse_int_pair(placement["tables"], "placement.tables")
@@ -1678,6 +1704,18 @@ def validate_effective_config(config: dict[str, Any]) -> None:
     if openings["min_height_m"] < 0:
         raise ValueError("front3d.openings.min_height_m must be non-negative")
 
+    deepmimo = config["deepmimo"]
+    if deepmimo["select"] not in {"random", "sequential"}:
+        raise ValueError("deepmimo.select must be 'random' or 'sequential'")
+    if deepmimo["start_index"] < 0:
+        raise ValueError("deepmimo.start_index must be non-negative")
+    if not str(deepmimo["default_material"]).strip():
+        raise ValueError("deepmimo.default_material must not be empty")
+    if any(not str(label).strip() for label in deepmimo["material_by_label"]):
+        raise ValueError("deepmimo.material_by_label keys must not be empty")
+    if any(not str(material).strip() for material in deepmimo["material_by_label"].values()):
+        raise ValueError("deepmimo.material_by_label values must not be empty")
+
     label = config["label"]
     ue = label["ue"]
     sampling = ue["sampling"]
@@ -1858,6 +1896,7 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
     assets = config["assets"]
     bistro = config["bistro"]
     front3d = config["front3d"]
+    deepmimo = config["deepmimo"]
     precheck = front3d["precheck"]
     placement = config["placement"]
     procedural = config["procedural"]
@@ -1913,6 +1952,13 @@ def config_to_namespace(config: dict[str, Any]) -> argparse.Namespace:
         front3d_precheck_max_placement_extent=precheck["max_placement_extent_m"],
         front3d_precheck_max_invalid_placements=precheck["max_invalid_placements"],
         front3d_precheck_max_outside_placements=precheck["max_outside_placements"],
+        deepmimo_root=Path(deepmimo["root"]),
+        deepmimo_scene_ids=deepmimo["scene_ids"],
+        deepmimo_scene_selection=deepmimo["select"],
+        deepmimo_start_index=deepmimo["start_index"],
+        deepmimo_normalize_positive_xy=deepmimo["positive_xy"],
+        deepmimo_default_material=deepmimo["default_material"],
+        deepmimo_material_by_label=deepmimo["material_by_label"],
         min_tables=placement["tables"][0],
         max_tables=placement["tables"][1],
         floor_extras=placement["floor_extras"],

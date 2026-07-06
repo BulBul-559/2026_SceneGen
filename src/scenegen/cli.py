@@ -22,7 +22,7 @@ from .exporters import (
 from .floorplan import FloorplanConfig, generate_floorplan_for_scene
 from .labels import LabelConfig, generate_label_batch_for_scene, label_variants, write_label_overlay
 from .maps import MapsConfig, generate_scene_maps
-from .modes import FRONT3D_LIKE_MODES, FRONT3D_MODE, is_procedural_front3d_like
+from .modes import DEEPMIMO_MODE, FRONT3D_LIKE_MODES, FRONT3D_MODE, is_procedural_front3d_like
 from .paths import default_config_path, find_project_root, portable_path, require_dir, require_file
 from .procedural import aggregate_procedural_run_report
 from .quality import (
@@ -791,7 +791,8 @@ def main(argv: list[str] | None = None) -> int:
     args = config_to_namespace(effective_config)
 
     front3d_like_modes = FRONT3D_LIKE_MODES
-    asset_catalog_path = require_file(args.asset_catalog, "asset catalog") if args.mode not in front3d_like_modes else args.asset_catalog
+    assetless_modes = set(front3d_like_modes) | {DEEPMIMO_MODE}
+    asset_catalog_path = require_file(args.asset_catalog, "asset catalog") if args.mode not in assetless_modes else args.asset_catalog
     if args.mode == "bistro":
         bistro_base_dir = require_dir(args.bistro_base_dir, "Bistro base scene directory")
     else:
@@ -801,6 +802,10 @@ def main(argv: list[str] | None = None) -> int:
         front3d_manifest_path = require_file(args.front3d_manifest, "3D-FRONT SceneGen manifest")
         args.front3d_manifest = front3d_manifest_path
         args.front3d_source_scene_dir = require_dir(args.front3d_source_scene_dir, "3D-FRONT source scene directory")
+    deepmimo_root_path = None
+    if args.mode == DEEPMIMO_MODE:
+        deepmimo_root_path = require_dir(args.deepmimo_root, "DeepMIMO root directory")
+        args.deepmimo_root = deepmimo_root_path
 
     run_name = args.run_name or make_timestamp()
     run_dir = prepare_run_dir(args.output_dir, run_name, args.clean)
@@ -824,7 +829,7 @@ def main(argv: list[str] | None = None) -> int:
     maps_config = MapsConfig.from_mapping(effective_config["maps"])
 
     setup_timings: dict[str, float] = {}
-    if args.mode in front3d_like_modes:
+    if args.mode in assetless_modes:
         assets_by_class = {}
     else:
         with run_logger.stage(setup_timings, "load_assets"):
@@ -1270,7 +1275,7 @@ def main(argv: list[str] | None = None) -> int:
         "seed": args.seed,
         "run_name": run_name,
         "run_dir": ".",
-        "asset_catalog": portable_path(asset_catalog_path, run_dir) if args.mode not in front3d_like_modes else None,
+        "asset_catalog": portable_path(asset_catalog_path, run_dir) if args.mode not in assetless_modes else None,
         "asset_class_counts": class_counts,
         "front3d_manifest": portable_path(front3d_manifest_path, run_dir) if front3d_manifest_path is not None else None,
         "front3d_variant": args.front3d_variant if args.mode in front3d_like_modes else None,
@@ -1285,6 +1290,9 @@ def main(argv: list[str] | None = None) -> int:
         "front3d_precheck_ok": (not precheck_failed) if args.mode == FRONT3D_MODE else None,
         "front3d_precheck_skipped_count": len(precheck_skipped_scenes) if args.mode == FRONT3D_MODE else 0,
         "front3d_precheck_skipped_scenes": precheck_skipped_scenes if args.mode == FRONT3D_MODE else [],
+        "deepmimo_root": portable_path(deepmimo_root_path, run_dir) if deepmimo_root_path is not None else None,
+        "deepmimo_scene_selection": args.deepmimo_scene_selection if args.mode == DEEPMIMO_MODE else None,
+        "deepmimo_scene_ids": args.deepmimo_scene_ids if args.mode == DEEPMIMO_MODE else [],
         "procedural_precheck": procedural_precheck_settings(args),
         "procedural_precheck_ok": (not precheck_failed) if is_procedural_front3d_like(str(args.mode)) else None,
         "procedural_precheck_skipped_count": len(precheck_skipped_scenes)

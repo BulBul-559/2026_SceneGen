@@ -38,6 +38,8 @@ runs
 runs/
 data/3D-Front
 data/3D-Front/
+data/deepmimo
+data/deepmimo/
 
 # Local notebooks and scratch files
 .ipynb_checkpoints/

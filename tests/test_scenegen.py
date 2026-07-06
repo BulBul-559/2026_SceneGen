@@ -1522,6 +1522,12 @@ def test_cli_version_matches_package_version(capsys: pytest.CaptureFixture[str])
             },
             {"assets", "bistro", "placement", "procedural", "runtime"},
         ),
+        (
+            "config/deepmimo.yaml",
+            "deepmimo",
+            {"pipeline", "deepmimo", "validation", "quality", "label", "floorplan", "batch"},
+            {"assets", "bistro", "placement", "front3d", "procedural", "maps", "postprocess", "runtime"},
+        ),
     ],
 )
 def test_config_templates_are_workflow_focused(
@@ -1607,6 +1613,24 @@ def test_procedural_front3d_vision_config_enables_vision_only_outputs() -> None:
     assert "procedural" not in payload
     assert "assets" not in payload
     assert "bistro" not in payload
+
+
+def test_deepmimo_config_uses_large_scale_geometry_defaults() -> None:
+    root = find_project_root()
+    payload = yaml.safe_load((root / "config" / "deepmimo.yaml").read_text(encoding="utf-8"))
+    effective, _ = load_effective_config(root / "config" / "deepmimo.yaml", root, Namespace(set_values=[]))
+
+    assert payload["pipeline"]["mode"] == "deepmimo"
+    assert payload["deepmimo"] == DEFAULT_CONFIG["deepmimo"]
+    assert payload["label"]["enabled"] is False
+    assert payload["floorplan"]["resolution_m"] == 1.0
+    assert payload["floorplan"]["geometry"]["projection"] == "ray_height_filtered"
+    assert payload["floorplan"]["geometry"]["vertical_axis"] == "z"
+    assert payload["floorplan"]["class_mask"]["enabled"] is False
+    assert effective["floorplan"]["geometry"]["vertical_axis"] == "z"
+    assert "assets" not in payload
+    assert "front3d" not in payload
+    assert "procedural" not in payload
 
 
 def test_full_simulation_task_templates_enable_production_outputs() -> None:
@@ -1708,6 +1732,21 @@ def test_full_simulation_task_templates_enable_production_outputs() -> None:
     assert_keys_subset_of_default(vision, DEFAULT_CONFIG)
     assert_keys_subset_of_default(procedural, DEFAULT_CONFIG)
 
+    deepmimo = yaml.safe_load((root / "config" / "tasks" / "deepmimo_full_simulation.yaml").read_text(encoding="utf-8"))
+    assert deepmimo["pipeline"]["mode"] == "deepmimo"
+    assert deepmimo["pipeline"]["scenes"] == 3
+    assert deepmimo["batch"]["workers"] == 1
+    assert deepmimo["batch"]["task_timeout_s"] == 600
+    assert deepmimo["label"]["enabled"] is False
+    assert deepmimo["floorplan"]["resolution_m"] == 1.0
+    assert deepmimo["floorplan"]["geometry"]["projection"] == "ray_height_filtered"
+    assert deepmimo["floorplan"]["geometry"]["vertical_axis"] == "z"
+    assert deepmimo["floorplan"]["class_mask"]["enabled"] is False
+    assert "front3d" not in deepmimo
+    assert "assets" not in deepmimo
+    assert "procedural" not in deepmimo
+    assert_keys_subset_of_default(deepmimo, DEFAULT_CONFIG)
+
 
 @pytest.mark.parametrize(
     "config_name",
@@ -1715,8 +1754,10 @@ def test_full_simulation_task_templates_enable_production_outputs() -> None:
         "bistro.yaml",
         "front3d.yaml",
         "procedural_front3d.yaml",
+        "deepmimo.yaml",
         "tasks/front3d_full_simulation.yaml",
         "tasks/procedural_front3d_full_simulation.yaml",
+        "tasks/deepmimo_full_simulation.yaml",
     ],
 )
 def test_project_configs_load_through_config_pipeline(config_name: str) -> None:
@@ -3334,15 +3375,17 @@ def test_partial_config_inherits_builtin_defaults(tmp_path: Path) -> None:
     assert effective["floorplan"]["sampling"]["max_points"] == 4_000_000
 
 
-def test_front3d_like_configs_resolve_floorplan_vertical_axis_to_z() -> None:
+def test_z_up_source_configs_resolve_floorplan_vertical_axis_to_z() -> None:
     root = find_project_root()
     for config_name in (
         "front3d.yaml",
         "procedural_front3d.yaml",
         "procedural_front3d_vision.yaml",
+        "deepmimo.yaml",
         "tasks/front3d_full_simulation.yaml",
         "tasks/procedural_front3d_full_simulation.yaml",
         "tasks/procedural_front3d_vision_full_simulation.yaml",
+        "tasks/deepmimo_full_simulation.yaml",
     ):
         effective, _overrides = load_effective_config(root / "config" / config_name, root, parse_args([]))
 
