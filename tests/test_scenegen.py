@@ -1252,6 +1252,37 @@ def test_ray_height_filtered_projection_respects_target_height_and_is_determinis
     assert first_hash == second_hash
 
 
+def test_ray_height_filtered_side_view_renders_mesh_faces(tmp_path: Path) -> None:
+    obj_path = tmp_path / "box.obj"
+    write_box_obj(obj_path, width=4.0, length=2.0, height=3.0)
+
+    process_scene(
+        input_path=obj_path,
+        output_dir=tmp_path / "floorplan",
+        resolution=0.5,
+        step=0.5,
+        manual_top_z=None,
+        bottom_z=0.0,
+        sample_density_scale=1.0,
+        min_sample_points=10,
+        max_sample_points=100,
+        preview_output_path=tmp_path / "floorplan" / "preview.png",
+        side_view_output_path=tmp_path / "floorplan" / "side_view.png",
+        preview_tile_size=160,
+        height_mode="heights",
+        heights_m=[1.6],
+        projection_mode="ray_height_filtered",
+        vertical_axis="z",
+    )
+
+    side_view = Image.open(tmp_path / "floorplan" / "side_view.png").convert("RGB")
+    nonwhite_pixels = np.any(np.asarray(side_view) != 255, axis=-1).sum()
+    assert nonwhite_pixels > 20
+    meta = json.loads((tmp_path / "floorplan" / "meta.json").read_text(encoding="utf-8"))
+    assert meta["side_view_projection_method"] == "mesh_faces_xz"
+    assert meta["side_view_mesh_stats"]["painted_triangle_count"] > 0
+
+
 def test_fixed_z_vertical_axis_keeps_narrow_front3d_like_mesh_top_down(tmp_path: Path) -> None:
     obj_path = tmp_path / "narrow.obj"
     write_box_obj(obj_path, width=10.0, length=3.0, height=3.3)

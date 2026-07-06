@@ -2,7 +2,7 @@
 
 SceneGen 是一个面向 Linux 环境的轻量级场景生成项目。它基于空场景、归一化资产、3D-FRONT 或 DeepMIMO 几何源，生成/转换 3D 场景，并同步导出 Sionna/Mitsuba 可加载的场景文件和平面图。
 
-当前项目版本：`4.5.0`。
+当前项目版本：`4.5.1`。
 
 当前主工作流包括 Bistro 场景生成、3D-FRONT 已组合场景合成、实验性的自动场景生成，以及 DeepMIMO 几何转换：Bistro 以 `data/scene/scene.obj` 作为空场景，以 `data/catalogs/bistro.v1.json` 管理资产契约；3D-FRONT 以第一阶段整理出的 `data/3D-Front/scenegen_manifest.json` 为索引，合并建筑结构和已有家具实例；`procedural_front3d` 会自动采样多房间户型，并从 3D-FUTURE/3D-FRONT 资产池中摆放家具；`procedural_front3d_vision` 复用同一套随机户型和家具摆放，只输出 floorplan、class mask、label 和 maps 训练数据，不写合成 `scene.obj`、`scene.xml` 或 Sionna assets；`deepmimo` 读取 `vertices.mat`、`objects.json`、`params.json` 和可选 `faces.mat`，兼容 object 直接 vertex-index faces 与 face-id 引用两种 schema，转换为标准 `scene.obj`、`scene.xml` 和几何 floorplan。`data/assets/manifest.json` 仍保留为兼容位置，但内容已经与 catalog 使用同一份清洗后的契约。
 

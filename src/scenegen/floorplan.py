@@ -982,16 +982,33 @@ def process_scene(
         if shifted_sampled_points is not None
         else (shifted_vertices.astype(np.float32, copy=False),)
     )
-    side_view_points = limit_point_parts_for_preview(point_parts, SIDE_VIEW_MAX_POINTS)
     max_shifted_z = max(float(points[:, 2].max()) for points in point_parts if points is not None and points.size)
-    side_view = render_side_projection(
-        points=side_view_points,
-        resolution=resolution,
-        x_min=float(xy_min[0]),
-        x_max=float(xy_max[0]),
-        z_min=0.0,
-        z_max=float(max(scan_top, max_shifted_z)),
-    )
+    side_view_z_max = float(max(scan_top, max_shifted_z))
+    side_view_projection_method = "point_density_xz"
+    side_view_point_count = 0
+    side_view_mesh_stats: dict[str, int] | None = None
+    if projection_mode == "ray_height_filtered":
+        side_view, side_view_mesh_stats = render_side_projection_from_mesh_faces(
+            vertices=shifted_vertices,
+            faces=np.asarray(oriented_mesh.faces, dtype=np.int64),
+            resolution=resolution,
+            x_min=float(xy_min[0]),
+            x_max=float(xy_max[0]),
+            z_min=0.0,
+            z_max=side_view_z_max,
+        )
+        side_view_projection_method = "mesh_faces_xz"
+    else:
+        side_view_points = limit_point_parts_for_preview(point_parts, SIDE_VIEW_MAX_POINTS)
+        side_view_point_count = int(side_view_points.shape[0])
+        side_view = render_side_projection(
+            points=side_view_points,
+            resolution=resolution,
+            x_min=float(xy_min[0]),
+            x_max=float(xy_max[0]),
+            z_min=0.0,
+            z_max=side_view_z_max,
+        )
     save_floorplan_png(side_view, side_view_output_path)
     timings_s["side_view"] = round(time.perf_counter() - stage_start, 6)
 
@@ -1099,8 +1116,10 @@ def process_scene(
         "z_levels_m": [float(level) for level in z_levels],
         "origin_clipping_warning": origin_clipping_warning,
         "height_histogram": hist_meta,
-        "side_view_point_count": int(side_view_points.shape[0]),
+        "side_view_projection_method": side_view_projection_method,
+        "side_view_point_count": side_view_point_count,
         "side_view_point_limit": int(SIDE_VIEW_MAX_POINTS),
+        "side_view_mesh_stats": side_view_mesh_stats,
         **projection_backend_meta,
         "primary_layer": portable_path(primary_layer_path, path_root),
         "conversion": conversion_meta,
@@ -1847,6 +1866,120 @@ def render_side_projection(
         density=density,
         max_alpha=max_alpha,
         foreground_color=foreground_color if foreground_color is not None else (40, 40, 40),
+    )
+
+
+def render_side_projection_from_mesh_faces(
+    vertices: np.ndarray,
+    faces: np.ndarray,
+    resolution: float,
+    x_min: float,
+    x_max: float,
+    z_min: float,
+    z_max: float,
+    max_alpha: float = 0.90,
+    foreground_color: tuple[int, int, int] | None = None,
+) -> tuple[Image.Image, dict[str, int]]:
+    if resolution <= 0:
+        raise ValueError("resolution must be positive.")
+
+    if x_max <= x_min:
+        x_max = x_min + resolution
+    if z_max <= z_min:
+        z_max = z_min + resolution
+
+    width = max(int(np.ceil((x_max - x_min) / resolution)) + 1, 1)
+    height = max(int(np.ceil((z_max - z_min) / resolution)) + 1, 1)
+    density_image = Image.new("L", (width, height), 0)
+    draw = ImageDraw.Draw(density_image)
+
+    if faces.size == 0 or vertices.size == 0:
+        return (
+            render_density_projection(np.zeros((height, width), dtype=np.float32), max_alpha=max_alpha),
+            {
+                "triangle_count": 0,
+                "painted_triangle_count": 0,
+                "degenerate_triangle_count": 0,
+                "range_rejected_triangle_count": 0,
+                "duplicate_projected_triangle_count": 0,
+            },
+        )
+
+    face_array = np.asarray(faces, dtype=np.int64)
+    valid_face_indices = np.all((face_array >= 0) & (face_array < len(vertices)), axis=1)
+    face_array = face_array[valid_face_indices]
+    triangle_count = int(face_array.shape[0])
+    if triangle_count == 0:
+        return (
+            render_density_projection(np.zeros((height, width), dtype=np.float32), max_alpha=max_alpha),
+            {
+                "triangle_count": 0,
+                "painted_triangle_count": 0,
+                "degenerate_triangle_count": 0,
+                "range_rejected_triangle_count": 0,
+                "duplicate_projected_triangle_count": 0,
+            },
+        )
+
+    triangles = vertices[face_array]
+    tri_x_min = np.min(triangles[:, :, 0], axis=1)
+    tri_x_max = np.max(triangles[:, :, 0], axis=1)
+    tri_z_min = np.min(triangles[:, :, 2], axis=1)
+    tri_z_max = np.max(triangles[:, :, 2], axis=1)
+    in_range = (tri_x_max >= x_min) & (tri_x_min <= x_max) & (tri_z_max >= z_min) & (tri_z_min <= z_max)
+    range_rejected_triangle_count = int((~in_range).sum())
+    if not np.any(in_range):
+        return (
+            render_density_projection(np.zeros((height, width), dtype=np.float32), max_alpha=max_alpha),
+            {
+                "triangle_count": triangle_count,
+                "painted_triangle_count": 0,
+                "degenerate_triangle_count": 0,
+                "range_rejected_triangle_count": range_rejected_triangle_count,
+                "duplicate_projected_triangle_count": 0,
+            },
+        )
+
+    triangles = triangles[in_range]
+    cols = np.rint((triangles[:, :, 0] - x_min) / resolution).astype(np.int64)
+    rows = np.rint((triangles[:, :, 2] - z_min) / resolution).astype(np.int64)
+    polygons = np.stack((cols, rows), axis=2)
+    stride = max(width, height) + 1
+    primitive_codes = polygons[:, :, 0] * stride + polygons[:, :, 1]
+    sorted_codes = np.sort(primitive_codes, axis=1)
+    _unique_codes, first_indices = np.unique(sorted_codes, axis=0, return_index=True)
+    ordered_unique_indices = np.sort(first_indices)
+    duplicate_projected_triangle_count = int(polygons.shape[0] - ordered_unique_indices.size)
+
+    painted_triangle_count = 0
+    degenerate_triangle_count = 0
+    for polygon_array in polygons[ordered_unique_indices]:
+        polygon = [(int(point[0]), int(point[1])) for point in polygon_array]
+        area2 = (
+            (polygon[1][0] - polygon[0][0]) * (polygon[2][1] - polygon[0][1])
+            - (polygon[1][1] - polygon[0][1]) * (polygon[2][0] - polygon[0][0])
+        )
+        if abs(area2) <= 1:
+            degenerate_triangle_count += 1
+            draw.line([polygon[0], polygon[1], polygon[2], polygon[0]], fill=1, width=1)
+        else:
+            draw.polygon(polygon, fill=1)
+        painted_triangle_count += 1
+
+    density = np.asarray(density_image, dtype=np.float32)
+    return (
+        render_density_projection(
+            density=density,
+            max_alpha=max_alpha,
+            foreground_color=foreground_color if foreground_color is not None else (40, 40, 40),
+        ),
+        {
+            "triangle_count": triangle_count,
+            "painted_triangle_count": int(painted_triangle_count),
+            "degenerate_triangle_count": int(degenerate_triangle_count),
+            "range_rejected_triangle_count": range_rejected_triangle_count,
+            "duplicate_projected_triangle_count": duplicate_projected_triangle_count,
+        },
     )
 
 
