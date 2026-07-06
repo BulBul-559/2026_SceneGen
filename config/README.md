@@ -22,7 +22,7 @@
 
 `config/tasks/procedural_front3d_vision_full_simulation.yaml` 是随机生成视觉训练数据的任务模板。它默认使用 `pipeline.mode: procedural_front3d_vision`、`output.profile: vision_only` 和 `batch.workers: 48`，并显式写出当前生产用 `procedural` 户型与家具摆放参数，因此不会写合成 `scene.obj`、`scene.xml`、`assets/` 或 OBJ summary；仍会生成 `procedural_source/`、`placements.json`、`label_panel_0p5`、floorplan/class mask，并在标准 scene 生成阶段用 `label_panel_0p5` 生成 `maps/geometry.npz` 和 `maps/pair_cache.npz`。该模板默认用 `procedural.room_count_ranges` 按 15% / 70% / 15% 采样 1-2、3-7、10-20 间房，并将 `required_room_types` 设为 `null` 以允许小房间样本。
 
-`config/tasks/deepmimo_full_simulation.yaml` 是 DeepMIMO 几何转换生产模板。它默认使用 `pipeline.mode: deepmimo`、`deepmimo.root: data/deepmimo` 和 `batch.workers: 1`，按场景目录顺序输出 `deepmimo_0000/` 起的标准目录。DeepMIMO 模板默认关闭 label、class mask 和 maps，仅生成 `scene.obj`、`scene.xml`、`assets/`、`placements.json`、`deepmimo_source/metadata.json` 和 `floorplan/`；floorplan 默认使用和 Front3D 一致的 `resolution_m: 0.05`，并用确定性的 `ray_height_filtered` 投影。城市级室外场景在这个比例尺下会生成更大的平面图。
+`config/tasks/deepmimo_full_simulation.yaml` 是 DeepMIMO 几何转换生产模板。它默认使用 `pipeline.mode: deepmimo`、`deepmimo.root: data/deepmimo` 和 `batch.workers: 1`，按场景目录顺序输出 `deepmimo_0000/` 起的标准目录。DeepMIMO 模板默认关闭 label、class mask 和 maps，仅生成 `scene.obj`、`scene.xml`、`assets/`、`placements.json`、`deepmimo_source/metadata.json` 和 `floorplan/`；floorplan 默认使用和 Front3D 一致的 `resolution_m: 0.05`、`projection: sampling` 和 `1.6m` 单高度投影。城市级室外场景在这个比例尺下会生成更大的平面图。
 
 ## 合并规则
 

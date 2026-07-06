@@ -1646,7 +1646,7 @@ def test_procedural_front3d_vision_config_enables_vision_only_outputs() -> None:
     assert "bistro" not in payload
 
 
-def test_deepmimo_config_matches_front3d_floorplan_scale() -> None:
+def test_deepmimo_config_matches_front3d_floorplan_defaults() -> None:
     root = find_project_root()
     payload = yaml.safe_load((root / "config" / "deepmimo.yaml").read_text(encoding="utf-8"))
     effective, _ = load_effective_config(root / "config" / "deepmimo.yaml", root, Namespace(set_values=[]))
@@ -1655,8 +1655,15 @@ def test_deepmimo_config_matches_front3d_floorplan_scale() -> None:
     assert payload["deepmimo"] == DEFAULT_CONFIG["deepmimo"]
     assert payload["label"]["enabled"] is False
     assert payload["floorplan"]["resolution_m"] == 0.05
-    assert payload["floorplan"]["geometry"]["projection"] == "ray_height_filtered"
+    assert payload["floorplan"]["geometry"]["projection"] == "sampling"
     assert payload["floorplan"]["geometry"]["vertical_axis"] == "z"
+    assert payload["floorplan"]["geometry"]["height"]["mode"] == "heights"
+    assert payload["floorplan"]["geometry"]["height"]["values_m"] == [1.6]
+    assert payload["floorplan"]["sampling"] == {
+        "density_scale": 128.0,
+        "min_points": 100000,
+        "max_points": 4000000,
+    }
     assert payload["floorplan"]["class_mask"]["enabled"] is False
     assert effective["floorplan"]["geometry"]["vertical_axis"] == "z"
     assert "assets" not in payload
@@ -1770,8 +1777,15 @@ def test_full_simulation_task_templates_enable_production_outputs() -> None:
     assert deepmimo["batch"]["task_timeout_s"] == 600
     assert deepmimo["label"]["enabled"] is False
     assert deepmimo["floorplan"]["resolution_m"] == 0.05
-    assert deepmimo["floorplan"]["geometry"]["projection"] == "ray_height_filtered"
+    assert deepmimo["floorplan"]["geometry"]["projection"] == "sampling"
     assert deepmimo["floorplan"]["geometry"]["vertical_axis"] == "z"
+    assert deepmimo["floorplan"]["geometry"]["height"]["mode"] == "heights"
+    assert deepmimo["floorplan"]["geometry"]["height"]["values_m"] == [1.6]
+    assert deepmimo["floorplan"]["sampling"] == {
+        "density_scale": 128.0,
+        "min_points": 100000,
+        "max_points": 4000000,
+    }
     assert deepmimo["floorplan"]["class_mask"]["enabled"] is False
     assert "front3d" not in deepmimo
     assert "assets" not in deepmimo

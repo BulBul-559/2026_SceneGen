@@ -32,7 +32,7 @@ floorplan:
   resolution_m: 0.05
   geometry:
     enabled: true
-    projection: ray_height_filtered
+    projection: sampling
     vertical_axis: z
     height:
       mode: heights
@@ -42,6 +42,10 @@ floorplan:
       bottom_m: 0.0
   class_mask:
     enabled: false
+  sampling:
+    density_scale: 128.0
+    min_points: 100000
+    max_points: 4000000
   preview:
     tile_size_px: 360
 batch:
