@@ -137,7 +137,7 @@ def reconstruct_i1_2p5(source_dir: Path) -> dict[str, object]:
         },
         {
             "name": "table_right",
-            "bbox_xy_m": {"min_x": -19.15, "max_x": -18.05, "min_y": 12.20, "max_y": 15.50},
+            "bbox_xy_m": {"min_x": -19.30, "max_x": -17.90, "min_y": 12.15, "max_y": 15.65},
         },
     ]
     for table in tables:
