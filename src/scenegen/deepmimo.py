@@ -159,6 +159,50 @@ def load_mat_single_matrix(path: Path, variable_name: str) -> np.ndarray:
     raise KeyError(f"Variable {variable_name!r} not found in {path}")
 
 
+def _mat_element(data_type: int, payload: bytes) -> bytes:
+    pad = b"\0" * ((8 - len(payload) % 8) % 8)
+    return struct.pack("<II", data_type, len(payload)) + payload + pad
+
+
+def write_mat_single_matrix(path: Path, variable_name: str, values: np.ndarray) -> None:
+    """Write one numeric matrix to an uncompressed MATLAB v5 MAT-file."""
+
+    array = np.asarray(values)
+    if not variable_name.isascii() or not variable_name:
+        raise ValueError("MATLAB variable name must be non-empty ASCII")
+    dtype_meta = {
+        np.dtype("float32"): (7, 7),
+        np.dtype("float64"): (9, 6),
+        np.dtype("int64"): (12, 14),
+        np.dtype("uint64"): (13, 15),
+        np.dtype("int32"): (5, 12),
+        np.dtype("uint32"): (6, 13),
+    }
+    dtype = np.dtype(array.dtype)
+    if dtype not in dtype_meta:
+        raise ValueError(f"Unsupported MATLAB write dtype: {array.dtype}")
+    data_type, class_id = dtype_meta[dtype]
+    dims = tuple(int(value) for value in array.shape)
+    if not dims:
+        dims = (1, 1)
+        array = array.reshape(dims)
+    header = bytearray(128)
+    text = b"MATLAB 5.0 MAT-file, SceneGen DeepMIMO matrix"
+    header[: len(text)] = text
+    header[124:126] = struct.pack("<H", 0x0100)
+    header[126:128] = b"IM"
+    payload = b"".join(
+        [
+            _mat_element(6, struct.pack("<II", class_id, 0)),
+            _mat_element(5, struct.pack(f"<{len(dims)}i", *dims)),
+            _mat_element(1, variable_name.encode("ascii")),
+            _mat_element(data_type, np.asfortranarray(array).tobytes(order="F")),
+        ]
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(bytes(header) + _mat_element(14, payload))
+
+
 def load_deepmimo_vertices(path: Path) -> np.ndarray:
     vertices = np.asarray(load_mat_single_matrix(path, "vertices"), dtype=np.float32)
     if vertices.ndim != 2 or vertices.shape[1] != 3:

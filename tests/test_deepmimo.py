@@ -15,8 +15,10 @@ from scenegen.deepmimo import (
     load_deepmimo_scene,
     load_deepmimo_vertices,
     material_map_for_config,
+    write_mat_single_matrix,
     write_deepmimo_scene_files,
 )
+from scenegen.deepmimo_reconstruct import write_reconstructed_deepmimo_source
 
 
 def _mat_element(data_type: int, payload: bytes) -> bytes:
@@ -157,6 +159,17 @@ def test_deepmimo_vertices_mat_reader_loads_single_matrix(tmp_path: Path) -> Non
     assert vertices[-1].tolist() == [8.0, 26.0, 0.0]
 
 
+def test_deepmimo_mat_writer_roundtrips_vertices(tmp_path: Path) -> None:
+    path = tmp_path / "vertices.mat"
+    expected = np.asarray([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32)
+
+    write_mat_single_matrix(path, "vertices", expected)
+
+    actual = load_deepmimo_vertices(path)
+    assert actual.dtype == np.float32
+    assert actual.tolist() == expected.tolist()
+
+
 def test_deepmimo_scene_writer_outputs_standard_geometry(tmp_path: Path) -> None:
     scene_dir = make_deepmimo_fixture(tmp_path / "root")
     scene = load_deepmimo_scene(scene_dir, normalize_positive_xy=True)
@@ -194,6 +207,30 @@ def test_deepmimo_face_id_schema_expands_faces_mat(tmp_path: Path) -> None:
     assert build.floorplan_mesh_arrays is not None
     assert build.floorplan_mesh_arrays.faces.shape == (6, 3)
     assert (output_dir / "assets" / "deepmimo" / "floorplans__concrete.obj").is_file()
+
+
+def test_deepmimo_i2_reconstruction_writes_loadable_source(tmp_path: Path) -> None:
+    source_root = tmp_path / "source"
+    scene_dir = make_deepmimo_fixture(source_root, "i2_28b")
+    inter = np.asarray([[2.0, 12.0], [21.0, 0.0]], dtype=np.float32)
+    inter_pos = np.zeros((2, 2, 2, 3), dtype=np.float32)
+    inter_pos[0, 0, 0] = [-0.9, 0.2, 1.0]
+    inter_pos[0, 1, 1] = [0.4, 0.2, 1.2]
+    inter_pos[1, 0, 0] = [1.0, 0.2, 1.1]
+    write_mat_single_matrix(scene_dir / "inter_t001_tx000_r000.mat", "inter", inter)
+    write_mat_single_matrix(scene_dir / "inter_pos_t001_tx000_r000.mat", "inter_pos", inter_pos)
+
+    output = write_reconstructed_deepmimo_source(scene_dir, tmp_path / "reconstructed")
+    reconstructed = load_deepmimo_scene(output.output_dir, normalize_positive_xy=True)
+
+    assert output.scene_id == "i2_28b_reconstructed"
+    assert (output.output_dir / "vertices.mat").is_file()
+    assert (output.output_dir / "objects.json").is_file()
+    assert (output.output_dir / "params.json").is_file()
+    assert reconstructed.scene_id == "i2_28b_reconstructed"
+    assert reconstructed.vertices.shape[0] > 12
+    assert any(obj.name == "blockage_wall" for obj in reconstructed.objects)
+    assert output.report["evidence"]["blockage_wall"]["ok"] is True
 
 
 def test_deepmimo_index_discovers_and_orders_scenes(tmp_path: Path) -> None:

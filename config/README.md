@@ -135,6 +135,8 @@ params.json
 
 运行时会从 `vertices.mat` 读取 `vertices` 矩阵，从 `objects.json` 读取 object label 和 face 定义，并把每个多边形面 fan-triangulate 后直接交给 floorplan；同时写出标准 `scene.obj`、按 label/material 拆分的 Sionna `assets/` 和 `scene.xml`。当前兼容两种 DeepMIMO object schema：outdoor 场景可直接在 `objects.json.face_vertex_idxs` 中保存 vertex index；indoor 场景可在 `objects.json.faces` 中保存 `faces.mat` 的 row id，再由 `faces.mat.faces` 映射到三角面 vertex index。由于当前 DeepMIMO 源没有 Front3D 的 room/furniture 语义，`config/deepmimo.yaml` 默认关闭 label、class mask 和 maps。
 
+对于本地 `i1_2p5` / `i2_28b` 这类室内样例，官方示意图里的部分桌子/遮挡结构并不完整存在于原始 `vertices.mat` / `objects.json` 中。`tools/reconstruct_deepmimo_indoor.py` 可先生成近似重建源目录：`i2_28b` 会根据 `inter/inter_pos` 中 object-id 2 的反射点估计一面 blockage wall，`i1_2p5` 会添加外墙和两张由五个 box mesh 组成的桌子，并在 `reconstruction_report.json` 记录反射点校验信息。重建源仍是普通 DeepMIMO 源目录，可再通过 `deepmimo.root` 指向它并复用本模板生产。
+
 | 字段 | 可选值 / 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `root` | path | `data/deepmimo` | DeepMIMO 场景根目录。每个子目录若同时包含 `vertices.mat`、`objects.json` 和 `params.json`，就会被视为可生产场景；若 object 使用 face-id schema，则还需要 `faces.mat`。 |
@@ -669,6 +671,21 @@ uv run scenegen-batch \
 uv run scenegen-batch \
   --config config/tasks/deepmimo_full_simulation.yaml \
   --set pipeline.run_name=deepmimo_full
+```
+
+先重建本地 i1/i2 室内样例，再用 DeepMIMO 模板转换：
+
+```bash
+PYTHONPATH=src uv run python tools/reconstruct_deepmimo_indoor.py \
+  --source-root /data/sunmeiyuan/projects/deepmimo \
+  --output-root /data/sunmeiyuan/projects/deepmimo_reconstructed
+
+uv run scenegen-batch \
+  --config config/tasks/deepmimo_full_simulation.yaml \
+  --set deepmimo.root=/data/sunmeiyuan/projects/deepmimo_reconstructed \
+  --set 'deepmimo.scene_ids=["i2_28b_reconstructed","i1_2p5_reconstructed"]' \
+  --set pipeline.scenes=2 \
+  --set pipeline.run_name=deepmimo_reconstructed_i2_i1
 ```
 
 `scenegen-batch` 是生产管理入口。它会复用同一份配置和 `--set` 语法，目前支持 `front3d`、`procedural_front3d`、`procedural_front3d_vision` 和 `deepmimo`，并在 run 目录写出 `batch/scene_plan.jsonl`、`batch/state.json`、worker 日志、失败队列、重试队列和 `manifest_batch.json`。默认 worker、调度策略和重试次数来自 YAML 的 `batch.*`；命令行 `--workers` / `--scheduler` / `--max-retries` 仍可临时覆盖。batch child 会跳过自己的 `summary/` 汇总复制，最终由 batch 顶层统一生成 summary；成功 scene 会从 `batch/worker_runs` move 到 run 根目录，worker 子目录只保留日志、配置和失败场景调试材料。
