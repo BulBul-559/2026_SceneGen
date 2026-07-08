@@ -95,6 +95,7 @@ def reconstruct_i2_28b(source_dir: Path) -> dict[str, object]:
         min_z=0.0,
         max_z=wall["height_m"],
     )
+    ue_grid_bboxes = {"r000": _load_rx_xy_bbox(source_dir, "r000")}
     report = {
         "method": "manual_primitives_with_inter_pos_check",
         "scene_id": "i2_28b",
@@ -105,6 +106,8 @@ def reconstruct_i2_28b(source_dir: Path) -> dict[str, object]:
         },
         "evidence": {
             "blockage_wall": evidence,
+            "ue_grid_bboxes": ue_grid_bboxes,
+            "blockage_wall_to_ue_grids": _xy_box_relationships_to_grids(wall, ue_grid_bboxes),
             "note": "The blockage wall is inferred from object-id 2 interaction points in inter/inter_pos.",
         },
     }
@@ -133,11 +136,11 @@ def reconstruct_i1_2p5(source_dir: Path) -> dict[str, object]:
     tables = [
         {
             "name": "table_left",
-            "bbox_xy_m": {"min_x": -22.45, "max_x": -20.75, "min_y": 11.85, "max_y": 15.50},
+            "bbox_xy_m": {"min_x": -24.55, "max_x": -22.75, "min_y": 12.40, "max_y": 17.65},
         },
         {
             "name": "table_right",
-            "bbox_xy_m": {"min_x": -19.30, "max_x": -17.90, "min_y": 12.15, "max_y": 15.65},
+            "bbox_xy_m": {"min_x": -18.85, "max_x": -16.95, "min_y": 12.40, "max_y": 17.65},
         },
     ]
     for table in tables:
@@ -155,13 +158,16 @@ def reconstruct_i1_2p5(source_dir: Path) -> dict[str, object]:
             leg_width=0.12,
         )
 
-    inter_points = _load_first_inter_pos_points(source_dir)
+    ue_grid_bboxes = {
+        "r000": _load_rx_xy_bbox(source_dir, "r000"),
+        "r001": _load_rx_xy_bbox(source_dir, "r001"),
+    }
     table_evidence = {
-        table["name"]: _point_coverage_for_xy_box(inter_points, table["bbox_xy_m"], margin_m=0.12)
+        table["name"]: _xy_box_relationships_to_grids(table["bbox_xy_m"], ue_grid_bboxes)
         for table in tables
     }
     report = {
-        "method": "manual_primitives_with_inter_pos_check",
+        "method": "manual_primitives_from_official_layout_with_ue_grid_constraints",
         "scene_id": "i1_2p5",
         "room_bbox_source_m": _bbox_dict(float(x0), float(x1), float(y0), float(y1), 0.0, room_height),
         "primitives": {
@@ -169,8 +175,9 @@ def reconstruct_i1_2p5(source_dir: Path) -> dict[str, object]:
             "tables": tables,
         },
         "evidence": {
+            "ue_grid_bboxes": ue_grid_bboxes,
             "tables": table_evidence,
-            "note": "Table footprints are scene-specific defaults checked against inter_pos XY hits.",
+            "note": "i1_2p5 vertices.mat contains the room shell but not table mesh. Table footprints are scene-specific approximations from the official layout and are constrained not to overlap the DeepMIMO UE grids.",
         },
     }
     return {"vertices": np.asarray(vertices, dtype=np.float32), "objects": objects, "report": report}
@@ -361,36 +368,60 @@ def _load_inter_object_points(inter_path: Path, inter_pos_path: Path, object_id:
     return np.concatenate(collected, axis=0)
 
 
-def _load_first_inter_pos_points(source_dir: Path) -> np.ndarray:
-    candidates = sorted(source_dir.glob("inter_pos_*_r000.mat"))
+def _load_rx_xy_bbox(source_dir: Path, rx_suffix: str) -> dict[str, object]:
+    candidates = sorted(source_dir.glob(f"rx_pos_*_{rx_suffix}.mat"))
     if not candidates:
-        candidates = sorted(source_dir.glob("inter_pos_*.mat"))
-    if not candidates:
-        return np.zeros((0, 3), dtype=np.float32)
-    points = load_mat_single_matrix(candidates[0], "inter_pos").reshape((-1, 3)).astype(np.float32, copy=False)
-    return points[np.isfinite(points).all(axis=1) & (np.linalg.norm(points, axis=1) > 1e-6)]
-
-
-def _point_coverage_for_xy_box(
-    points: np.ndarray,
-    bbox_xy: dict[str, float],
-    *,
-    margin_m: float,
-) -> dict[str, object]:
+        return {"ok": False, "reason": "missing_rx_pos", "rx_suffix": rx_suffix}
+    points = load_mat_single_matrix(candidates[0], "rx_pos").reshape((-1, 3)).astype(np.float32, copy=False)
+    points = points[np.isfinite(points).all(axis=1)]
     if points.size == 0:
-        return {"ok": False, "reason": "no_inter_pos_points"}
-    min_x = float(bbox_xy["min_x"]) - margin_m
-    max_x = float(bbox_xy["max_x"]) + margin_m
-    min_y = float(bbox_xy["min_y"]) - margin_m
-    max_y = float(bbox_xy["max_y"]) + margin_m
-    mask = (points[:, 0] >= min_x) & (points[:, 0] <= max_x) & (points[:, 1] >= min_y) & (points[:, 1] <= max_y)
-    selected = points[mask]
+        return {"ok": False, "reason": "empty_rx_pos", "rx_suffix": rx_suffix}
     return {
-        "ok": bool(selected.shape[0] > 0),
-        "point_count": int(selected.shape[0]),
-        "expanded_bbox_xy_m": {"min_x": min_x, "max_x": max_x, "min_y": min_y, "max_y": max_y},
-        "point_bbox_m": _point_bbox(selected) if selected.shape[0] else None,
+        "ok": True,
+        "rx_suffix": rx_suffix,
+        "source_file": candidates[0].name,
+        "point_count": int(points.shape[0]),
+        "min_x": float(np.min(points[:, 0])),
+        "max_x": float(np.max(points[:, 0])),
+        "min_y": float(np.min(points[:, 1])),
+        "max_y": float(np.max(points[:, 1])),
     }
+
+
+def _xy_box_relationships_to_grids(
+    bbox_xy: dict[str, float],
+    grid_bboxes: dict[str, dict[str, object]],
+) -> dict[str, object]:
+    relationships: dict[str, object] = {"bbox_xy_m": bbox_xy, "ue_grid_relationships": {}}
+    all_non_overlapping = True
+    for name, grid in grid_bboxes.items():
+        if not grid.get("ok"):
+            relationships["ue_grid_relationships"][name] = {"ok": False, "reason": grid.get("reason")}
+            all_non_overlapping = False
+            continue
+        overlap_area = _xy_box_overlap_area(bbox_xy, grid)
+        gap_m = _xy_box_gap_m(bbox_xy, grid)
+        relationships["ue_grid_relationships"][name] = {
+            "ok": True,
+            "overlap_area_m2": overlap_area,
+            "gap_m": gap_m,
+        }
+        if overlap_area > 0.0:
+            all_non_overlapping = False
+    relationships["ok"] = all_non_overlapping
+    return relationships
+
+
+def _xy_box_overlap_area(a: dict[str, object], b: dict[str, object]) -> float:
+    x_overlap = max(0.0, min(float(a["max_x"]), float(b["max_x"])) - max(float(a["min_x"]), float(b["min_x"])))
+    y_overlap = max(0.0, min(float(a["max_y"]), float(b["max_y"])) - max(float(a["min_y"]), float(b["min_y"])))
+    return float(x_overlap * y_overlap)
+
+
+def _xy_box_gap_m(a: dict[str, object], b: dict[str, object]) -> float:
+    x_gap = max(float(b["min_x"]) - float(a["max_x"]), float(a["min_x"]) - float(b["max_x"]), 0.0)
+    y_gap = max(float(b["min_y"]) - float(a["max_y"]), float(a["min_y"]) - float(b["max_y"]), 0.0)
+    return float((x_gap * x_gap + y_gap * y_gap) ** 0.5)
 
 
 def _point_bbox(points: np.ndarray) -> dict[str, list[float]]:
