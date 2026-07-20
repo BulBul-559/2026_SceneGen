@@ -32,12 +32,16 @@ dist/
 # SceneGen generated outputs
 results
 results/
+highres_results
+highres_results/
 outputs
 outputs/
 runs
 runs/
 data/3D-Front
 data/3D-Front/
+data/DICHASUS
+data/DICHASUS/
 data/deepmimo
 data/deepmimo/
 

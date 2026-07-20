@@ -4,7 +4,7 @@
 
 ## 项目一句话
 
-SceneGen 是一个 Linux/uv 管理的轻量 3D 场景生成/转换项目。它把空场景、资产目录、3D-FRONT 已组合场景或 DeepMIMO 几何源转换为标准输出：`scene.obj`、Sionna/Mitsuba 可加载的 `scene.xml`、`placements.json`、批量 `label/*.json`、floorplan、质量报告和统计报告。
+SceneGen 是一个 Linux/uv 管理的轻量 3D 场景生成/转换项目。它把空场景、资产目录、3D-FRONT 已组合场景、DeepMIMO 几何源或 Blender `.blend` 文件转换为标准输出：`scene.obj`、Sionna/Mitsuba 可加载的 `scene.xml`、`placements.json`、批量 `label/*.json`、floorplan、质量报告和统计报告。
 
 ## 当前主要模式
 
@@ -14,14 +14,16 @@ SceneGen 是一个 Linux/uv 管理的轻量 3D 场景生成/转换项目。它�
 - `procedural_front3d`: 实验性自动生成模式。按 `procedural.layout` 采样多房间户型，默认 `mixed` 会按 `procedural.layout_weights` 在 `grid` / `split_tree` / `rect_union` / `room_graph` / `polygon_shell` / `corridor_spine` 中加权选择实际 layout，并在 scene record 里同时记录 `layout` 和 `configured_layout`；其中 `split_tree` 从完整 apartment footprint 递归切分房间，`rect_union` 可由连通房间矩形集合拼出 L/T/凹口式不规则外轮廓，外墙按 room union 的真实边界生成，不再用整体 bbox 补成矩形；`room_graph` 会先生成树状房间邻接关系，再把新房间挂到已有房间边上，形成更自由的错位和凹凸外轮廓；`polygon_shell` 会先采样带凹口的外部 shell，再在 shell 内切分矩形房间；`corridor_spine` 会生成走廊 spine + 两侧房间的公寓式拓扑，并在配置阶段检查 `Hallway`、`room_count` 和 Hallway 上限是否足够容纳必选房间。默认 room type 覆盖客厅、卧室、餐厅、书房、厨房、卫浴和走廊/玄关，并可通过 `procedural.required_room_types` 保证必选组成、通过 `procedural.room_type_weights` 控制剩余分布权重、通过 `procedural.room_type_max_counts` 限制厨房/餐厅/卫浴等类型的最大出现次数、通过 `procedural.room_type_assignment: geometry_fit` 复用 room type 几何规则把类型分配给更合适的房间。随后写出 Front3D-like 建筑 `procedural_source/scene.json` / `architecture.obj`，包括 floor、ceiling、wall、door、外墙 window mesh、room adjacency 和门洞 bbox；再按 `procedural.object_count` 计算每房家具数量，`object_count.by_room_type` 可按房型覆盖家具密度，并从 3D-FUTURE 资产池中按 `procedural.room_profiles` 的类别序列、`required_classes` 和 semantic filter 摆放家具。`procedural.asset_reuse` 默认限制同一 model 在 room/scene 内过度复用，候选池不足时可自动放宽并在 placement stats 里记录。位置采样由 `procedural.placement_policy` 控制，默认 `floor` 靠墙、`table` 靠中心、`seat` 自由采样，且 `placement_policy.by_room_type` 可按房型覆盖，例如厨房/卫浴更偏靠墙、客厅/餐厅桌椅更偏中心；客厅、餐厅、卧室、书房、厨房等可通过 `procedural.placement_groups` 先生成 anchor + companion 关系组，例如茶几/沙发、餐桌椅、床 + 床头柜、书桌椅或台面/椅凳。生成后会按 `procedural.precheck` 检查摆放数量完成率、room 必需类别是否到位、room adjacency 连通性、footprint fill ratio/凹口面积、通用 room 面积/长宽比和按 room type 的几何规则，失败时换 seed 重试同一编号；通过后复用 front3d 的 OBJ/XML、label、floorplan、class mask、quality 和 statistics 输出链路。
 - `procedural_front3d_vision`: 复用 `procedural_front3d` 的户型、家具摆放、precheck、quality、label、floorplan 和 maps，但通过 `output.profile: vision_only` 跳过合成 `scene.obj`、`scene.xml`、`assets/` 和 OBJ summary。它面向 VisionEncoder 预训练数据，scene 目录前缀为 `procedural_front3d_vision_`，仍保留 `procedural_source/` 和 `placements.json` 作为小体积可追溯源记录。
 - `deepmimo`: DeepMIMO v4 几何转换模式。读取 `data/deepmimo/<scene_id>/vertices.mat`、`objects.json`、`params.json` 和可选 `faces.mat`，解析 `vertices` 矩阵和 object faces，兼容 `objects.json.face_vertex_idxs` 直接 vertex-index schema 以及 `objects.json.faces` + `faces.mat.faces` face-id schema，转换为标准 `scene.obj`、按 label/material 拆分的 Sionna `assets/`、`scene.xml`、`placements.json`、`deepmimo_source/metadata.json` 和几何 floorplan。当前模板默认关闭 label、class mask 和 maps；DeepMIMO floorplan 默认使用和 Front3D 一致的 `resolution_m: 0.05`、`projection: sampling` 和 `1.6m` 单高度投影。本地 i1/i2 室内样例可先用 `tools/reconstruct_deepmimo_indoor.py` 生成近似重建源目录，再复用此模式生产。
+- `blend`: Blender `.blend` 几何转换模式。使用 `blend.blender_path` 指定的 Blender headless 命令把 `.blend` 导出为中间 OBJ，再输出标准 `scene.obj`、单材质 Sionna `assets/`、`scene.xml`、`placements.json`、`blend_source/metadata.json` 和 floorplan。`config/tasks/blend_full_simulation.yaml` 默认指向 `data/DICHASUS/dichasus-dcxx/inue-all.blend`；当前把 `.blend` 当作几何源处理，默认关闭 label、class mask 和 maps。
 
 `front3d` v1 只合成已有 3D-FRONT 场景，不做基于 3D-FRONT 资产池的随机重排。`procedural_front3d` 是正在开发的无限场景生成 baseline，当前仍是规则系统，不是完整 ProcTHOR/Infinigen 级别的语义约束生成器。
 
 ## 关键目录
 
 - `src/scenegen/cli.py`: CLI 入口和主生成流程。
+- `src/scenegen/blend.py`: Blender `.blend` scene discovery、headless OBJ 导出、标准 OBJ/XML/floorplan mesh array 写出。
 - `src/scenegen/config.py`: 配置默认值、YAML 读取、CLI 覆盖、类型归一化、字段和值校验。
-- `src/scenegen/sources.py`: `generated`、`bistro`、`front3d`、`procedural_front3d`、`procedural_front3d_vision`、`deepmimo` 六种 source adapter。
+- `src/scenegen/sources.py`: `generated`、`bistro`、`front3d`、`procedural_front3d`、`procedural_front3d_vision`、`deepmimo`、`blend` 七种 source adapter。
 - `src/scenegen/front3d.py`: 3D-FRONT manifest、scene JSON、实例矩阵、坐标转换和 asset 解析。
 - `src/scenegen/deepmimo.py`: DeepMIMO scene discovery、MATLAB v5 单矩阵 reader/writer、OBJ/XML/floorplan mesh array 导出。
 - `src/scenegen/deepmimo_reconstruct.py`: 本地 i1/i2 室内 DeepMIMO 样例的近似几何重建；输出普通 DeepMIMO 源目录和 `reconstruction_report.json`。
@@ -31,7 +33,7 @@ SceneGen 是一个 Linux/uv 管理的轻量 3D 场景生成/转换项目。它�
 - `src/scenegen/floorplan.py`: 几何 floorplan 和 3D-FRONT 四分类 class mask。
 - `src/scenegen/quality.py`: 质量检查和统计报告。
 - `src/scenegen/runlog.py`: 单 run JSONL 事件、阶段耗时、state 快照和 traceback 输出。
-- `src/scenegen/batch.py`: 生产管理入口，支持 `front3d`、`procedural_front3d`、`procedural_front3d_vision` 和 `deepmimo`，负责 scene plan、worker、resume、失败/重试队列和 batch manifest。
+- `src/scenegen/batch.py`: 生产管理入口，支持 `front3d`、`procedural_front3d`、`procedural_front3d_vision`、`deepmimo` 和 `blend`，负责 scene plan、worker、resume、失败/重试队列和 batch manifest。
 - `src/scenegen/assets/`: Bistro 资产契约、loader、legacy converter、材质映射。
 - `tools/prepare_front3d_phase1.py`: 3D-FRONT 第一阶段离线整理脚本。
 - `config/bistro.yaml`: Bistro 模式一级基础模板，也是默认 YAML 入口。
@@ -40,6 +42,8 @@ SceneGen 是一个 Linux/uv 管理的轻量 3D 场景生成/转换项目。它�
 - `config/procedural_front3d_vision.yaml`: 程序化视觉训练数据一级基础模板。
 - `config/deepmimo.yaml`: DeepMIMO 几何转换一级基础模板。
 - `config/tasks/deepmimo_full_simulation.yaml`: DeepMIMO batch 生产模板。
+- `config/blend.yaml`: Blender `.blend` 几何转换一级基础模板。
+- `config/tasks/blend_full_simulation.yaml`: DICHASUS `.blend` batch 生产模板。
 - `data/3D-Front/`: 本地 3D-FRONT 原始数据和整理结果，默认 git ignored。
 
 ## 配置链路
@@ -57,7 +61,7 @@ SceneGen 是一个 Linux/uv 管理的轻量 3D 场景生成/转换项目。它�
 
 维护规则：
 
-- `config/bistro.yaml`、`config/front3d.yaml`、`config/procedural_front3d.yaml`、`config/procedural_front3d_vision.yaml` 和 `config/deepmimo.yaml` 按工作流拆分，只保留各自任务相关字段；未写字段由 `DEFAULT_CONFIG` 补齐。
+- `config/bistro.yaml`、`config/front3d.yaml`、`config/procedural_front3d.yaml`、`config/procedural_front3d_vision.yaml`、`config/deepmimo.yaml` 和 `config/blend.yaml` 按工作流拆分，只保留各自任务相关字段；未写字段由 `DEFAULT_CONFIG` 补齐。
 - `DEFAULT_CONFIG` 是完整 schema 和兜底默认值来源；新增字段时需要同步判断它属于哪个一级模板或具体 `config/tasks/*.yaml`，并更新 `config/README.md`。
 - 需要实验配置时复制对应模板到其他位置，或通过 CLI 覆盖。
 - 配置 v2 不兼容旧 YAML 字段和旧显式 CLI 参数。
@@ -69,7 +73,7 @@ SceneGen 是一个 Linux/uv 管理的轻量 3D 场景生成/转换项目。它�
 
 - `floorplan.resolution_m: 0.05`
 - `floorplan.geometry.projection: sampling`
-- `floorplan.geometry.vertical_axis: auto`: 普通未知 mesh 保留自动推断；`front3d`、`procedural_front3d`、`procedural_front3d_vision` 和 `deepmimo` 在配置归一化阶段固定解析为 `z`，模板也显式写 `z`。同时生成几何 floorplan 和 class mask 时会校验两者 `grid_shape` 一致，不一致直接作为 floorplan 错误暴露。
+- `floorplan.geometry.vertical_axis: auto`: 普通未知 mesh 保留自动推断；`front3d`、`procedural_front3d`、`procedural_front3d_vision`、`deepmimo` 和 `blend` 在配置归一化阶段固定解析为 `z`，模板也显式写 `z`。同时生成几何 floorplan 和 class mask 时会校验两者 `grid_shape` 一致，不一致直接作为 floorplan 错误暴露。
 - `floorplan.geometry.height.mode: heights`
 - `floorplan.geometry.height.values_m: [1.6]`
 - `floorplan.sampling.density_scale: 128.0`
@@ -181,6 +185,16 @@ uv run scenegen-batch \
 ```
 
 `config/tasks/deepmimo_full_simulation.yaml` 默认按 `data/deepmimo` 下完整 scene 目录顺序转换，生成 `deepmimo_0000/` 起的 OBJ/XML/floorplan 输出；label、class mask 和 maps 默认关闭。
+
+正式 blend batch 生产：
+
+```bash
+uv run scenegen-batch \
+  --config config/tasks/blend_full_simulation.yaml \
+  --set pipeline.run_name=dichasus_blend_full
+```
+
+`config/tasks/blend_full_simulation.yaml` 默认处理 `data/DICHASUS/dichasus-dcxx/inue-all.blend`，需要可执行的 Blender；如果系统没有 `blender` 命令，设置 `blend.blender_path=/path/to/blender`。
 
 本地 i1/i2 室内样例近似重建：
 

@@ -5,11 +5,12 @@ import random
 from dataclasses import dataclass
 from pathlib import Path
 
+from .blend import BlendConfig, BlendIndex, write_blend_scene_files
 from .deepmimo import DeepMIMOConfig, DeepMIMOIndex, material_map_for_config, write_deepmimo_scene_files
 from .exporters import write_bistro_scene_files, write_front3d_scene_files, write_scene_files
 from .front3d import Front3DConfig, Front3DIndex, build_scene_from_front3d
 from .geometry import load_bistro_base_scene
-from .modes import DEEPMIMO_MODE, FRONT3D_MODE, is_procedural_front3d_like, scene_prefix_for_mode
+from .modes import BLEND_MODE, DEEPMIMO_MODE, FRONT3D_MODE, is_procedural_front3d_like, scene_prefix_for_mode
 from .models import Asset, BistroBaseScene, Front3DBaseScene, PlacedAsset, Rect2D, Room, SceneMeshArrays
 from .placement import build_bistro_scene_placements, build_scene_placements
 from .procedural import ProceduralFront3DGenerator
@@ -321,11 +322,69 @@ class DeepMIMOSceneSource:
         )
 
 
+class BlendSceneSource:
+    mode = BLEND_MODE
+    scene_prefix = "blend"
+    base_scene: BistroBaseScene | None = None
+    forbidden_xy_rects: tuple[Rect2D, ...] = ()
+
+    def __init__(self, args: argparse.Namespace):
+        config = BlendConfig(
+            root=args.blend_root,
+            scene_files=tuple(args.blend_scene_files),
+            scene_selection=args.blend_scene_selection,
+            start_index=args.blend_start_index,
+            blender_path=args.blend_blender_path,
+            positive_xy=args.blend_normalize_positive_xy,
+            default_material=args.blend_default_material,
+            export_timeout_s=args.blend_export_timeout_s,
+        )
+        self.index = BlendIndex(config)
+        self.config = config
+        self.collect_floorplan_mesh_arrays = bool(args.floorplan_enabled and args.floorplan_geometry_enabled)
+        self.write_scene_obj = bool(getattr(args, "output_write_scene_obj", True))
+        self.write_sionna_assets = bool(getattr(args, "output_write_sionna_assets", True))
+        self._selection_rng = random.Random(args.seed)
+        self._selection_cursor = int(config.start_index) if not config.scene_files else 0
+
+    def next_scene_id(self) -> str:
+        if self.config.scene_selection == "random":
+            return self._selection_rng.choice(self.index.scene_ids)
+        scene_id = self.index.scene_ids[self._selection_cursor % len(self.index.scene_ids)]
+        self._selection_cursor += 1
+        return scene_id
+
+    def build_scene(
+        self,
+        scene_dir: Path,
+        scene_index: int,
+        scene_seed: int,
+        rng: random.Random,
+    ) -> SceneBuildResult:
+        scene = self.index.load_scene(self.next_scene_id())
+        build = write_blend_scene_files(
+            scene_dir,
+            scene,
+            scene_index,
+            scene_seed,
+            self.config,
+            collect_floorplan_mesh_arrays=self.collect_floorplan_mesh_arrays,
+            write_scene_obj=self.write_scene_obj,
+            write_sionna_assets=self.write_sionna_assets,
+        )
+        return SceneBuildResult(
+            placements=[],
+            bounds_xy=build.bounds_xy,
+            record=build.record,
+            floorplan_mesh_arrays=build.floorplan_mesh_arrays,
+        )
+
+
 def create_scene_source(
     args: argparse.Namespace,
     assets_by_class: dict[str, list[Asset]],
     bistro_base_dir: Path | None,
-) -> GeneratedSceneSource | BistroSceneSource | Front3DSceneSource | ProceduralFront3DSceneSource | DeepMIMOSceneSource:
+) -> GeneratedSceneSource | BistroSceneSource | Front3DSceneSource | ProceduralFront3DSceneSource | DeepMIMOSceneSource | BlendSceneSource:
     if args.mode == "generated":
         return GeneratedSceneSource(assets_by_class, args)
     if args.mode == "bistro":
@@ -338,4 +397,6 @@ def create_scene_source(
         return ProceduralFront3DSceneSource(args)
     if args.mode == DEEPMIMO_MODE:
         return DeepMIMOSceneSource(args)
+    if args.mode == BLEND_MODE:
+        return BlendSceneSource(args)
     raise ValueError(f"Unsupported scene generation mode: {args.mode}")

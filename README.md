@@ -1,10 +1,10 @@
 # SceneGen
 
-SceneGen 是一个面向 Linux 环境的轻量级场景生成项目。它基于空场景、归一化资产、3D-FRONT 或 DeepMIMO 几何源，生成/转换 3D 场景，并同步导出 Sionna/Mitsuba 可加载的场景文件和平面图。
+SceneGen 是一个面向 Linux 环境的轻量级场景生成项目。它基于空场景、归一化资产、3D-FRONT、DeepMIMO 几何源或 Blender `.blend` 文件，生成/转换 3D 场景，并同步导出 Sionna/Mitsuba 可加载的场景文件和平面图。
 
-当前项目版本：`4.7.0`。
+当前项目版本：`4.8.0`。
 
-当前主工作流包括 Bistro 场景生成、3D-FRONT 已组合场景合成、实验性的自动场景生成，以及 DeepMIMO 几何转换：Bistro 以 `data/scene/scene.obj` 作为空场景，以 `data/catalogs/bistro.v1.json` 管理资产契约；3D-FRONT 以第一阶段整理出的 `data/3D-Front/scenegen_manifest.json` 为索引，合并建筑结构和已有家具实例；`procedural_front3d` 会自动采样多房间户型，并从 3D-FUTURE/3D-FRONT 资产池中摆放家具；`procedural_front3d_vision` 复用同一套随机户型和家具摆放，只输出 floorplan、class mask、label 和 maps 训练数据，不写合成 `scene.obj`、`scene.xml` 或 Sionna assets；`deepmimo` 读取 `vertices.mat`、`objects.json`、`params.json` 和可选 `faces.mat`，兼容 object 直接 vertex-index faces 与 face-id 引用两种 schema，转换为标准 `scene.obj`、`scene.xml` 和几何 floorplan；`tools/reconstruct_deepmimo_indoor.py` 可为本地 i1/i2 室内 DeepMIMO 样例生成近似重建源，再复用 `deepmimo` 标准转换链路。`data/assets/manifest.json` 仍保留为兼容位置，但内容已经与 catalog 使用同一份清洗后的契约。
+当前主工作流包括 Bistro 场景生成、3D-FRONT 已组合场景合成、实验性的自动场景生成、DeepMIMO 几何转换，以及 Blender `.blend` 外部几何源转换：Bistro 以 `data/scene/scene.obj` 作为空场景，以 `data/catalogs/bistro.v1.json` 管理资产契约；3D-FRONT 以第一阶段整理出的 `data/3D-Front/scenegen_manifest.json` 为索引，合并建筑结构和已有家具实例；`procedural_front3d` 会自动采样多房间户型，并从 3D-FUTURE/3D-FRONT 资产池中摆放家具；`procedural_front3d_vision` 复用同一套随机户型和家具摆放，只输出 floorplan、class mask、label 和 maps 训练数据，不写合成 `scene.obj`、`scene.xml` 或 Sionna assets；`deepmimo` 读取 `vertices.mat`、`objects.json`、`params.json` 和可选 `faces.mat`，兼容 object 直接 vertex-index faces 与 face-id 引用两种 schema，转换为标准 `scene.obj`、`scene.xml` 和几何 floorplan；`blend` 使用外部 Blender headless 将 `.blend` 导出为标准 `scene.obj`，再复用现有 XML/floorplan/summary 链路；`tools/reconstruct_deepmimo_indoor.py` 可为本地 i1/i2 室内 DeepMIMO 样例生成近似重建源，再复用 `deepmimo` 标准转换链路。`data/assets/manifest.json` 仍保留为兼容位置，但内容已经与 catalog 使用同一份清洗后的契约。
 
 ## 主要功能
 
@@ -14,6 +14,7 @@ SceneGen 是一个面向 Linux 环境的轻量级场景生成项目。它基于�
 - 支持实验性 `procedural_front3d` 模式，自动生成类 3D-FRONT 多房间建筑并摆放 3D-FUTURE 家具资产。
 - 支持 `procedural_front3d_vision` 模式，跳过大体积 OBJ/XML/assets 输出，面向 VisionEncoder 预训练直接生产 floorplan、label 和 maps。
 - 支持 `deepmimo` 模式，将 DeepMIMO v4 场景几何转换成 SceneGen 标准 OBJ/XML/floorplan 产物。
+- 支持 `blend` 模式，将 `.blend` 文件通过 Blender headless 导出并转换成 SceneGen 标准 OBJ/XML/floorplan 产物。
 - 支持 DeepMIMO 室内样例近似重建工具，为本地 `i2_28b` 补外墙和 blockage wall，为 `i1_2p5` 补外墙和两个桌子，并把结果写成普通 DeepMIMO 源目录。
 - 自动读取本地资产 OBJ，资产路径使用 repo-relative POSIX 路径。
 - 使用统一资产契约记录文件、摆放类别、几何尺寸、归一化信息和 Sionna 材质映射。
@@ -44,6 +45,7 @@ SceneGen/
     procedural_front3d.yaml # 自动场景生成实验模板
     procedural_front3d_vision.yaml # 程序化视觉数据专用模板
     deepmimo.yaml          # DeepMIMO 几何转换模板
+    blend.yaml             # Blender .blend 几何转换模板
   data/
     catalogs/             # 标准资产目录，例如 bistro.v1.json
     scene/                # 空 Bistro 场景与 label
@@ -103,12 +105,13 @@ uv sync
 - [config/procedural_front3d.yaml](/home/sunmeiyuan/projects/SceneGen/config/procedural_front3d.yaml)
 - [config/procedural_front3d_vision.yaml](/home/sunmeiyuan/projects/SceneGen/config/procedural_front3d_vision.yaml)
 - [config/deepmimo.yaml](/home/sunmeiyuan/projects/SceneGen/config/deepmimo.yaml)
+- [config/blend.yaml](/home/sunmeiyuan/projects/SceneGen/config/blend.yaml)
 
 配置字段、可选值和 CLI 覆盖说明：
 
 [config/README.md](/home/sunmeiyuan/projects/SceneGen/config/README.md)
 
-运行时默认读取 `config/bistro.yaml`。3D-FRONT 合成建议用 `--config config/front3d.yaml`；自动生成类 3D-FRONT 场景使用 `--config config/procedural_front3d.yaml`；只需要平面图、label 和 maps 的随机生成数据使用 `--config config/procedural_front3d_vision.yaml`；DeepMIMO 几何转换使用 `--config config/deepmimo.yaml`。这些 YAML 是按工作流拆分的一级基础模板，只保留当前任务相关字段；未写字段由 `DEFAULT_CONFIG` 补齐，并会写入最终的 `effective_config.yaml`。CLI 覆盖统一使用可重复的 `--set key.path=value`，value 会按 YAML 解析。每次运行会在结果目录写出最终生效配置：
+运行时默认读取 `config/bistro.yaml`。3D-FRONT 合成建议用 `--config config/front3d.yaml`；自动生成类 3D-FRONT 场景使用 `--config config/procedural_front3d.yaml`；只需要平面图、label 和 maps 的随机生成数据使用 `--config config/procedural_front3d_vision.yaml`；DeepMIMO 几何转换使用 `--config config/deepmimo.yaml`；Blender `.blend` 几何转换使用 `--config config/blend.yaml`。这些 YAML 是按工作流拆分的一级基础模板，只保留当前任务相关字段；未写字段由 `DEFAULT_CONFIG` 补齐，并会写入最终的 `effective_config.yaml`。CLI 覆盖统一使用可重复的 `--set key.path=value`，value 会按 YAML 解析。每次运行会在结果目录写出最终生效配置：
 
 ```text
 <run_dir>/effective_config.yaml
@@ -211,6 +214,12 @@ uv run scenegen --config config/procedural_front3d.yaml --set pipeline.scenes=1 
 uv run scenegen --config config/deepmimo.yaml --set pipeline.scenes=1 --set pipeline.run_name=smoke_deepmimo
 ```
 
+转换 Blender `.blend` 几何场景：
+
+```bash
+uv run scenegen --config config/tasks/blend_full_simulation.yaml --set pipeline.run_name=smoke_blend_dichasus
+```
+
 只生成程序化视觉训练数据：
 
 ```bash
@@ -236,6 +245,8 @@ uv run scenegen --config config/tasks/procedural_front3d_full_simulation.yaml --
 只需要视觉监督数据时使用 `config/tasks/procedural_front3d_vision_full_simulation.yaml`。它复用程序化户型、家具摆放、precheck、quality、label、floorplan 和 maps，并在模板中显式固定当前生产用 `procedural` 户型与摆放参数；`output.profile: vision_only` 会强制关闭 `scene.obj`、`scene.xml`、`assets/` 和 OBJ summary；默认 `batch.workers: 48`；每个 scene 只生成 `label_panel_0p5`，maps 默认也以它作为 BS 来源；仍保留小体积的 `procedural_source/` 与 `placements.json` 作为可追溯源记录。该模板默认使用 `procedural.room_count_ranges` 按 15% / 70% / 15% 采样 1-2、3-7、10-20 间房，并将 `required_room_types` 置空以允许小房间样本。
 
 DeepMIMO 使用 `config/tasks/deepmimo_full_simulation.yaml` 做生产入口。它默认读取 `data/deepmimo/*/{vertices.mat,objects.json,params.json}`，如果 `objects.json` 使用 face-id schema 则同时读取同目录 `faces.mat`；按顺序生成 `deepmimo_0000/` 起的标准场景目录，写出 `scene.obj`、`scene.xml`、`assets/`、`placements.json` 和 `floorplan/`；label、class mask 和 maps 默认关闭。DeepMIMO 模板默认使用和 Front3D 一致的 `floorplan.resolution_m: 0.05`、`floorplan.geometry.projection: sampling` 和 `1.6m` 单高度投影。
+
+Blender `.blend` 使用 `config/tasks/blend_full_simulation.yaml` 做生产入口。它默认指向 `data/DICHASUS/dichasus-dcxx/inue-all.blend`，通过 `blend.blender_path` 指定的 Blender headless 命令导出中间 OBJ，再生成 `blend_0000/scene.obj`、`scene.xml`、`assets/`、`placements.json`、`blend_source/metadata.json` 和 `floorplan/`。`.blend` 源当前作为几何源处理，没有 Front3D room/furniture 语义，因此 label、class mask 和 maps 默认关闭；如果 Blender 不在 `PATH` 中，需要把 `blend.blender_path` 设置为可执行文件绝对路径。
 
 本地 `i1_2p5` / `i2_28b` 室内样例的官方示意结构并不完整存在于 `vertices.mat` / `objects.json` 中。可先用近似重建工具根据源 bbox 和 `inter_pos` 反射点生成新的 DeepMIMO 兼容源目录，再用同一套 batch 模板转换：
 
@@ -298,7 +309,7 @@ logs/
 
 每个 scene record 和最终 `manifest.json` 会记录 `timings_s`、`timing_summary_s` 和日志路径。阶段计时包含 `build_scene`、`statistics`、`precheck`、`quality`、`label`、`floorplan`、`floorplan_geometry`、`class_mask`、`label_overlay` 和 `write_manifest`。
 
-大规模生产使用 `scenegen-batch`，它会先固化 `scene_plan.jsonl`，再按 worker 分片执行，支持 resume、失败队列、重试队列、worker 日志和统一 batch manifest。目前 batch 支持 `front3d`、`procedural_front3d`、`procedural_front3d_vision` 和 `deepmimo`：
+大规模生产使用 `scenegen-batch`，它会先固化 `scene_plan.jsonl`，再按 worker 分片执行，支持 resume、失败队列、重试队列、worker 日志和统一 batch manifest。目前 batch 支持 `front3d`、`procedural_front3d`、`procedural_front3d_vision`、`deepmimo` 和 `blend`：
 
 ```bash
 uv run scenegen-batch \
@@ -324,6 +335,14 @@ DeepMIMO batch：
 uv run scenegen-batch \
   --config config/tasks/deepmimo_full_simulation.yaml \
   --set pipeline.run_name=deepmimo_full
+```
+
+Blend batch：
+
+```bash
+uv run scenegen-batch \
+  --config config/tasks/blend_full_simulation.yaml \
+  --set pipeline.run_name=dichasus_blend_full
 ```
 
 继续未完成的同名生产任务：
@@ -585,9 +604,9 @@ label:
 
 当前 floorplan 默认生成几何占据图；front3d 模式可选生成四分类 `class_mask`，用于训练时区分 outdoor、wall、free_space、furniture。`class_mask` 的 furniture 层默认使用 mesh footprint，若需要更快但更粗的输出，可设置 `floorplan.class_mask.furniture_mode: bbox`。
 
-几何占据图沿用了原 `2026_FloorplanGen` 的 mesh 投影逻辑，但竖直轴现在是正式配置项，不再只靠 bbox 启发式猜测。`front3d`、`procedural_front3d`、`procedural_front3d_vision` 和 `deepmimo` 的几何链路约定为 Z-up，因此这些模式会把 `floorplan.geometry.vertical_axis` 解析为 `z`；未知外部 mesh 仍可使用默认 `auto`。
+几何占据图沿用了原 `2026_FloorplanGen` 的 mesh 投影逻辑，但竖直轴现在是正式配置项，不再只靠 bbox 启发式猜测。`front3d`、`procedural_front3d`、`procedural_front3d_vision`、`deepmimo` 和 `blend` 的几何链路约定为 Z-up，因此这些模式会把 `floorplan.geometry.vertical_axis` 解析为 `z`；未知外部 mesh 仍可使用默认 `auto`。
 
-1. 读取每个场景生成后的 `scene.obj`。
+1. 读取每个场景生成后的 `scene.obj`；`blend` 模式会先用 Blender headless 从 `.blend` 导出该 OBJ。
 2. 用 `trimesh` 合并并解析网格。
 3. 按 `floorplan.geometry.vertical_axis` 选择竖直轴，Z-up 数据源模式固定为 `z`。
 4. 在网格表面采样点云。
@@ -595,7 +614,7 @@ label:
 6. 按配置生成累计俯视投影：默认只生成 `1.6m` 一个高度；也可以切换回旧版逐层扫描。
 7. 输出分层 PNG、预览图、侧视图、投影栈和元数据；若同时生成 `class_mask`，系统会校验几何 floorplan 与 class mask 的栅格尺寸一致，不一致时直接报错。
 
-默认几何平面图使用高密度单高度方案：`floorplan.geometry.projection: sampling`、`floorplan.geometry.vertical_axis: z`（Z-up 数据源模式）、`floorplan.resolution_m: 0.05`、`floorplan.sampling.density_scale: 128.0`、`floorplan.sampling.max_points: 4000000`、`floorplan.geometry.height.values_m: [1.6]`。这类输出偏几何占据图，不包含资产类别语义。由于原始投影来自面积加权随机表面采样，低密度时可能有点状采样噪声；当前默认保留较高采样密度，但用 4M 点上限控制大场景生成耗时。Front3D、procedural 和 DeepMIMO 生产模板现在都沿用这一默认投影配置。
+默认几何平面图使用高密度单高度方案：`floorplan.geometry.projection: sampling`、`floorplan.geometry.vertical_axis: z`（Z-up 数据源模式）、`floorplan.resolution_m: 0.05`、`floorplan.sampling.density_scale: 128.0`、`floorplan.sampling.max_points: 4000000`、`floorplan.geometry.height.values_m: [1.6]`。这类输出偏几何占据图，不包含资产类别语义。由于原始投影来自面积加权随机表面采样，低密度时可能有点状采样噪声；当前默认保留较高采样密度，但用 4M 点上限控制大场景生成耗时。Front3D、procedural、DeepMIMO 和 Blend 生产模板现在都沿用这一默认投影配置。
 
 也可以切换到确定性的高度过滤投影：`floorplan.geometry.projection: ray_height_filtered`。该模式不使用随机表面采样，而是对 mesh 三角形做 XY column rasterization；每个像素只在 `bottom_m <= z <= target_height` 范围内存在几何时被标为 occupied，因此同一 `scene.obj` 和同一配置会得到稳定的 `floorplan_*.png`。
 
@@ -635,7 +654,7 @@ uv run scenegen --set pipeline.mode=bistro --set pipeline.scenes=1 --set pipelin
 
 - 默认入口是 `uv run scenegen`，不再保留根目录脚本入口。
 - 新增配置项时，应同步更新：
-  - `config/bistro.yaml`、`config/front3d.yaml`、`config/procedural_front3d.yaml`、`config/procedural_front3d_vision.yaml`、`config/deepmimo.yaml` 这些按工作流聚焦的基础模板
+  - `config/bistro.yaml`、`config/front3d.yaml`、`config/procedural_front3d.yaml`、`config/procedural_front3d_vision.yaml`、`config/deepmimo.yaml`、`config/blend.yaml` 这些按工作流聚焦的基础模板
   - `config/tasks/*.yaml` 中和该任务真实相关的执行字段
   - `config/README.md`
   - `README.md`

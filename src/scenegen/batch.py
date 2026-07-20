@@ -17,12 +17,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from .blend import BlendConfig, BlendIndex
 from . import __version__
 from .config import load_effective_config, save_effective_config
 from .deepmimo import DeepMIMOConfig, DeepMIMOIndex
 from .exporters import collect_label_floorplans, collect_raw_floorplans, collect_scene_objs, make_timestamp, write_visual_index
 from .front3d import Front3DConfig, Front3DIndex, choose_scene_ids
-from .modes import DEEPMIMO_MODE, FRONT3D_MODE, FRONT3D_LIKE_MODES, is_procedural_front3d_like, scene_prefix_for_mode
+from .modes import BLEND_MODE, DEEPMIMO_MODE, FRONT3D_MODE, FRONT3D_LIKE_MODES, is_procedural_front3d_like, scene_prefix_for_mode
 from .paths import find_project_root, portable_path
 from .postprocess.pipeline import run_batch_postprocess
 from .procedural import aggregate_procedural_run_report
@@ -31,7 +32,7 @@ from .runlog import append_jsonl, atomic_write_json
 
 
 BATCH_SCHEMA_VERSION = "scenegen.batch.v1"
-SUPPORTED_BATCH_MODES = frozenset({*FRONT3D_LIKE_MODES, DEEPMIMO_MODE})
+SUPPORTED_BATCH_MODES = frozenset({*FRONT3D_LIKE_MODES, DEEPMIMO_MODE, BLEND_MODE})
 
 
 class TaskProcessError(RuntimeError):
@@ -122,7 +123,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--config",
         type=Path,
         required=True,
-        help="SceneGen YAML config. Batch v1 supports front3d, procedural_front3d, procedural_front3d_vision, and deepmimo.",
+        help=(
+            "SceneGen YAML config. Batch v1 supports front3d, procedural_front3d, "
+            "procedural_front3d_vision, deepmimo, and blend."
+        ),
     )
     parser.add_argument(
         "--workers",
@@ -246,7 +250,7 @@ def plan_tasks(effective_config: dict[str, Any], workers: int) -> list[dict[str,
     if mode not in SUPPORTED_BATCH_MODES:
         raise ValueError(
             "scenegen-batch v1 supports only pipeline.mode=front3d, procedural_front3d, "
-            "procedural_front3d_vision, or deepmimo"
+            "procedural_front3d_vision, deepmimo, or blend"
         )
     count = int(effective_config["pipeline"]["scenes"])
     seed = int(effective_config["pipeline"]["seed"])
@@ -297,6 +301,29 @@ def plan_tasks(effective_config: dict[str, Any], workers: int) -> list[dict[str,
         else:
             start_index = int(config.start_index) if not config.scene_ids else 0
             scene_ids = [index.scene_ids[(start_index + offset) % len(index.scene_ids)] for offset in range(count)]
+        scene_prefix = scene_prefix_for_mode(mode)
+    elif mode == BLEND_MODE:
+        blend = effective_config["blend"]
+        config = BlendConfig(
+            root=Path(blend["root"]),
+            scene_files=tuple(Path(path) for path in blend["scene_files"]),
+            scene_selection=str(blend["select"]),
+            start_index=int(blend["start_index"]),
+            blender_path=str(blend["blender_path"]),
+            positive_xy=bool(blend["positive_xy"]),
+            default_material=str(blend["default_material"]),
+            export_timeout_s=blend["export_timeout_s"],
+        )
+        index = BlendIndex(config)
+        if config.scene_selection == "random":
+            selection_rng = random.Random(seed)
+            scene_ids = [str(index.load_scene(selection_rng.choice(index.scene_ids)).source_path) for _ in range(count)]
+        else:
+            start_index = int(config.start_index) if not config.scene_files else 0
+            scene_ids = [
+                str(index.load_scene(index.scene_ids[(start_index + offset) % len(index.scene_ids)]).source_path)
+                for offset in range(count)
+            ]
         scene_prefix = scene_prefix_for_mode(mode)
     else:
         scene_ids = [f"procedural_seed_{output_index_start + index:06d}" for index in range(count)]
@@ -376,6 +403,14 @@ def command_for_task(
                 f"deepmimo.scene_ids={json.dumps([task['scene_id']])}",
                 "deepmimo.select=sequential",
                 "deepmimo.start_index=0",
+            ]
+        )
+    if task.get("mode") == BLEND_MODE:
+        set_values.extend(
+            [
+                f"blend.scene_files={json.dumps([task['scene_id']])}",
+                "blend.select=sequential",
+                "blend.start_index=0",
             ]
         )
     command = [sys.executable, "-m", "scenegen.cli", "--config", str(config_path)]
@@ -819,6 +854,16 @@ def build_final_manifest(
             portable_path(Path(effective_config["deepmimo"]["root"]), paths.run_dir)
             if mode == DEEPMIMO_MODE
             else None
+        ),
+        "blend_root": (
+            portable_path(Path(effective_config["blend"]["root"]), paths.run_dir)
+            if mode == BLEND_MODE
+            else None
+        ),
+        "blend_scene_files": (
+            [portable_path(Path(path), paths.run_dir) for path in effective_config["blend"]["scene_files"]]
+            if mode == BLEND_MODE
+            else []
         ),
         "summary_obj": copy_manifest,
         "summary_floorplan_raw": raw_floorplan_manifest,

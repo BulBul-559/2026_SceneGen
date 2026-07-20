@@ -4,6 +4,7 @@ FRONT3D_MODE = "front3d"
 PROCEDURAL_FRONT3D_MODE = "procedural_front3d"
 PROCEDURAL_FRONT3D_VISION_MODE = "procedural_front3d_vision"
 DEEPMIMO_MODE = "deepmimo"
+BLEND_MODE = "blend"
 
 FRONT3D_LIKE_MODES = frozenset(
     {
@@ -22,6 +23,7 @@ SUPPORTED_PIPELINE_MODES = frozenset(
     {
         "generated",
         "bistro",
+        BLEND_MODE,
         DEEPMIMO_MODE,
         *FRONT3D_LIKE_MODES,
     }
@@ -45,4 +47,6 @@ def scene_prefix_for_mode(mode: str) -> str:
         return "procedural_front3d_vision"
     if mode == DEEPMIMO_MODE:
         return "deepmimo"
+    if mode == BLEND_MODE:
+        return "blend"
     raise ValueError(f"Mode has no scene prefix: {mode}")

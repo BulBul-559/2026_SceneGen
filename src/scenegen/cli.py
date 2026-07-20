@@ -10,6 +10,7 @@ from pathlib import Path
 
 from . import __version__
 from .assets import group_assets_by_class, load_assets, validate_asset_pool
+from .blend import resolve_blender_executable
 from .config import config_to_namespace, load_effective_config, save_effective_config
 from .exporters import (
     base_scene_summary,
@@ -22,7 +23,7 @@ from .exporters import (
 from .floorplan import FloorplanConfig, generate_floorplan_for_scene
 from .labels import LabelConfig, generate_label_batch_for_scene, label_variants, write_label_overlay
 from .maps import MapsConfig, generate_scene_maps
-from .modes import DEEPMIMO_MODE, FRONT3D_LIKE_MODES, FRONT3D_MODE, is_procedural_front3d_like
+from .modes import BLEND_MODE, DEEPMIMO_MODE, FRONT3D_LIKE_MODES, FRONT3D_MODE, is_procedural_front3d_like
 from .paths import default_config_path, find_project_root, portable_path, require_dir, require_file
 from .procedural import aggregate_procedural_run_report
 from .quality import (
@@ -791,7 +792,7 @@ def main(argv: list[str] | None = None) -> int:
     args = config_to_namespace(effective_config)
 
     front3d_like_modes = FRONT3D_LIKE_MODES
-    assetless_modes = set(front3d_like_modes) | {DEEPMIMO_MODE}
+    assetless_modes = set(front3d_like_modes) | {DEEPMIMO_MODE, BLEND_MODE}
     asset_catalog_path = require_file(args.asset_catalog, "asset catalog") if args.mode not in assetless_modes else args.asset_catalog
     if args.mode == "bistro":
         bistro_base_dir = require_dir(args.bistro_base_dir, "Bistro base scene directory")
@@ -806,6 +807,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.mode == DEEPMIMO_MODE:
         deepmimo_root_path = require_dir(args.deepmimo_root, "DeepMIMO root directory")
         args.deepmimo_root = deepmimo_root_path
+    blend_root_path = None
+    if args.mode == BLEND_MODE:
+        if args.blend_scene_files:
+            args.blend_scene_files = [require_file(path, "Blend scene file") for path in args.blend_scene_files]
+        else:
+            blend_root_path = require_dir(args.blend_root, "Blend root directory")
+            args.blend_root = blend_root_path
+        args.blend_blender_path = resolve_blender_executable(args.blend_blender_path)
 
     run_name = args.run_name or make_timestamp()
     run_dir = prepare_run_dir(args.output_dir, run_name, args.clean)
@@ -1293,6 +1302,12 @@ def main(argv: list[str] | None = None) -> int:
         "deepmimo_root": portable_path(deepmimo_root_path, run_dir) if deepmimo_root_path is not None else None,
         "deepmimo_scene_selection": args.deepmimo_scene_selection if args.mode == DEEPMIMO_MODE else None,
         "deepmimo_scene_ids": args.deepmimo_scene_ids if args.mode == DEEPMIMO_MODE else [],
+        "blend_root": portable_path(blend_root_path, run_dir) if blend_root_path is not None else None,
+        "blend_scene_files": [portable_path(path, run_dir) for path in args.blend_scene_files]
+        if args.mode == BLEND_MODE
+        else [],
+        "blend_scene_selection": args.blend_scene_selection if args.mode == BLEND_MODE else None,
+        "blend_blender_path": args.blend_blender_path if args.mode == BLEND_MODE else None,
         "procedural_precheck": procedural_precheck_settings(args),
         "procedural_precheck_ok": (not precheck_failed) if is_procedural_front3d_like(str(args.mode)) else None,
         "procedural_precheck_skipped_count": len(precheck_skipped_scenes)

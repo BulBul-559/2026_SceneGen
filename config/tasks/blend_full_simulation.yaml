@@ -1,0 +1,55 @@
+pipeline:
+  mode: blend
+  scenes: 1
+  seed: 20260517
+  output_dir: results
+  run_name: null
+  clean: false
+  index_start: 0
+blend:
+  root: data/DICHASUS
+  scene_files:
+    - data/DICHASUS/dichasus-dcxx/inue-all.blend
+  select: sequential
+  start_index: 0
+  blender_path: blender
+  positive_xy: true
+  default_material: itu-concrete
+  export_timeout_s: 600
+validation:
+  sionna: false
+quality:
+  enabled: true
+  fail_on_error: true
+  collision_padding_m: 0.0
+  bistro_static_clearance_m: 0.0
+  support_tolerance_m: 0.05
+label:
+  enabled: false
+floorplan:
+  enabled: true
+  fail_on_error: true
+  resolution_m: 0.05
+  geometry:
+    enabled: true
+    projection: sampling
+    vertical_axis: z
+    height:
+      mode: heights
+      values_m: [1.6]
+      step_m: 0.2
+      top_m: null
+      bottom_m: 0.0
+  class_mask:
+    enabled: false
+  sampling:
+    density_scale: 128.0
+    min_points: 100000
+    max_points: 4000000
+  preview:
+    tile_size_px: 360
+batch:
+  workers: 1
+  scheduler: hybrid
+  max_retries: 1
+  task_timeout_s: 600

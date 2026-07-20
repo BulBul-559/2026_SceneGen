@@ -16,6 +16,7 @@ from PIL import Image
 
 from scenegen import __version__
 from scenegen.assets import AssetSpec, group_assets_by_class, legacy_item_to_spec, load_assets, resolve_obj_file
+from scenegen.blend import BlendConfig, BlendScene, write_blend_scene_files
 from scenegen.batch import TaskTimeoutError, run_task_subprocess
 from scenegen.batch import main as batch_main
 from scenegen.batch import parse_args as parse_batch_args
@@ -205,6 +206,98 @@ def test_write_clean_obj_full_from_source_removes_material_references(tmp_path: 
     assert "vt 0 0" in lines
     assert "vn 0 0 1" in lines
     assert "f 1/1/1 2/1/1 3/1/1" in lines
+
+
+def test_blend_config_normalizes_scene_files(tmp_path: Path) -> None:
+    scene_file = tmp_path / "scene.blend"
+    scene_file.write_bytes(b"BLENDER")
+    config_file = tmp_path / "blend.yaml"
+    config_file.write_text(
+        yaml.safe_dump(
+            {
+                "pipeline": {"mode": "blend", "scenes": 1, "output_dir": str(tmp_path / "out")},
+                "blend": {
+                    "root": str(tmp_path),
+                    "scene_files": [str(scene_file)],
+                    "blender_path": "/usr/bin/blender",
+                },
+                "label": {"enabled": False},
+                "floorplan": {"geometry": {"vertical_axis": "auto"}, "class_mask": {"enabled": False}},
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    effective, _overrides = load_effective_config(config_file, find_project_root(), Namespace(set_values=[]))
+
+    assert effective["pipeline"]["mode"] == "blend"
+    assert effective["blend"]["scene_files"] == [str(scene_file.resolve())]
+    assert effective["floorplan"]["geometry"]["vertical_axis"] == "z"
+
+
+def test_blend_scene_writer_uses_fake_blender_export(tmp_path: Path) -> None:
+    source = tmp_path / "source.blend"
+    source.write_bytes(b"BLENDER")
+    fake_blender = tmp_path / "fake_blender.py"
+    fake_blender.write_text(
+        """#!/usr/bin/env python3
+import json
+import re
+import sys
+from pathlib import Path
+
+script = Path(sys.argv[sys.argv.index("--python") + 1]).read_text(encoding="utf-8")
+output_obj = Path(json.loads(re.search(r"output_obj = Path\\((.+?)\\)", script).group(1)))
+metadata_path = Path(json.loads(re.search(r"metadata_path = Path\\((.+?)\\)", script).group(1)))
+output_obj.parent.mkdir(parents=True, exist_ok=True)
+output_obj.write_text(
+    "\\n".join(
+        [
+            "mtllib exported.mtl",
+            "o fake",
+            "v -1 -2 0",
+            "v 1 -2 0",
+            "v 1 1 0",
+            "v -1 1 0",
+            "usemtl wall",
+            "f 1 2 3 4",
+            "",
+        ]
+    ),
+    encoding="utf-8",
+)
+output_obj.with_suffix(".mtl").write_text("newmtl wall\\nKd 0.7 0.7 0.7\\n", encoding="utf-8")
+metadata_path.write_text(json.dumps({"ok": True, "mesh_object_count": 1}), encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
+    fake_blender.chmod(0o755)
+
+    output_dir = tmp_path / "run" / "blend_0000"
+    build = write_blend_scene_files(
+        output_dir,
+        BlendScene("source", source),
+        scene_index=0,
+        seed=7,
+        config=BlendConfig(root=tmp_path, scene_files=(source,), blender_path=str(fake_blender)),
+        collect_floorplan_mesh_arrays=True,
+    )
+
+    scene_obj = output_dir / "scene.obj"
+    scene_xml = output_dir / "scene.xml"
+    metadata = json.loads((output_dir / "blend_source" / "metadata.json").read_text(encoding="utf-8"))
+    placements = json.loads((output_dir / "placements.json").read_text(encoding="utf-8"))
+
+    assert scene_obj.is_file()
+    assert scene_xml.is_file()
+    assert build.floorplan_mesh_arrays is not None
+    assert build.bounds_xy == pytest.approx((0.0, 0.0, 2.0, 3.0))
+    assert build.record["blend_scene_id"] == "source"
+    assert placements["mode"] == "blend"
+    assert metadata["positive_xy"] is True
+    assert "v 0.000000 0.000000 0.000000" in scene_obj.read_text(encoding="utf-8")
+    assert (output_dir / "assets" / "blend" / "scene__concrete.obj").is_file()
 
 
 def test_procedural_architecture_source_contract(tmp_path: Path) -> None:

@@ -1,6 +1,6 @@
 # SceneGen 新数据源接入说明
 
-这份文档说明如何把新的资产数据源接入 SceneGen。当前 Bistro 已经使用统一资产契约；3D-FRONT 已完成第一阶段数据整理，并已接入 `front3d` 运行模式，用于复现和合成 3D-FRONT 原始已有组合场景。
+这份文档说明如何把新的资产数据源接入 SceneGen。当前 Bistro 已经使用统一资产契约；3D-FRONT 已完成第一阶段数据整理，并已接入 `front3d` 运行模式，用于复现和合成 3D-FRONT 原始已有组合场景；DeepMIMO 和 Blender `.blend` 已作为几何源接入，分别走 `deepmimo` 和 `blend` 模式转换成标准 OBJ/XML/floorplan。
 
 后续如果要接入新的数据源，建议分成两层处理：先整理可审计的资产、建筑结构和材质标注，再实现 source adapter，把数据转换成 SceneGen 统一的 `base scene + placements + label + metadata` 输出。
 
@@ -70,8 +70,10 @@ catalog 是资产对象列表。每个资产对象只保留运行时真正需要
 - 资产契约定义在 `src/scenegen/assets/schema.py`。
 - catalog 加载和 runtime `Asset` 转换在 `src/scenegen/assets/loaders.py`。
 - 旧 manifest 到新契约的一次性转换逻辑在 `src/scenegen/assets/legacy.py`。
-- generated、Bistro 和 3D-FRONT source adapter 在 `src/scenegen/sources.py`。
+- generated、Bistro、3D-FRONT、DeepMIMO 和 Blender source adapter 在 `src/scenegen/sources.py`。
 - 3D-FRONT manifest、原始 scene JSON、实例矩阵和坐标转换辅助逻辑在 `src/scenegen/front3d.py`。
+- DeepMIMO 几何源解析在 `src/scenegen/deepmimo.py`。
+- Blender `.blend` headless 导出和标准输出写出在 `src/scenegen/blend.py`；该模式依赖系统 Blender 可执行文件。
 
 新增数据源时，优先复用 asset catalog 或 phase1 manifest 管线；只有场景来源、坐标转换和摆放逻辑不同的部分需要新增 source adapter。
 

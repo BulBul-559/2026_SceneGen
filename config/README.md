@@ -1,6 +1,6 @@
 # SceneGen Config v2 Reference
 
-`config/` 下提供五份一级基础模板：`bistro.yaml`、`front3d.yaml`、`procedural_front3d.yaml`、`procedural_front3d_vision.yaml` 和 `deepmimo.yaml`。CLI 默认读取 `config/bistro.yaml`；需要合成 3D-FRONT 时使用 `--config config/front3d.yaml`；需要自动生成类 3D-FRONT 场景时使用 `--config config/procedural_front3d.yaml`；只需要 floorplan、label 和 maps 视觉监督数据时使用 `--config config/procedural_front3d_vision.yaml`；需要转换 DeepMIMO 场景几何时使用 `--config config/deepmimo.yaml`。
+`config/` 下提供六份一级基础模板：`bistro.yaml`、`front3d.yaml`、`procedural_front3d.yaml`、`procedural_front3d_vision.yaml`、`deepmimo.yaml` 和 `blend.yaml`。CLI 默认读取 `config/bistro.yaml`；需要合成 3D-FRONT 时使用 `--config config/front3d.yaml`；需要自动生成类 3D-FRONT 场景时使用 `--config config/procedural_front3d.yaml`；只需要 floorplan、label 和 maps 视觉监督数据时使用 `--config config/procedural_front3d_vision.yaml`；需要转换 DeepMIMO 场景几何时使用 `--config config/deepmimo.yaml`；需要转换 Blender `.blend` 文件时使用 `--config config/blend.yaml`。
 
 这些一级模板按工作流拆分，只保留该任务真正相关的配置段：
 
@@ -9,6 +9,7 @@
 - `procedural_front3d.yaml`: 自动生成类 3D-FRONT 户型，并使用 3D-FUTURE 家具池摆放物体。
 - `procedural_front3d_vision.yaml`: 复用程序化户型和家具摆放，但只输出视觉训练需要的 floorplan、label、maps 和小体积源记录。
 - `deepmimo.yaml`: 读取 DeepMIMO v4 场景目录，将 `vertices.mat` / `objects.json` / `params.json` 和可选 `faces.mat` 转成标准 OBJ/XML/floorplan。
+- `blend.yaml`: 读取 `.blend` 文件，经外部 Blender headless 导出 OBJ 后转成标准 OBJ/XML/floorplan。
 
 没有写在模板里的字段仍会从代码内置 `DEFAULT_CONFIG` 补齐，并最终写入 run 目录的 `effective_config.yaml`。因此一级模板负责“可读的基础入口”，`config/tasks/*.yaml` 负责具体生产任务参数。
 
@@ -23,6 +24,8 @@
 `config/tasks/procedural_front3d_vision_full_simulation.yaml` 是随机生成视觉训练数据的任务模板。它默认使用 `pipeline.mode: procedural_front3d_vision`、`output.profile: vision_only` 和 `batch.workers: 48`，并显式写出当前生产用 `procedural` 户型与家具摆放参数，因此不会写合成 `scene.obj`、`scene.xml`、`assets/` 或 OBJ summary；仍会生成 `procedural_source/`、`placements.json`、`label_panel_0p5`、floorplan/class mask，并在标准 scene 生成阶段用 `label_panel_0p5` 生成 `maps/geometry.npz` 和 `maps/pair_cache.npz`。该模板默认用 `procedural.room_count_ranges` 按 15% / 70% / 15% 采样 1-2、3-7、10-20 间房，并将 `required_room_types` 设为 `null` 以允许小房间样本。
 
 `config/tasks/deepmimo_full_simulation.yaml` 是 DeepMIMO 几何转换生产模板。它默认使用 `pipeline.mode: deepmimo`、`deepmimo.root: data/deepmimo` 和 `batch.workers: 1`，按场景目录顺序输出 `deepmimo_0000/` 起的标准目录。DeepMIMO 模板默认关闭 label、class mask 和 maps，仅生成 `scene.obj`、`scene.xml`、`assets/`、`placements.json`、`deepmimo_source/metadata.json` 和 `floorplan/`；floorplan 默认使用和 Front3D 一致的 `resolution_m: 0.05`、`projection: sampling` 和 `1.6m` 单高度投影。城市级室外场景在这个比例尺下会生成更大的平面图。
+
+`config/tasks/blend_full_simulation.yaml` 是 Blender `.blend` 几何转换生产模板。它默认使用 `pipeline.mode: blend`、`blend.scene_files: [data/DICHASUS/dichasus-dcxx/inue-all.blend]` 和 `batch.workers: 1`，输出 `blend_0000/` 起的标准目录。Blend 模板默认关闭 label、class mask 和 maps，仅生成 `scene.obj`、`scene.xml`、`assets/`、`placements.json`、`blend_source/metadata.json` 和 `floorplan/`；需要系统可执行的 Blender，默认命令为 `blend.blender_path: blender`。
 
 ## 合并规则
 
@@ -48,7 +51,7 @@ uv run scenegen \
 
 | 字段 | 可选值 / 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `mode` | `bistro` / `generated` / `front3d` / `procedural_front3d` / `procedural_front3d_vision` / `deepmimo` | `bistro` | 生成模式。 |
+| `mode` | `bistro` / `generated` / `front3d` / `procedural_front3d` / `procedural_front3d_vision` / `deepmimo` / `blend` | `bistro` | 生成模式。 |
 | `scenes` | integer, `>=1` | `10` | 本次生成场景数量。 |
 | `seed` | integer | `20260517` | 主随机种子。 |
 | `output_dir` | path | `results` | run 输出根目录。 |
@@ -69,7 +72,7 @@ uv run scenegen \
 
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `catalog` | path | `data/catalogs/bistro.v1.json` | Bistro/generated 使用的资产 catalog；`front3d` 和 `deepmimo` 不依赖这个 catalog。 |
+| `catalog` | path | `data/catalogs/bistro.v1.json` | Bistro/generated 使用的资产 catalog；`front3d`、`deepmimo` 和 `blend` 不依赖这个 catalog。 |
 
 ## bistro
 
@@ -146,6 +149,23 @@ params.json
 | `positive_xy` | boolean | `true` | 将源几何整体平移到 XY 正象限，floorplan 左下保持 `(0, 0)`。 |
 | `default_material` | string | `itu-concrete` | 无 label 映射时使用的 Sionna radio material。 |
 | `material_by_label` | mapping | `{buildings: itu-concrete, terrain: itu-concrete}` | 按 DeepMIMO object label 映射 Sionna material；当前本地 outdoor 场景主要包含 `buildings` 和 `terrain`。 |
+
+## blend
+
+只影响 `pipeline.mode: blend`。Blend 模式把 `.blend` 文件当作外部几何源，使用 `blend.blender_path` 指定的 Blender headless 命令导出中间 OBJ，再写出标准 `scene.obj`、单材质 Sionna `assets/`、`scene.xml`、`placements.json`、`blend_source/metadata.json` 和 `floorplan/`。当前 `.blend` 源不携带 SceneGen room/furniture 语义，因此 `config/blend.yaml` 默认关闭 label、class mask 和 maps。
+
+Blend 模式要求运行环境可执行 Blender；如果 `blender` 不在 `PATH` 中，请把 `blend.blender_path` 改成 Blender 二进制绝对路径。Blender 导出阶段会选择可见 mesh object，应用 modifier，导出三角化 OBJ，并保持 Z-up 轴约定。
+
+| 字段 | 可选值 / 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `root` | path | `data/DICHASUS` | 自动发现 `.blend` 文件的根目录；当 `scene_files` 非空时仅作为记录和默认根。 |
+| `scene_files` | list of path | `[]` | 指定一个或多个 `.blend` 文件；为空时从 `root` 递归发现 `.blend`。batch 会把每个任务锁定到一个具体文件。 |
+| `select` | `sequential` / `random` | `sequential` | 自动选择 `.blend` 文件策略。 |
+| `start_index` | integer, `>=0` | `0` | `select: sequential` 且未显式指定 `scene_files` 时，从发现列表的第几个文件开始。 |
+| `blender_path` | command/path | `blender` | Blender 可执行文件名或绝对路径。 |
+| `positive_xy` | boolean | `true` | 将导出的几何整体平移到 XY 正象限，floorplan 左下保持 `(0, 0)`。 |
+| `default_material` | string | `itu-concrete` | Blend 几何写入 Sionna XML 时使用的统一 radio material。 |
+| `export_timeout_s` | float / `null` | `600` | 单个 `.blend` 导出 OBJ 的超时时间；`null` 表示不限制。 |
 
 ## placement
 
@@ -416,11 +436,11 @@ procedural:
 
 ## batch
 
-`batch` 只由 `scenegen-batch` 使用；普通 `scenegen` 单进程入口不会读取这部分。`scenegen-batch` 会优先使用 YAML 中的 `batch.*`，如果命令行显式传入 `--workers`、`--scheduler` 或 `--max-retries`，则命令行覆盖 YAML。`task_timeout_s` 默认 `null`，表示不限制单个子任务时长；设置为正数后，超时任务会先收到 SIGTERM，宽限期后仍未退出才 SIGKILL，并在 batch traceback JSON 中记录 `timeout_s`。`config/tasks/front3d_full_simulation.yaml` 和 `config/tasks/procedural_front3d_full_simulation.yaml` 默认 `workers: 24`；`config/tasks/procedural_front3d_vision_full_simulation.yaml` 默认 `workers: 48`；`config/tasks/deepmimo_full_simulation.yaml` 默认 `workers: 1`；四个任务模板默认 `task_timeout_s: 600`。
+`batch` 只由 `scenegen-batch` 使用；普通 `scenegen` 单进程入口不会读取这部分。`scenegen-batch` 会优先使用 YAML 中的 `batch.*`，如果命令行显式传入 `--workers`、`--scheduler` 或 `--max-retries`，则命令行覆盖 YAML。`task_timeout_s` 默认 `null`，表示不限制单个子任务时长；设置为正数后，超时任务会先收到 SIGTERM，宽限期后仍未退出才 SIGKILL，并在 batch traceback JSON 中记录 `timeout_s`。`config/tasks/front3d_full_simulation.yaml` 和 `config/tasks/procedural_front3d_full_simulation.yaml` 默认 `workers: 24`；`config/tasks/procedural_front3d_vision_full_simulation.yaml` 默认 `workers: 48`；`config/tasks/deepmimo_full_simulation.yaml` 和 `config/tasks/blend_full_simulation.yaml` 默认 `workers: 1`；五个任务模板默认 `task_timeout_s: 600`。
 
 | 字段 | 可选值 / 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `workers` | integer, `>=1` | `1` | batch worker 数。Front3D/procedural full 任务模板默认 `24`，procedural vision full 默认 `48`，DeepMIMO 默认 `1`。 |
+| `workers` | integer, `>=1` | `1` | batch worker 数。Front3D/procedural full 任务模板默认 `24`，procedural vision full 默认 `48`，DeepMIMO/Blend 默认 `1`。 |
 | `scheduler` | `dynamic` / `hybrid` / `static` | `hybrid` | worker 调度策略。`hybrid` 先固定分片，空闲后偷取尾部任务；`dynamic` 共享队列；`static` 严格固定分片。 |
 | `max_retries` | integer, `>=0` | `1` | 单个 scene 子进程失败后的最大重试次数。 |
 | `task_timeout_s` | float / `null` | `null` | 单个 scene 子进程超时时间；`null` 表示不限制。 |
@@ -537,7 +557,7 @@ procedural:
 | --- | --- | --- | --- |
 | `enabled` | boolean | `true` | 是否生成基于 `scene.obj` 的几何占据图。 |
 | `projection` | `sampling` / `ray_height_filtered` | `sampling` | 几何投影方式。`sampling` 使用面积加权随机表面采样；`ray_height_filtered` 是确定性的高度过滤 column 投影。 |
-| `vertical_axis` | `auto` / `x` / `y` / `z` | `auto` | 几何投影使用的竖直轴。`auto` 保留给未知 mesh，会按 bbox 最短轴推断；`front3d` / `procedural_front3d` / `procedural_front3d_vision` / `deepmimo` 会将 `auto` 解析为确定的 `z`，并拒绝显式 `x`/`y`。这些模式的模板也显式写为 `z`。 |
+| `vertical_axis` | `auto` / `x` / `y` / `z` | `auto` | 几何投影使用的竖直轴。`auto` 保留给未知 mesh，会按 bbox 最短轴推断；`front3d` / `procedural_front3d` / `procedural_front3d_vision` / `deepmimo` / `blend` 会将 `auto` 解析为确定的 `z`，并拒绝显式 `x`/`y`。这些模式的模板也显式写为 `z`。 |
 
 当 `floorplan.geometry.enabled` 和 `floorplan.class_mask.enabled` 同时开启时，生成流程会校验几何 floorplan 和四分类 `class_mask` 的 `grid_shape` 是否一致；不一致会作为 floorplan 错误中断，避免侧视图/错轴图像进入训练数据。
 
@@ -688,7 +708,7 @@ uv run scenegen-batch \
   --set pipeline.run_name=deepmimo_reconstructed_i2_i1
 ```
 
-`scenegen-batch` 是生产管理入口。它会复用同一份配置和 `--set` 语法，目前支持 `front3d`、`procedural_front3d`、`procedural_front3d_vision` 和 `deepmimo`，并在 run 目录写出 `batch/scene_plan.jsonl`、`batch/state.json`、worker 日志、失败队列、重试队列和 `manifest_batch.json`。默认 worker、调度策略和重试次数来自 YAML 的 `batch.*`；命令行 `--workers` / `--scheduler` / `--max-retries` 仍可临时覆盖。batch child 会跳过自己的 `summary/` 汇总复制，最终由 batch 顶层统一生成 summary；成功 scene 会从 `batch/worker_runs` move 到 run 根目录，worker 子目录只保留日志、配置和失败场景调试材料。
+`scenegen-batch` 是生产管理入口。它会复用同一份配置和 `--set` 语法，目前支持 `front3d`、`procedural_front3d`、`procedural_front3d_vision`、`deepmimo` 和 `blend`，并在 run 目录写出 `batch/scene_plan.jsonl`、`batch/state.json`、worker 日志、失败队列、重试队列和 `manifest_batch.json`。默认 worker、调度策略和重试次数来自 YAML 的 `batch.*`；命令行 `--workers` / `--scheduler` / `--max-retries` 仍可临时覆盖。batch child 会跳过自己的 `summary/` 汇总复制，最终由 batch 顶层统一生成 summary；成功 scene 会从 `batch/worker_runs` move 到 run 根目录，worker 子目录只保留日志、配置和失败场景调试材料。
 
 单进程和 batch 结束后都会在 run 根目录写出 `visual_index.html`，把每个 scene 的主 `floorplan_*.png`、`class_mask_preview.png` 和 `label_floorplan/*.png` 聚合成一个可打开的检查页。该文件由已有产物生成，不是新的配置项。
 
