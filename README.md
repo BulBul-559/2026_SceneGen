@@ -11,6 +11,7 @@ SceneGen 是一个面向 Linux 环境的轻量级场景生成项目。它基于�
 - 基于空 Bistro 场景生成新的室内布局。
 - 支持 generated 模式，生成简单矩形房间布局。
 - 支持 front3d 模式，复现并合成 3D-FRONT 已组合好的房间场景。
+- 支持按原场景 key/UUID 重新生成空房间平面图，锁定原图的分辨率、画布、坐标和高度基准，并移除家具实例及内建橱柜/定制家具；用法见 [空房间平面图](docs/empty_floorplans.md)。
 - 支持实验性 `procedural_front3d` 模式，自动生成类 3D-FRONT 多房间建筑并摆放 3D-FUTURE 家具资产。
 - 支持 `procedural_front3d_vision` 模式，跳过大体积 OBJ/XML/assets 输出，面向 VisionEncoder 预训练直接生产 floorplan、label 和 maps。
 - 支持 `deepmimo` 模式，将 DeepMIMO v4 场景几何转换成 SceneGen 标准 OBJ/XML/floorplan 产物。
@@ -617,6 +618,8 @@ label:
 默认几何平面图使用高密度单高度方案：`floorplan.geometry.projection: sampling`、`floorplan.geometry.vertical_axis: z`（Z-up 数据源模式）、`floorplan.resolution_m: 0.05`、`floorplan.sampling.density_scale: 128.0`、`floorplan.sampling.max_points: 4000000`、`floorplan.geometry.height.values_m: [1.6]`。这类输出偏几何占据图，不包含资产类别语义。由于原始投影来自面积加权随机表面采样，低密度时可能有点状采样噪声；当前默认保留较高采样密度，但用 4M 点上限控制大场景生成耗时。Front3D、procedural、DeepMIMO 和 Blend 生产模板现在都沿用这一默认投影配置。
 
 也可以切换到确定性的高度过滤投影：`floorplan.geometry.projection: ray_height_filtered`。该模式不使用随机表面采样，而是对 mesh 三角形做 XY column rasterization；每个像素只在 `bottom_m <= z <= target_height` 范围内存在几何时被标为 occupied，因此同一 `scene.obj` 和同一配置会得到稳定的 `floorplan_*.png`。
+
+已有 Front3D 数据集需要配对的无家具输入时，使用 `scripts/regenerate_empty_floorplans.py`。该后处理入口按显式映射保留非连续场景编号，读取原 run 的 `effective_config.yaml` 和逐场景元数据，只对结构白名单中的 mesh 投影；包括内建橱柜在内的非结构 mesh 也会移除。原图的 XY 画布、地面高度、Z-up、比例尺和高度层被锁定，采样算法及密度沿用原配置，新批次使用逐 UUID 固定种子。原生成流程默认值保持不变。完整命令、产物及校验规则见 [docs/empty_floorplans.md](docs/empty_floorplans.md)。
 
 ## 常用命令
 

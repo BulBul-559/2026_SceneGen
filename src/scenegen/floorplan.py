@@ -52,6 +52,35 @@ def world_to_pixel(point: tuple[float, float], min_x: float, max_y: float, resol
 
 
 @dataclass(frozen=True)
+class ProjectionFrame:
+    """An existing floorplan's metric canvas; keep it when changing scene content."""
+
+    resolution: float
+    origin: tuple[float, float]
+    extent: tuple[float, float]
+    shape: tuple[int, int]
+
+    @classmethod
+    def from_metadata(cls, meta: dict[str, Any]) -> ProjectionFrame:
+        resolution = float(meta["resolution_m_per_pixel"])
+        origin = tuple(float(value) for value in meta["origin_xy_m"])
+        extent = tuple(float(value) for value in meta["extent_xy_m"])
+        shape = tuple(meta["grid_shape"])
+        if len(origin) != 2 or len(extent) != 2 or len(shape) != 2:
+            raise ValueError("Reference frame requires two-dimensional origin, extent, and grid_shape")
+        if not np.isfinite([resolution, *origin, *extent]).all() or resolution <= 0 or min(extent) <= 0:
+            raise ValueError("Reference frame requires finite coordinates and positive resolution/extent")
+        expected = tuple(int(np.ceil(size / resolution)) + 1 for size in reversed(extent))
+        if any(not isinstance(value, int) or value < 1 for value in shape) or shape != expected:
+            raise ValueError(f"Reference grid_shape {shape} disagrees with metric extent/resolution: {expected}")
+        return cls(resolution, origin, extent, shape)
+
+    def validate_resolution(self, resolution: float) -> None:
+        if resolution != self.resolution:
+            raise ValueError(f"Reference resolution {self.resolution} differs from requested {resolution}")
+
+
+@dataclass(frozen=True)
 class FloorplanConfig:
     enabled: bool
     geometry_enabled: bool
@@ -271,6 +300,7 @@ def generate_front3d_class_mask(
     include_windows_as_wall: bool,
     path_root: Path | None = None,
     runtime_artifacts: dict[str, Any] | None = None,
+    reference_frame: ProjectionFrame | None = None,
 ) -> dict[str, object]:
     timings_s: dict[str, float] = {}
     stage_start = time.perf_counter()
@@ -288,6 +318,11 @@ def generate_front3d_class_mask(
     max_y = max(base_scene.bbox_max[1], *(placement.max_y for placement in placements), resolution)
     width_px = max(1, int(math.ceil((max_x - min_x) / resolution)) + 1)
     height_px = max(1, int(math.ceil((max_y - min_y) / resolution)) + 1)
+    if reference_frame is not None:
+        reference_frame.validate_resolution(resolution)
+        min_x, min_y = reference_frame.origin
+        max_x, max_y = np.asarray(reference_frame.origin) + np.asarray(reference_frame.extent)
+        height_px, width_px = reference_frame.shape
     image_size = (width_px, height_px)
 
     floor_image = Image.new("L", image_size, 0)
@@ -884,12 +919,21 @@ def process_scene(
     projection_mode: str = "sampling",
     vertical_axis: str = "auto",
     scene_mesh_arrays: SceneMeshArrays | None = None,
+    reference_meta: dict[str, Any] | None = None,
+    sample_seed: int | None = None,
 ) -> dict[str, object]:
     if projection_mode not in {"sampling", "ray_height_filtered"}:
         raise ValueError("projection_mode must be 'sampling' or 'ray_height_filtered'")
     vertical_axis = str(vertical_axis).strip().lower()
     if vertical_axis not in {"auto", "x", "y", "z"}:
         raise ValueError("vertical_axis must be 'auto', 'x', 'y', or 'z'")
+    reference_frame = ProjectionFrame.from_metadata(reference_meta) if reference_meta is not None else None
+    if reference_frame is not None:
+        reference_frame.validate_resolution(resolution)
+        if projection_mode != reference_meta["projection_mode"] or height_mode != reference_meta["height_mode"]:
+            raise ValueError("Reference projection/height mode differs from requested configuration")
+        if bottom_z != reference_meta["scan_bottom_z_m"] or step != reference_meta["step_m"]:
+            raise ValueError("Reference height scan differs from requested configuration")
     timings_s: dict[str, float] = {}
     output_dir.mkdir(parents=True, exist_ok=True)
     stage_start = time.perf_counter()
@@ -909,6 +953,8 @@ def process_scene(
         vertices = np.asarray(scene_mesh_arrays.vertices, dtype=np.float64)
         faces = np.asarray(scene_mesh_arrays.faces, dtype=np.int64)
     vertical_axis_index, vertical_axis_strategy = resolve_vertical_axis(vertices, vertical_axis)
+    if reference_meta is not None and axis_name(vertical_axis_index) != reference_meta["vertical_axis_original"]:
+        raise ValueError("Reference vertical axis differs from requested configuration")
     reorder = [axis for axis in range(3) if axis != vertical_axis_index] + [vertical_axis_index]
     oriented_vertices = vertices[:, reorder]
     oriented_mesh = trimesh.Trimesh(vertices=oriented_vertices, faces=faces, process=False)
@@ -925,6 +971,7 @@ def process_scene(
             min_sample_points,
             max_sample_points,
             include_normals=False,
+            seed=sample_seed,
         )
         timings_s["sample_surface"] = round(time.perf_counter() - stage_start, 6)
         stage_start = time.perf_counter()
@@ -943,6 +990,11 @@ def process_scene(
         z_values=height_range_z_values,
         bin_size=min(DEFAULT_BIN_SIZE, max(0.02, step / 2.0)),
     )
+    if reference_meta is not None:
+        effective_bottom = float(reference_meta["effective_ground_m_original_units"])
+        effective_top = float(reference_meta["effective_top_m_original_units"])
+        if not np.isfinite([effective_bottom, effective_top]).all() or effective_top < effective_bottom:
+            raise ValueError("Invalid reference ground/top height")
     timings_s["detect_height_range"] = round(time.perf_counter() - stage_start, 6)
 
     stage_start = time.perf_counter()
@@ -961,6 +1013,12 @@ def process_scene(
     width = int(np.ceil((xy_max[0] - xy_min[0]) / resolution)) + 1
     height = int(np.ceil((xy_max[1] - xy_min[1]) / resolution)) + 1
     shape = (height, width)
+    if reference_frame is not None:
+        xy_min = np.asarray(reference_frame.origin, dtype=np.float64)
+        xy_max = xy_min + np.asarray(reference_frame.extent, dtype=np.float64)
+        height, width = reference_frame.shape
+        shape = reference_frame.shape
+        origin_clipping_warning = bool(np.any(shifted_vertices[:, :2].min(axis=0) < xy_min))
     timings_s["prepare_bounds"] = round(time.perf_counter() - stage_start, 6)
 
     stage_start = time.perf_counter()
@@ -974,6 +1032,8 @@ def process_scene(
         scan_top = max(z_levels)
     else:
         raise ValueError("height_mode must be 'layers' or 'heights'")
+    if reference_meta is not None and z_levels != reference_meta["z_levels_m"]:
+        raise ValueError("Reference projection heights differ from requested configuration")
     timings_s["build_z_levels"] = round(time.perf_counter() - stage_start, 6)
 
     stage_start = time.perf_counter()
@@ -1094,6 +1154,8 @@ def process_scene(
         "approach": "height_sweep_projection",
         "projection_mode": projection_mode,
         "deterministic": projection_mode == "ray_height_filtered",
+        "sample_seed": sample_seed,
+        "reference_frame_locked": reference_meta is not None,
         "source": portable_path(input_path, path_root),
         "prepared_mesh": portable_path(mesh_path, path_root),
         "resolution_m_per_pixel": resolution,
@@ -1545,6 +1607,7 @@ def sample_surface_points(
     min_sample_points: int,
     max_sample_points: int,
     include_normals: bool = False,
+    seed: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray | None, dict[str, object]]:
     if density_scale <= 0:
         raise ValueError("sample_density_scale must be positive.")
@@ -1555,7 +1618,7 @@ def sample_surface_points(
 
     estimated = int(mesh.area / max(resolution * resolution, 1e-6) * 0.35 * density_scale)
     sample_count = int(np.clip(estimated, min_sample_points, max_sample_points))
-    samples, face_indices = sample_surface_points_numpy(mesh, sample_count)
+    samples, face_indices = sample_surface_points_numpy(mesh, sample_count, seed=seed)
     sample_normals = mesh.face_normals[face_indices].astype(np.float32, copy=False) if include_normals else None
     return samples.astype(np.float32, copy=False), sample_normals, {
         "surface_area_m2": float(mesh.area),
@@ -1569,7 +1632,9 @@ def sample_surface_points(
     }
 
 
-def sample_surface_points_numpy(mesh: trimesh.Trimesh, count: int) -> tuple[np.ndarray, np.ndarray]:
+def sample_surface_points_numpy(
+    mesh: trimesh.Trimesh, count: int, seed: int | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
     if count <= 0:
         return np.zeros((0, 3), dtype=np.float32), np.zeros((0,), dtype=np.int64)
     faces = np.asarray(mesh.faces, dtype=np.int64)
@@ -1580,7 +1645,7 @@ def sample_surface_points_numpy(mesh: trimesh.Trimesh, count: int) -> tuple[np.n
     if total_area <= 0.0:
         raise RuntimeError("Cannot sample a mesh with zero surface area.")
     cumulative_area = np.cumsum(face_areas)
-    rng = np.random.default_rng()
+    rng = np.random.default_rng(seed)
     vertices = np.asarray(mesh.vertices, dtype=np.float32)
     samples = np.empty((count, 3), dtype=np.float32)
     face_indices = np.empty((count,), dtype=np.int64)

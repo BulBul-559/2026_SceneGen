@@ -31,6 +31,7 @@ SceneGen 是一个 Linux/uv 管理的轻量 3D 场景生成/转换项目。它�
 - `src/scenegen/exporters.py`: OBJ、XML、placements、manifest 和 summary 输出。
 - `src/scenegen/labels.py`: BS/UE label v1.1 生成、验证和 floorplan overlay。
 - `src/scenegen/floorplan.py`: 几何 floorplan 和 3D-FRONT 四分类 class mask。
+- `src/scenegen/postprocess/empty_floorplans.py`: 已有 Front3D 场景的结构平面图重生成；`scripts/regenerate_empty_floorplans.py` 为薄 CLI 入口，保留原 key/UUID、像素网格和高度基准。规则和用法见 [empty_floorplans.md](empty_floorplans.md)。
 - `src/scenegen/quality.py`: 质量检查和统计报告。
 - `src/scenegen/runlog.py`: 单 run JSONL 事件、阶段耗时、state 快照和 traceback 输出。
 - `src/scenegen/batch.py`: 生产管理入口，支持 `front3d`、`procedural_front3d`、`procedural_front3d_vision`、`deepmimo` 和 `blend`，负责 scene plan、worker、resume、失败/重试队列和 batch manifest。
@@ -349,6 +350,7 @@ uv run python tools/prepare_front3d_phase1.py \
 
 ## 已知约束和注意点
 
+- 空房间重生成不能只清空家具 placements：phase1 的 architecture OBJ 还包含 `Cabinet`、`CustomizedFurniture`、`CustomizedFixedFurniture` 等内建家具。新后处理按 `front3d.STRUCTURAL_MESH_TYPES` 正向选择原始 mesh，记录所有剔除类型，沿用历史 `world_offset`，锁定原 `meta.json` 的画布和有效地面高度。原 sampling 是无种子的，无法精确重现历史采样点；新结果保留算法和密度并记录固定种子。
 - `results/`、`data/3D-Front/`、临时输出目录默认 git ignored。
 - `3d_scripts/` 是参考脚本目录，不是当前主流程的一部分。
 - `--clean` / `pipeline.clean=true` 只清理当前 `output_dir/run_name`；不会清空整个 `output_dir`。

@@ -17,6 +17,8 @@
 
 每次运行都会在 run 目录写出 `effective_config.yaml`，它记录最终真正生效的配置。
 
+已有 Front3D 场景的空房间平面图由独立后处理入口 `scripts/regenerate_empty_floorplans.py` 生成。它读取原 run 的配置及逐场景元数据，不增加或更改六份一级模板的默认字段。参数为 `--mapping`（含 `scene_key` / `front3d_scene_id` 的 JSONL）、`--source-run`、`--output-dir`、`--workers` 和可选 `--resume`。产物的 `effective_config.yaml` 是该后处理任务的执行记录，`source_effective_config.yaml` 保存原生成配置；两者用途不同，后处理配置不是 `scenegen --config` 的新模板。详见 [空房间平面图流程](../docs/empty_floorplans.md)。
+
 `config/tasks/front3d_full_simulation.yaml` 是专门合成全量 3D-FRONT 场景的生产任务模板，只保留 Front3D 生产真正用到的配置段，不包含 Bistro、generated 或 `procedural_front3d` 的配置。它默认按 `front3d.select: sequential` 顺序合成本地 phase1 manifest 中的 `6813` 个场景，`batch.workers: 24`、`batch.task_timeout_s: 600`，开启 `maps.enabled`，label 使用 `[panel, walk]` 两种策略和 `[0.1, 0.2, 0.5]` 三档 UE 间隔。
 
 `config/tasks/procedural_front3d_full_simulation.yaml` 是自动随机生成数据的任务模板，只保留程序化生成真正用到的配置段：3D-FUTURE 家具池来源、`procedural` 户型/摆放规则、label、floorplan、maps、postprocess dataset 和 batch。它不包含 Bistro 配置，也不包含复现已有 Front3D 场景时才需要的 scene selection / precheck 字段。该生产模板默认同样使用 `batch.workers: 24`、`batch.task_timeout_s: 600`，开启 `maps.enabled`，BS 数量使用 `area_adaptive` 面积自适应策略。任务模板同样会通过 `DEFAULT_CONFIG` 补齐未写字段，并在 run 目录的 `effective_config.yaml` 里记录最终生效配置。

@@ -3,14 +3,17 @@ from __future__ import annotations
 import json
 import math
 import random
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from .assets import sionna_material_itu_type
 from .exporters import sanitize_path_segment
 from .geometry import load_obj_mesh, transform_point_with_matrix
-from .models import Asset, Box3D, Front3DBaseScene, PlacedAsset, Vec3
+from .models import Asset, Box3D, Front3DBaseScene, PlacedAsset, SceneMeshArrays, Vec3
 from .paths import find_project_root
 
 
@@ -32,6 +35,64 @@ FRONT3D_TO_SCENEGEN: tuple[float, ...] = (
     0.0,
     1.0,
 )
+
+# Positive selection: phase-1 "architecture" also contains cabinets and custom furniture.
+# Unclassified/custom decorative meshes are excluded rather than assumed to be structure.
+STRUCTURAL_MESH_TYPES = frozenset({
+    "BayWindow", "WallTop", "WallOuter", "WallBottom", "Back", "Front", "WallInner", "SlabSide",
+    "Floor", "SlabBottom", "ExtrusionCustomizedCeilingModel", "SmartCustomizedCeiling", "Ceiling",
+    "Window", "Door", "Baseboard", "Cornice", "Hole", "Pocket", "Beam", "CustomizedFeatureWall",
+    "CustomizedCeiling", "Column", "Flue", "ExtrusionCustomizedBackgroundWall", "Customized_wainscot", "SewerPipe",
+})
+
+
+def collect_front3d_structural_mesh_arrays(base_scene: Front3DBaseScene) -> tuple[SceneMeshArrays, dict[str, Any]]:
+    """Select structural raw meshes with the original phase-1 rounding and world offset.
+
+    No furniture instance, cabinet, fixture furniture, lighting, or unclassified mesh enters
+    the returned arrays. The original bounding box/offset is intentionally not recomputed.
+    """
+    scene_data = read_json(base_scene.source_scene_json)
+    variant = str(read_json(base_scene.metadata_json).get("variant") or "normalized")
+    if variant not in {"normalized", "raw"}:
+        raise ValueError(f"Unsupported architecture variant: {variant}")
+    included: Counter[str] = Counter()
+    excluded: Counter[str] = Counter()
+    vertices_parts = []
+    faces_parts = []
+    vertex_offset = 0
+    for mesh in scene_data.get("mesh") or []:
+        mesh_type = str(mesh.get("type") or "Unknown")
+        if mesh_type not in STRUCTURAL_MESH_TYPES:
+            excluded[mesh_type] += 1
+            continue
+        vertices = np.asarray(mesh.get("xyz") or [], dtype=np.float64)
+        faces = np.asarray(mesh.get("faces") or [], dtype=np.int64)
+        if vertices.size % 3 or faces.size % 3:
+            raise ValueError(f"Malformed structural mesh {mesh.get('uid')}: incomplete vertex/triangle")
+        vertices = vertices.reshape(-1, 3)
+        faces = faces.reshape(-1, 3)
+        if not len(vertices) or not len(faces):
+            continue
+        if not np.isfinite(vertices).all() or faces.min() < 0 or faces.max() >= len(vertices):
+            raise ValueError(f"Malformed structural mesh {mesh.get('uid')}: invalid coordinates/face indices")
+        if variant == "normalized":
+            vertices = vertices[:, [0, 2, 1]] * [1, -1, 1]
+        # phase1 writes six-decimal OBJ, then the shared exporter applies the world offset
+        # and supplies float32 arrays to floorplan. Preserve that numerical convention.
+        vertices = np.round(vertices, 6) + np.asarray(base_scene.world_offset)
+        vertices_parts.append(vertices.astype(np.float32))
+        faces_parts.append((faces + vertex_offset).astype(np.int32))
+        vertex_offset += len(vertices)
+        included[mesh_type] += 1
+    if not vertices_parts:
+        raise ValueError(f"No structural geometry found for {base_scene.scene_id}")
+    arrays = SceneMeshArrays(np.concatenate(vertices_parts), np.concatenate(faces_parts), "front3d_structure_only")
+    return arrays, {
+        "policy": "front3d_structural_mesh_types.v1", "allowed_mesh_types": sorted(STRUCTURAL_MESH_TYPES),
+        "included_mesh_type_counts": dict(sorted(included.items())),
+        "excluded_mesh_type_counts": dict(sorted(excluded.items())), "furniture_instance_count": 0,
+    }
 
 
 @dataclass(frozen=True)
